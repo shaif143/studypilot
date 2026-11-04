@@ -99,11 +99,15 @@ curl https://your-api-host/healthz
 
 ## 3. Deploy the website
 
-Point the rewrite in `vercel.json` at your API host, replacing the placeholder:
+Point the website at your API. The committed `vercel.json` has no API rewrite,
+so the site deploys cleanly before a backend exists; this adds it:
 
 ```bash
-sed -i '' 's|STUDYPILOT_API_HOST|your-api-host.up.railway.app|g' vercel.json
+./scripts/set-api-host.sh your-api-host.up.railway.app
 ```
+
+Commit the change — Vercel reads `vercel.json` from the repository at deploy
+time, so it must be in the commit it builds.
 
 Then import the GitHub repository at
 [vercel.com/new](https://vercel.com/new). The settings in `vercel.json` are
