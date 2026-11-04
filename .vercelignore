@@ -1,0 +1,31 @@
+# Vercel builds only the website. Everything here is either a build artefact,
+# another target, or the Python backend — which deploys separately to a
+# container host (see docs/DEPLOYMENT.md).
+
+# The macOS application, including the ~110 MB bundled Python sidecar and the
+# Rust build directory. Uploading these breaks the 100 MB file limit.
+apps/desktop/
+
+# The backend. Deployed from services/api/Dockerfile, not from here.
+services/
+.venv/
+
+# Build output and caches
+**/dist/
+**/target/
+**/__pycache__/
+.ruff_cache/
+.pytest_cache/
+coverage/
+playwright-report/
+test-results/
+
+# Tests and fixtures are not needed to build the site.
+tests/
+fixtures/
+research/
+
+# Local only
+.env
+.env.local
+*.sqlite3*

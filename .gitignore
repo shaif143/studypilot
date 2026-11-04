@@ -39,3 +39,5 @@ apps/desktop/src-tauri/gen/schemas/
 # Local environment files
 .env
 .env.local
+.vercel
+.env*
