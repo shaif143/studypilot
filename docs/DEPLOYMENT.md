@@ -5,28 +5,43 @@ the frontend is static files on a CDN, while the API renders PDFs and builds a
 search index and wants a warm process with a disk.
 
 ```text
-            browser
-               │
-               ▼
-   ┌──────────────────────────┐
-   │  Vercel (static site)    │   apps/web built to static assets
-   │                          │
-   │  /api/*  ──rewrite──────────────┐   same-origin, so the session
-   └──────────────────────────┘      │   cookie is SameSite=Lax and
-                                     ▼   no CORS or CSRF token is needed
-                      ┌──────────────────────────────┐
-                      │  Container host (API)        │
-                      │  Railway / Render / Fly.io   │
-                      └───────┬──────────────┬───────┘
-                              │              │
-                      PostgreSQL          S3-compatible
-                      + pgvector          object storage
+                         browser
+                        │        │
+         Authorization: │        │  the page itself
+         Bearer <jwt>   │        │
+                        ▼        ▼
+   ┌───────────────────────┐  ┌──────────────────────────┐
+   │  Container host (API) │  │  Vercel (static site)    │
+   │  Render / Railway /   │  │  apps/web, built to       │
+   │  Fly.io               │  │  static assets            │
+   └──────┬─────────┬──────┘  └──────────────────────────┘
+          │         │
+   PostgreSQL     S3-compatible        Neon Auth issues the token
+   + pgvector     object storage       the browser presents above
 ```
 
-**The rewrite is the important part.** Vercel proxies `/api/*` to the backend,
-so the browser only ever talks to one origin. That is what lets the session
-cookie be `SameSite=Lax` — it is withheld from genuine cross-site requests, so
-no separate CSRF token is needed — and it means no CORS configuration at all.
+**Two origins, joined by an allowlist.** The site and the API are served from
+different hosts, so the API names the origins allowed to call it and the
+browser enforces the rest. No cookie is ever sent cross-origin — the API
+refuses credentials on every origin — so identity travels in an
+`Authorization` header and there is no CSRF surface to defend.
+
+The alternative is one origin, with Vercel rewriting `/api/*` to the API. That
+is what the built-in cookie sessions need, and `scripts/set-api-host.sh` sets
+it up. Section 3 compares the two.
+
+## Where this deployment lives
+
+| Piece | Where |
+| --- | --- |
+| Website | <https://studypilot-swart-theta.vercel.app> (Vercel) |
+| API | <https://studypilot-api-rvmt.onrender.com> (Render, free plan) |
+| Database, vector and full-text index | Neon, project `restless-rain-56302666`, branch `production` |
+| Identity | Neon Auth on the same branch |
+| Object storage | **not configured** — uploads are on the container's disk |
+
+Render appends a suffix when the service name is taken, which is where
+`-rvmt` comes from; yours will differ.
 
 ## Why not run the API on Vercel too?
 
@@ -236,7 +251,7 @@ section walks through; any container host runs the same Dockerfile.
 Then check the log, which is where a misconfiguration shows up:
 
 ```bash
-curl https://studypilot-api.onrender.com/healthz
+curl https://studypilot-api-rvmt.onrender.com/healthz
 ```
 
 **On the free plan the instance sleeps after 15 minutes of inactivity**, and
@@ -290,7 +305,7 @@ Then tell the website where the API is, as a Vercel environment variable for
 the production environment, and redeploy:
 
 ```bash
-VITE_API_BASE_URL=https://studypilot-api.onrender.com
+VITE_API_BASE_URL=https://studypilot-api-rvmt.onrender.com
 ```
 
 This works because identity travels in an `Authorization` header rather than
@@ -305,7 +320,7 @@ The alternative keeps one origin by having Vercel proxy `/api/*` to the API,
 which is what the built-in cookie sessions need:
 
 ```bash
-./scripts/set-api-host.sh studypilot-api.onrender.com
+./scripts/set-api-host.sh studypilot-api-rvmt.onrender.com
 ```
 
 Commit the change — Vercel reads `vercel.json` from the commit it builds —
@@ -414,14 +429,42 @@ Verified by the test suite unless noted:
 
 ## Verifying it worked
 
+Four checks against the API, in order of what they rule out:
+
 ```bash
-curl https://your-site/healthz
+curl https://studypilot-api-rvmt.onrender.com/healthz
 ```
 
-Then in the browser: create an account → create a course → upload
+```bash
+curl https://studypilot-api-rvmt.onrender.com/api/auth/status
+```
+
+That second one must report `"provider":"neon"`. If it says `builtin`, the
+service is running without `STUDYPILOT_AUTH_PROVIDER` and nobody holding a
+Neon token will be able to sign in.
+
+A protected route must refuse an anonymous caller:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://studypilot-api-rvmt.onrender.com/api/courses
+```
+
+And the allowlist must admit your site and nothing else. The first of these
+returns `access-control-allow-origin`; the second must not:
+
+```bash
+curl -si -X OPTIONS https://studypilot-api-rvmt.onrender.com/api/courses -H 'Origin: https://studypilot-swart-theta.vercel.app' -H 'Access-Control-Request-Method: GET' | grep -i access-control-allow-origin
+```
+
+```bash
+curl -si -X OPTIONS https://studypilot-api-rvmt.onrender.com/api/courses -H 'Origin: https://not-your-site.example' -H 'Access-Control-Request-Method: GET' | grep -i access-control-allow-origin
+```
+
+Then in the browser: sign in → create a course → upload
 `fixtures/sample-lecture-cnn.pdf` → ask *"Why is padding necessary?"* → the
 answer should cite page 4, and clicking the citation should jump there and
-highlight the passage.
+highlight the passage. The first request after a quiet spell waits for the
+free instance to wake.
 
 ### Reading the startup log
 
