@@ -1,5 +1,7 @@
 import type { Platform } from '@studypilot/shared';
 
+import { currentBearerToken, neonAuthClient, neonAuthConfigured } from './neon-auth';
+
 /**
  * The website's platform adapter.
  *
@@ -22,4 +24,9 @@ export const webPlatform: Platform = {
   async openExternal(url: string) {
     window.open(url, '_blank', 'noopener,noreferrer');
   },
+  // Only present when this build points at a Neon Auth branch; otherwise the
+  // backend's own account system handles identity and these stay undefined.
+  ...(neonAuthConfigured
+    ? { neonAuth: neonAuthClient, getBearerToken: currentBearerToken }
+    : {}),
 };

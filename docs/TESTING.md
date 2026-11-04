@@ -152,6 +152,19 @@ Recorded because they justify the tests existing.
    survived — still serving on its port with the database open. Fixed with a
    parent-process watchdog in the backend, now covered by
    `test_supervision.py`.
+9. **The Neon Auth issuer compared against the wrong value.** `iss` on a Neon
+   token is the *origin*, while `NEON_AUTH_BASE_URL` carries a path as well
+   (`.../neondb/auth`), so every genuine token was rejected with
+   `Invalid issuer`. Found against a live Neon branch; pinned by
+   `test_neon_auth.py::test_issuer_is_the_origin_not_the_base_url`.
+10. **`queryClient.clear()` froze the sign-in gate.** Clearing the cache after
+   a sign-in or sign-out removes the auth-status query itself, which leaves
+   the gate's observer holding the removed query's last value with nothing to
+   re-subscribe to. Nothing re-rendered and the follow-up `refetchQueries`
+   matched no query, so the cache emptied while the screen stayed exactly as
+   it was: a sign-out that looked like a failure, and a sign-in that never
+   arrived. `resetSessionCache()` now *resets* the auth query and removes the
+   rest. Found by driving the browser, not by a test — see the gap below.
 
 ---
 
@@ -179,6 +192,11 @@ Stated plainly rather than implied by omission.
   `npm run test:e2e` is wired, but no specs are written. The browser paths —
   upload through the real file picker, pdf.js canvas rendering, drag-to-resize,
   keyboard navigation — were verified by hand, not automatically.
+- **The Neon Auth browser flows have no automated test.** Sign-up, sign-in,
+  sign-out, session restoration after reload, per-account isolation and the
+  wrong-password error were each exercised by hand against a live Neon branch,
+  and the cache bug above was found that way. `test_neon_auth.py` covers token
+  verification only; nothing covers the React side.
 - **Object storage is tested against a simulation, not a real bucket.**
   `moto` is faithful to the S3 API but is not Cloudflare R2; endpoint and
   credential handling against an actual provider is unverified.

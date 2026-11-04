@@ -2,6 +2,8 @@
 
 interface ImportMetaEnv {
   readonly VITE_API_BASE_URL?: string;
+  /** The Neon Auth branch URL. Absent when using the built-in accounts. */
+  readonly VITE_NEON_AUTH_URL?: string;
 }
 
 interface ImportMeta {

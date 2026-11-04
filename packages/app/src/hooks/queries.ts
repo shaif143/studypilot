@@ -36,6 +36,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
   type UseQueryOptions,
 } from '@tanstack/react-query';
 
@@ -78,6 +79,27 @@ const PROGRESS_KEYS = [
   ['flashcards'],
 ] as const;
 
+/**
+ * Drop everything the previous session cached and re-read the auth status.
+ *
+ * Called after every sign-in, sign-up and sign-out, by both providers.
+ *
+ * `queryClient.clear()` cannot be used here, and using it was a real bug: it
+ * removes the auth query as well, and the gate's observer is then left holding
+ * the removed query's last value with nothing to re-subscribe to. Nothing
+ * re-renders, `refetchQueries` finds no matching query, and the cache empties
+ * while the screen stays exactly as it was — a sign-out that appeared to fail,
+ * and a sign-in that never arrived.
+ *
+ * So the auth query is *reset* (kept, re-fetched, observers notified) while
+ * everything else is removed outright — removed rather than refetched, so no
+ * request goes out for a session that may no longer exist.
+ */
+export async function resetSessionCache(queryClient: QueryClient): Promise<void> {
+  queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== keys.auth[0] });
+  await queryClient.resetQueries({ queryKey: keys.auth });
+}
+
 export function useAuthStatus() {
   const client = useClient();
   return useQuery<AuthStatus>({
@@ -95,10 +117,9 @@ export function useLogin() {
   return useMutation({
     mutationFn: ({ email, password }: { email: string; password: string }) =>
       client.login(email, password),
-    onSuccess: () => {
-      // Everything cached belonged to the previous (signed-out) state.
-      queryClient.clear();
-    },
+    // Everything cached belonged to the previous (signed-out) state, and the
+    // gate must see the new status before this resolves.
+    onSuccess: () => resetSessionCache(queryClient),
   });
 }
 
@@ -115,7 +136,7 @@ export function useRegister() {
       password: string;
       displayName?: string;
     }) => client.register(email, password, displayName ?? ''),
-    onSuccess: () => queryClient.clear(),
+    onSuccess: () => resetSessionCache(queryClient),
   });
 }
 
@@ -124,9 +145,9 @@ export function useLogout() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => client.logout(),
-    // Clear on settle, not just success: if the call fails the local cache
-    // must still be dropped rather than left showing another account's data.
-    onSettled: () => queryClient.clear(),
+    // On settle, not just success: if the call fails the local cache must
+    // still be dropped rather than left showing another account's data.
+    onSettled: () => resetSessionCache(queryClient),
   });
 }
 
@@ -551,7 +572,10 @@ export function useDeleteAllData() {
 export function describeError(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.isUnauthorised) {
-      return 'The app lost its connection to the local backend. Restart StudyPilot.';
+      // Deliberately neutral: this is reached both when a hosted session has
+      // ended and when the desktop shell's token is stale, and the previous
+      // wording ("Restart StudyPilot") was wrong on the web.
+      return 'You are not signed in, or your session has ended.';
     }
     return error.message;
   }

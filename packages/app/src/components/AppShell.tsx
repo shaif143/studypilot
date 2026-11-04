@@ -110,7 +110,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </span>
               </div>
               <p className="truncate" title={health.data?.runtime.embedding_model}>
-                {health.data?.runtime.vector_count ?? 0} indexed passages
+                {/* This account's own passages. `runtime.vector_count` counts
+                    the whole store, which on a shared deployment is both
+                    wrong for the reader and another account's business. */}
+                {dashboard.data?.indexed_chunk_count ?? 0} indexed passages
               </p>
             </div>
           )}

@@ -7,6 +7,46 @@
  * API and never sees the local token; the desktop host asks the Tauri shell
  * for the sidecar's address and token.
  */
+/**
+ * The result shape every `@neon/auth` call returns.
+ *
+ * Declared structurally rather than imported, so `packages/app` carries no
+ * dependency on `@neon/auth` and the desktop bundle never pulls in a browser
+ * auth client it cannot use.
+ */
+export interface NeonAuthResult<T = unknown> {
+  data?: T | null;
+  error?: { message?: string; code?: string; status?: number } | null;
+}
+
+export interface NeonAuthUser {
+  id: string;
+  email: string;
+  name?: string;
+  emailVerified?: boolean;
+}
+
+/** The subset of the Neon Auth client this application uses. */
+export interface NeonAuthClient {
+  signUp: {
+    email(input: {
+      email: string;
+      password: string;
+      name?: string;
+    }): Promise<NeonAuthResult<{ user?: NeonAuthUser }>>;
+  };
+  signIn: {
+    email(input: {
+      email: string;
+      password: string;
+    }): Promise<NeonAuthResult<{ user?: NeonAuthUser }>>;
+  };
+  signOut(): Promise<unknown>;
+  getSession(): Promise<NeonAuthResult<{ user?: NeonAuthUser } | null>>;
+  /** Mints a short-lived (15 minute) EdDSA JWT for the backend. */
+  token(): Promise<NeonAuthResult<{ token?: string }>>;
+}
+
 export interface Platform {
   /** 'web' | 'desktop' — used only for host-specific affordances and copy. */
   readonly kind: 'web' | 'desktop';
@@ -21,6 +61,24 @@ export interface Platform {
    * generated for the sidecar.
    */
   getApiToken(): Promise<string | null>;
+  /**
+   * A bearer token for the current request, when identity is delegated.
+   *
+   * Called per request rather than cached: Neon Auth tokens expire after 15
+   * minutes, and the auth client does its own caching and refresh behind this
+   * call. Hosts with no delegated identity simply omit it.
+   */
+  getBearerToken?(): Promise<string | null>;
+
+  /**
+   * The Neon Auth client, when this host signs users in through Neon.
+   *
+   * Supplied by the host rather than constructed in the shared application,
+   * because it is a browser-only concern: the desktop app has one local
+   * profile and nothing to sign in to.
+   */
+  readonly neonAuth?: NeonAuthClient;
+
   /** Open an external link in the user's real browser rather than in-app. */
   openExternal(url: string): Promise<void>;
   /** True when the host can store secrets in an OS keychain. */

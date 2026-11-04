@@ -14,7 +14,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
 import { AppShell } from './components/AppShell';
 import { AppProvider } from './context';
-import { useAuthStatus } from './hooks/queries';
+import { describeError, useAuthStatus } from './hooks/queries';
 import { AnalyticsScreen } from './screens/AnalyticsScreen';
 import { AssessmentScreen } from './screens/AssessmentScreen';
 import { CoursesScreen } from './screens/CoursesScreen';
@@ -102,12 +102,35 @@ function AuthGate({ children }: { children: ReactNode }) {
     );
   }
 
-  // A failure here means the backend is unreachable, not that the user is
-  // signed out. Render the app so its own error states can explain that.
-  if (status.isError) return <>{children}</>;
+  // An unreachable backend is not the same as being signed out. Falling
+  // through to the app here showed the whole interface to a signed-out
+  // visitor whenever a request happened to fail — every panel then 401s, which
+  // looks broken rather than locked.
+  if (status.isError) {
+    return (
+      <div className="flex h-full items-center justify-center p-8">
+        <div className="max-w-sm text-center">
+          <h1 className="text-base font-semibold text-[var(--text-primary)]">
+            Cannot reach StudyPilot
+          </h1>
+          <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-[var(--text-secondary)]">
+            {describeError(status.error)}
+          </p>
+          <Button className="mt-3" onClick={() => void status.refetch()}>
+            Try again
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   if (status.data?.requires_authentication && !status.data.authenticated) {
-    return <SignInScreen registrationOpen={status.data.registration_open} />;
+    return (
+      <SignInScreen
+        registrationOpen={status.data.registration_open}
+        provider={status.data.provider}
+      />
+    );
   }
 
   return <>{children}</>;

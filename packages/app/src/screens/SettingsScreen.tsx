@@ -36,6 +36,7 @@ import { useState } from 'react';
 
 import { ErrorPanel, PageBody, PageHeader } from '../components/AppShell';
 import { useApp } from '../context';
+import { useNeonSignOut } from '../hooks/useNeonAuth';
 import {
   describeError,
   useAuthStatus,
@@ -55,7 +56,10 @@ export function SettingsScreen() {
   const update = useUpdateSettings();
   const deleteAll = useDeleteAllData();
   const auth = useAuthStatus();
-  const logout = useLogout();
+  const builtinLogout = useLogout();
+  const neonLogout = useNeonSignOut();
+  // Sign-out has to go through whichever provider holds the session.
+  const logout = auth.data?.provider === 'neon' ? neonLogout : builtinLogout;
 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -105,7 +109,11 @@ export function SettingsScreen() {
               <Card>
                 <SectionHeading
                   title="Account"
-                  description="Your material is private to this account."
+                  description={
+                    auth.data.provider === 'neon'
+                      ? 'Signed in through Neon Auth. Your material is private to this account.'
+                      : 'Your material is private to this account.'
+                  }
                   action={
                     <Button
                       size="sm"

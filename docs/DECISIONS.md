@@ -244,7 +244,36 @@ effect bodies no longer call setState synchronously.
 
 ---
 
-## 16. Deferred deliberately
+## 16. Neon Auth sits beside the built-in accounts, not on top of them
+
+**Decision.** `STUDYPILOT_AUTH_PROVIDER` selects one of two identity
+providers at runtime. The built-in Argon2id accounts stay; Neon Auth is the
+other option, used by the hosted deployment.
+
+**Why.** Replacing the built-in provider would have broken the desktop
+application, which has no browser to run a JavaScript auth client in and must
+work offline against a local profile. Neon's own guidance is also to keep a
+working identity provider unless migration is asked for, and this one is
+tested and in use.
+
+**What it costs.** Two code paths through sign-in, and a `provider` field on
+`/api/auth/status` so the browser knows which one it is talking to. The
+sign-in form itself is shared: only the mutation behind it changes.
+
+**What it buys.** The backend never handles a Neon password — it verifies an
+EdDSA token against the published JWKS and nothing more. Account rows are
+keyed `neon:<sub>` on the immutable subject, so a user changing their email
+does not orphan their material, and a Neon subject can never collide with a
+built-in account's email handle.
+
+**Boundary.** `@neon/auth` is imported in exactly one file,
+`apps/web/src/neon-auth.ts`, behind a dynamic `import()`. `packages/app`
+depends on a structural interface in `packages/shared`, so the shared
+application — and therefore the desktop build — carries no dependency on it.
+
+---
+
+## 17. Deferred deliberately
 
 | Deferred | Reason |
 | --- | --- |

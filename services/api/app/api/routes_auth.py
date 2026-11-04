@@ -31,6 +31,22 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+def _require_builtin_provider(context) -> None:
+    """Refuse password routes when Neon Auth owns identity.
+
+    Answering them would create a local account with a local password that
+    nothing ever checks — an account that looks real and can never sign in.
+    """
+    if context.settings.uses_neon_auth:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This deployment signs in through Neon Auth. "
+                "Use the Neon sign-in flow rather than a password here."
+            ),
+        )
+
+
 class RegisterRequest(BaseModel):
     email: str = Field(max_length=320)
     password: str = Field(max_length=256)
@@ -53,6 +69,8 @@ class AuthStatusOut(BaseModel):
     #: False in desktop mode, where there is nothing to sign in to.
     requires_authentication: bool
     registration_open: bool
+    #: "builtin" | "neon" — which sign-in flow the frontend should present.
+    provider: str = "builtin"
     account: AccountOut | None = None
 
 
@@ -83,7 +101,9 @@ def status_(context: ContextDep, user: User | None = current_user_optional()) ->
     return AuthStatusOut(
         authenticated=user is not None,
         requires_authentication=context.settings.is_hosted,
-        registration_open=context.settings.allow_registration,
+        # Neon owns registration when identity is delegated to it.
+        registration_open=(context.settings.allow_registration or context.settings.uses_neon_auth),
+        provider=context.settings.auth_provider,
         account=(
             AccountOut(id=user.id, email=user.email or "", display_name=user.display_name)
             if user
@@ -101,6 +121,7 @@ def register(
     session: SessionDep,
     users: UsersDep,
 ) -> AccountOut:
+    _require_builtin_provider(context)
     if not context.settings.allow_registration:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -150,10 +171,12 @@ def login(
     context: ContextDep,
     session: SessionDep,
 ) -> AccountOut:
+    _require_builtin_provider(context)
     passwords = PasswordService(context.settings)
     email = payload.email.strip().lower()
     user = session.scalar(select(User).where(User.email == email))
 
+    _require_builtin_provider(context)
     if user is None or not user.password_hash:
         # Spend comparable time so a missing address is not distinguishable
         # from a wrong password by response latency.

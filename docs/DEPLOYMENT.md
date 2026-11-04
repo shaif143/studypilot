@@ -100,6 +100,46 @@ JavaScript auth client in and keeps its local profile.
 Neon Auth tokens last 15 minutes, so a browser client must refresh them —
 `@neon/auth` does this itself.
 
+### The browser side of Neon Auth
+
+Neon Auth is a TypeScript service, so the sign-in itself happens in the
+browser; the Python backend only verifies the token that comes back. The
+wiring is deliberately confined to the web host:
+
+| File | Role |
+| --- | --- |
+| `apps/web/src/neon-auth.ts` | The only module that imports `@neon/auth`. It is loaded by dynamic `import()` so the client is a separate chunk and the desktop bundle never pulls it in. |
+| `packages/shared/src/platform.ts` | Declares `neonAuth` and `getBearerToken()` structurally, so `packages/app` depends on the *shape* of the client and not on the package. |
+| `packages/api-client/src/client.ts` | Calls `getBearerToken()` on **every** request. Tokens expire after 15 minutes, so caching one would start failing silently a quarter of an hour in. |
+| `packages/app/src/hooks/useNeonAuth.ts` | Sign-in, sign-up and sign-out mutations. |
+
+`SignInScreen` renders the same form for both providers and switches only the
+mutation behind it, driven by `provider` in `GET /api/auth/status`.
+
+The browser needs `VITE_NEON_AUTH_URL` at build time. `neon env pull` writes
+it to the repository root, which is why `vite.base.ts` sets `envDir` to the
+root — Vite otherwise looks only inside `apps/web/` and finds nothing, with no
+warning.
+
+#### Trusted domains
+
+Neon Auth will only redirect to origins on its allowlist. Localhost ports are
+pre-approved, so development works untouched, but **every deployed origin must
+be registered before anyone signs in there** — otherwise sign-in fails with
+`invalid domain`. Register the production alias and any preview origin you
+hand to real users:
+
+```bash
+neon neon-auth domain add https://studypilot-swart-theta.vercel.app
+```
+
+```bash
+neon neon-auth domain list
+```
+
+Note that Vercel also serves each deployment on a unique immutable URL; those
+are not aliases and are not covered by registering the alias.
+
 ### Testing against Neon
 
 Never point the integration tests at a branch holding real data: they tear

@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@neon/auth": "^0.8.2",
     "@studypilot/app": "*",
     "react": "19.3.1",
     "react-dom": "19.3.1"

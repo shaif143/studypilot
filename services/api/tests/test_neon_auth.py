@@ -102,9 +102,7 @@ def test_verifier_derives_the_issuer_from_either_url():
     assert from_base.issuer == ISSUER
 
     # The JWKS URL alone is enough; the base URL is not always supplied.
-    from_jwks = NeonAuthVerifier(
-        Settings(auth_provider="neon", neon_auth_jwks_url=JWKS_URL)
-    )
+    from_jwks = NeonAuthVerifier(Settings(auth_provider="neon", neon_auth_jwks_url=JWKS_URL))
     assert from_jwks.issuer == ISSUER
 
 
@@ -119,9 +117,7 @@ def test_a_genuine_token_is_accepted(verifier, signing_key):
 
 
 def test_email_is_normalised_and_a_name_is_derived(verifier, signing_key):
-    identity = verifier.verify(
-        make_token(signing_key, email="Student@Example.COM", name=None)
-    )
+    identity = verifier.verify(make_token(signing_key, email="Student@Example.COM", name=None))
     assert identity.email == "student@example.com"
     assert identity.display_name == "student"
 
@@ -141,9 +137,7 @@ def test_an_expired_token_is_rejected(verifier, signing_key):
 def test_a_token_from_another_issuer_is_rejected(verifier, signing_key):
     """A token from a different Neon branch must not authenticate here."""
     with pytest.raises(NeonAuthError, match="not valid"):
-        verifier.verify(
-            make_token(signing_key, issuer="https://other.neonauth.aws.neon.tech")
-        )
+        verifier.verify(make_token(signing_key, issuer="https://other.neonauth.aws.neon.tech"))
 
 
 def test_a_token_for_another_audience_is_rejected(verifier, signing_key):

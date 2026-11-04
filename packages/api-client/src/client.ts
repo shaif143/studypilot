@@ -49,7 +49,7 @@ interface RequestOptions {
 export class StudyPilotClient {
   #tokenPromise: Promise<string | null> | null = null;
 
-  constructor(private readonly platform: Platform) {}
+  constructor(readonly platform: Platform) {}
 
   get baseUrl(): string {
     return this.platform.apiBaseUrl;
@@ -86,6 +86,20 @@ export class StudyPilotClient {
     const headers: Record<string, string> = {};
     const token = await this.#token();
     if (token) headers['x-studypilot-token'] = token;
+
+    // A delegated identity (Neon Auth) supplies a short-lived bearer token.
+    // Resolved per request, never cached here: these expire in 15 minutes and
+    // the auth client refreshes them behind this call.
+    if (this.platform.getBearerToken) {
+      try {
+        const bearer = await this.platform.getBearerToken();
+        if (bearer) headers.authorization = `Bearer ${bearer}`;
+      } catch {
+        // No token means not signed in; the backend answers 401 and the app
+        // shows its sign-in screen, which is the right outcome either way.
+      }
+    }
+
     if (body !== undefined && !form) headers['content-type'] = 'application/json';
 
     let response: Response;
@@ -161,6 +175,7 @@ export class StudyPilotClient {
           authenticated: true,
           requires_authentication: false,
           registration_open: false,
+          provider: 'builtin',
           account: null,
         };
       }

@@ -96,6 +96,10 @@ export function baseConfig({
   strictPort = false,
 }: BaseConfigOptions): UserConfig {
   return {
+    // `neon env pull` and `vercel env pull` both write to the repository root,
+    // so that is where VITE_* variables live. Vite otherwise looks only in the
+    // host app's own directory and would silently find nothing.
+    envDir: ROOT,
     plugins: [react(), tailwindcss(), backendHintPlugin()],
     resolve: {
       alias: {

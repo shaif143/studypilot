@@ -447,11 +447,15 @@ export interface Account {
   display_name: string;
 }
 
+export type AuthProvider = 'builtin' | 'neon';
+
 export interface AuthStatus {
   authenticated: boolean;
   /** False on the desktop, where there is nothing to sign in to. */
   requires_authentication: boolean;
   registration_open: boolean;
+  /** Which sign-in flow the frontend should present. */
+  provider: AuthProvider;
   account: Account | null;
 }
 
