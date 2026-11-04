@@ -189,14 +189,42 @@ Then in the browser: create an account → create a course → upload
 answer should cite page 4, and clicking the citation should jump there and
 highlight the passage.
 
-If the answer says it cannot find anything, retrieval is not reaching the
-index — check the startup logs for the vector and sparse backends:
+### Reading the startup log
+
+The service checks its own configuration at boot and refuses to start in
+hosted mode if the object store is unreachable, so a wrong bucket or a
+read-only token shows up in the deploy log rather than on a student's first
+upload. A healthy start looks like this:
 
 ```json
 {"message": "runtime_ready", "vector_backend": "pgvector",
  "sparse_backend": "postgres-tsvector", "storage_backend": "s3",
  "database": "postgresql", "mode": "hosted"}
 ```
+
+If any value is wrong, that is the problem:
+
+| You see | What it means |
+| --- | --- |
+| `"database": "sqlite"` | `STUDYPILOT_DATABASE_URL` is not reaching the service. Everything will work until the next redeploy wipes it. |
+| `"storage_backend": "local"` | `STUDYPILOT_STORAGE_BACKEND=s3` is not set. Uploads vanish on restart. |
+| `"vector_backend": "numpy"` | The vector index is in memory only; search degrades after a restart. |
+| `Cannot reach bucket '…'` | Wrong bucket name or endpoint, or the credentials cannot see it. |
+| `reachable but not writable` | The R2 token is read-only. It needs Object Read **and** Write. |
+| `durability_risk` | Something is still on the container's disk. Named in the message. |
+
+### A note on Cloudflare R2 and boto3
+
+boto3 1.36 began sending an `x-amz-checksum-crc32` header on every upload,
+which R2 answers with `501 NotImplemented` — and the resulting error says
+nothing about checksums. The client is configured with
+`request_checksum_calculation="when_required"`, which restores the behaviour
+AWS S3 itself had before 1.36, so uploads work against R2, B2 and MinIO at no
+cost against real S3. Nothing to configure; it is noted here because the
+symptom is otherwise baffling.
+
+If the answer says it cannot find anything, retrieval is not reaching the
+index — check the startup log for the vector and sparse backends:
 
 ## Running the hosted stack locally
 

@@ -27,6 +27,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -87,6 +88,15 @@ class BlobStore(ABC):
     @abstractmethod
     def clear(self) -> None:
         """Remove everything. Used by the delete-all-my-data control."""
+
+    def check_reachable(self) -> None:
+        """Raise if the store is not usable with the current configuration.
+
+        Called at startup so a wrong bucket name, a bad endpoint or expired
+        credentials surface in the deploy log — not silently, on the first
+        upload a student attempts.
+        """
+        return None
 
 
 class LocalBlobStore(BlobStore):
@@ -176,6 +186,16 @@ class LocalBlobStore(BlobStore):
                 shutil.rmtree(root)
             root.mkdir(parents=True, exist_ok=True)
 
+    def check_reachable(self) -> None:
+        for root in (self.root, self.asset_root):
+            root.mkdir(parents=True, exist_ok=True)
+            probe = root / ".studypilot-write-probe"
+            try:
+                probe.write_bytes(b"ok")
+                probe.unlink()
+            except OSError as exc:
+                raise RuntimeError(f"{root} is not writable: {exc}") from exc
+
 
 class S3BlobStore(BlobStore):
     """Any S3-compatible object store.
@@ -198,15 +218,32 @@ class S3BlobStore(BlobStore):
     ) -> None:
         try:
             import boto3
+            from botocore.config import Config
         except ImportError as exc:  # pragma: no cover - optional extra
             raise RuntimeError("S3 storage needs boto3. Install the 'hosted' extra.") from exc
 
         self.bucket = bucket
+        self.endpoint_url = endpoint_url or ""
         self.prefix = prefix.strip("/") + "/" if prefix.strip("/") else ""
+
+        # boto3 1.36 began sending `x-amz-checksum-crc32` on every upload by
+        # default. Cloudflare R2 answers that header with 501 NotImplemented,
+        # and several other S3-compatible providers reject it too, so an
+        # upload fails with a message that says nothing about checksums.
+        # `when_required` restores the pre-1.36 behaviour; it is also what AWS
+        # S3 itself did until then, so this costs nothing against real S3.
+        options: dict[str, Any] = {
+            "retries": {"max_attempts": 3, "mode": "standard"},
+        }
+        for option in ("request_checksum_calculation", "response_checksum_validation"):
+            # Guard on support so an older botocore does not fail to construct.
+            if option in Config.OPTION_DEFAULTS:
+                options[option] = "when_required"
         self._client = boto3.client(
             "s3",
             endpoint_url=endpoint_url or None,
             region_name=region or None,
+            config=Config(**options),
         )
 
     @property
@@ -288,6 +325,32 @@ class S3BlobStore(BlobStore):
     def clear(self) -> None:
         self._delete_keys(f"{self.prefix}{self.DOCUMENT_PREFIX}")
         self._delete_keys(f"{self.prefix}{self.ASSET_PREFIX}")
+
+    def check_reachable(self) -> None:
+        """Confirm the bucket exists and the credentials can read and write it.
+
+        A read-only probe would pass with credentials that cannot upload, so
+        this writes and deletes a small object — the same operations an
+        upload performs.
+        """
+        probe_key = f"{self.prefix}.studypilot-write-probe"
+        try:
+            self._client.head_bucket(Bucket=self.bucket)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Cannot reach bucket '{self.bucket}'"
+                + (f" at {self.endpoint_url}" if self.endpoint_url else "")
+                + f": {exc}. Check STUDYPILOT_S3_BUCKET, "
+                "STUDYPILOT_S3_ENDPOINT_URL and the AWS_* credentials."
+            ) from exc
+        try:
+            self._client.put_object(Bucket=self.bucket, Key=probe_key, Body=b"ok")
+            self._client.delete_object(Bucket=self.bucket, Key=probe_key)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Bucket '{self.bucket}' is reachable but not writable: {exc}. "
+                "The API token needs object read *and* write permission."
+            ) from exc
 
 
 def build_blob_store(settings) -> BlobStore:

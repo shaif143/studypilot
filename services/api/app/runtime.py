@@ -61,10 +61,20 @@ class RuntimeContext:
         )
         vector_store.ensure_collection(embedder.dimensions)
 
+        blobs = build_blob_store(settings)
+        # Fail at boot, in the deploy log, rather than on a student's first
+        # upload. A misconfigured bucket is otherwise invisible until then.
+        try:
+            blobs.check_reachable()
+        except RuntimeError as exc:
+            if settings.is_hosted:
+                raise
+            log.warning("storage_unreachable", extra={"detail": str(exc)})
+
         context = cls(
             settings=settings,
             database=database,
-            blobs=build_blob_store(settings),
+            blobs=blobs,
             vector_store=vector_store,
             sparse_index=build_sparse_index(database),
             embedder=embedder,
