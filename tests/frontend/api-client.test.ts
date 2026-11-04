@@ -191,4 +191,70 @@ describe('StudyPilotClient', () => {
     expect(error).toBeInstanceOf(ApiError);
     expect(error.message).toContain('502');
   });
+
+  // --- the sign-in gate reads this, so a wrong answer here opens the app ---
+
+  it('treats a missing auth route on the desktop as "no accounts here"', async () => {
+    // The desktop backend does not mount the account routes at all, so a 404
+    // really does mean the local profile is the only user.
+    fetchMock.mockResolvedValue(jsonResponse({ detail: 'Not Found' }, 404));
+    const client = new StudyPilotClient(platform({ kind: 'desktop' }));
+
+    const status = await client.authStatus();
+
+    expect(status.requires_authentication).toBe(false);
+    expect(status.authenticated).toBe(true);
+  });
+
+  it('fails closed when the auth route is missing on the web', async () => {
+    // On a website a 404 means the API is missing or misrouted. Answering
+    // "nobody needs to sign in" would hand the whole interface to a visitor,
+    // which is what happened on the first deployment with no API behind it.
+    fetchMock.mockResolvedValue(jsonResponse({ detail: 'Not Found' }, 404));
+    const client = new StudyPilotClient(platform({ kind: 'web', apiBaseUrl: '' }));
+
+    const error = (await client.authStatus().catch((cause: unknown) => cause)) as ApiError;
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error.status).toBe(404);
+  });
+
+  it('attaches a fresh bearer token to every request', async () => {
+    // Neon Auth tokens expire after 15 minutes, so caching one would start
+    // failing silently a quarter of an hour in.
+    const getBearerToken = vi.fn(async () => 'neon-jwt');
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse([])));
+    const client = new StudyPilotClient(
+      platform({ kind: 'web', apiBaseUrl: '', getApiToken: async () => null, getBearerToken }),
+    );
+
+    await client.courses();
+    await client.documents();
+
+    expect(getBearerToken).toHaveBeenCalledTimes(2);
+    for (const call of fetchMock.mock.calls) {
+      expect((call[1].headers as Record<string, string>).authorization).toBe('Bearer neon-jwt');
+    }
+  });
+
+  it('sends no authorization header when the bearer cannot be obtained', async () => {
+    // Nobody is signed in, or Neon is unreachable. The backend answers 401
+    // and the gate shows its sign-in screen, which is the right outcome.
+    fetchMock.mockResolvedValue(jsonResponse([]));
+    const client = new StudyPilotClient(
+      platform({
+        kind: 'web',
+        apiBaseUrl: '',
+        getApiToken: async () => null,
+        getBearerToken: async () => {
+          throw new Error('not signed in');
+        },
+      }),
+    );
+
+    await client.courses();
+
+    const init = fetchMock.mock.calls[0]![1];
+    expect((init.headers as Record<string, string>).authorization).toBeUndefined();
+  });
 });

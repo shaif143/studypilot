@@ -89,7 +89,7 @@ simulate quitting and relaunching.
 
 | File | Covers |
 | --- | --- |
-| `api-client.test.ts` | Token attachment and single resolution, no token in the web host, cache reset after 401, query serialisation, consent and validation error translation, network vs abort distinction, 204 handling, multipart upload shape |
+| `api-client.test.ts` | Token attachment and single resolution, no token in the web host, cache reset after 401, query serialisation, consent and validation error translation, network vs abort distinction, 204 handling, multipart upload shape. Also the sign-in gate's inputs: a missing auth route is "no accounts here" on the desktop and an error on the web, and a Neon bearer is re-fetched for every request rather than cached |
 | `grounded-answer.test.tsx` | A resolved `[n]` renders as a clickable citation; an **unresolved one renders as plain text, not a dead link**; multiple markers; markdown links keep `noopener`; KaTeX renders; a marker inside a code block is left alone |
 | `formatting.test.ts` | Byte, duration and relative-time formatting including unparseable input; provenance, mastery and action labels |
 | `api-contract.test.ts` | Drives the real client against a stub transport and asserts **every URL it produces exists in the backend's committed OpenAPI document** — so a renamed route fails here rather than at runtime |
@@ -165,6 +165,15 @@ Recorded because they justify the tests existing.
    it was: a sign-out that looked like a failure, and a sign-in that never
    arrived. `resetSessionCache()` now *resets* the auth query and removes the
    rest. Found by driving the browser, not by a test — see the gap below.
+11. **A missing auth route failed open on the web.** The API client answered a
+   404 on `/api/auth/status` with "this backend has no accounts", which is
+   true of the desktop sidecar — it does not mount those routes — and exactly
+   backwards for a website, where a 404 means the API is missing or
+   misrouted. The first Vercel deployment, with no API behind it at all,
+   therefore served the entire interface as an authenticated session. The
+   shortcut is now restricted to the desktop host and hosted deployments fail
+   closed. Found by opening the deployed site, not by a test; now pinned by
+   two cases in `tests/frontend/api-client.test.ts`.
 
 ---
 

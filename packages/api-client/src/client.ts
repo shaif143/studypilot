@@ -166,11 +166,27 @@ export class StudyPilotClient {
    * The desktop backend does not mount these routes at all, so a 404 is the
    * correct, expected answer there and means "no accounts, carry on".
    */
+  /**
+   * Whether this deployment needs a sign-in, and who handles it.
+   *
+   * The desktop backend does not mount the account routes at all, so a 404
+   * there genuinely means "this installation has no accounts" and the local
+   * profile is the only user. That shortcut is restricted to the desktop
+   * host on purpose: on a website a 404 means the API is missing or
+   * misrouted, and answering "nobody needs to sign in" would open the whole
+   * interface as though it were an authenticated session. A hosted
+   * deployment fails closed — the error reaches the gate, which says the
+   * backend is unreachable.
+   */
   authStatus = async (): Promise<AuthStatus> => {
     try {
       return await this.request<AuthStatus>('/api/auth/status');
     } catch (error) {
-      if (error instanceof ApiError && error.isNotFound) {
+      if (
+        this.platform.kind === 'desktop' &&
+        error instanceof ApiError &&
+        error.isNotFound
+      ) {
         return {
           authenticated: true,
           requires_authentication: false,
