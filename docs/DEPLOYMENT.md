@@ -244,6 +244,23 @@ the next request waits roughly 30–60 seconds for it to wake. That is the
 trade-off you chose; nothing is lost, but the first page load after a quiet
 spell is slow.
 
+### Does it fit in 512 MB?
+
+Yes, measured rather than assumed — the free instance has 512 MB and
+ingestion is the memory-hungry part, so this was checked by running the image
+under `--memory=512m --cpus=0.5`:
+
+| | Peak memory | Time |
+| --- | --- | --- |
+| Idle, after startup | 269 MB (53%) | — |
+| 21.5 MB upload, 36 pages, 48 chunks | 352 MB (69%) | 6.6 s |
+| 0.1 MB upload, 162 pages, 216 chunks | 349 MB (68%) | 9.3 s |
+
+Nothing was killed and the container stayed healthy, so the 25 MB upload cap
+in `render.yaml` is one the free instance can actually honour — with about
+160 MB to spare. Raise `STUDYPILOT_MAX_UPLOAD_BYTES` only alongside the
+instance size; the headroom above is what pays for a larger file.
+
 ### Any other container host
 
 Point it at `services/api/Dockerfile` with the repository root as the build
