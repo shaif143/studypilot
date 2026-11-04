@@ -170,9 +170,20 @@ person's course material.
 | Container host | [Render](https://render.com), [Railway](https://railway.app), or [Fly.io](https://fly.io) | Runs `services/api/Dockerfile` |
 
 Neon provides both the database and S3-compatible object storage from one
-project, so this is two sign-ups rather than three. Its storage is available
-in `aws-us-east-1`, `aws-us-east-2`, `aws-eu-central-1` and
-`aws-ap-southeast-1` — create the project in one of those.
+project, so this can be two sign-ups rather than three — but only in the
+regions where its storage exists: `aws-us-east-1`, `aws-us-east-2`,
+`aws-eu-central-1` and `aws-ap-southeast-1`. Create the project in one of
+those if you want both from Neon. A project in, say, `aws-eu-west-2` answers
+`platform branchable-storage is not available in this region`, and then
+object storage has to come from somewhere else.
+
+Object storage is the one piece you can defer. With
+`STUDYPILOT_STORAGE_BACKEND=local` the service runs and says so at boot, but
+uploaded PDFs live on the container's own disk: the rows survive in
+PostgreSQL and the files do not, so after a redeploy — or, on a free
+instance, after it sleeps — the library still lists documents the reader can
+no longer open. It is a reasonable way to try the thing out and not a way to
+keep anything.
 
 pgvector is why there is no separate search service: the vector index lives
 inside the same database as everything else.
@@ -193,64 +204,132 @@ CREATE EXTENSION IF NOT EXISTS vector;                   -- elsewhere
 
 ## 2. Deploy the API
 
-Point your host at this repository with `services/api/Dockerfile`. On Railway:
+The API is a container. `render.yaml` is a Render Blueprint that provisions it
+with the right build, health check and environment, and it is the path this
+section walks through; any container host runs the same Dockerfile.
+
+### On Render, from the blueprint
+
+1. Push this repository to GitHub, if you have not already.
+2. In Render, choose **New → Blueprint** and pick the repository. Render reads
+   `render.yaml` and shows one service, `studypilot-api`.
+3. Render then prompts for the six values the blueprint deliberately does not
+   hard-code. Five of them come straight out of `neon env pull`:
+
+   | Prompt | Where it comes from |
+   | --- | --- |
+   | `STUDYPILOT_DATABASE_URL` | `DATABASE_URL` — the pooled connection |
+   | `STUDYPILOT_DATABASE_URL_DIRECT` | `DATABASE_URL_UNPOOLED` — **not optional**, see below |
+   | `NEON_AUTH_BASE_URL` | the same name in the pulled env |
+   | `NEON_AUTH_JWKS_URL` | the same name in the pulled env |
+   | `STUDYPILOT_CORS_ORIGINS` | your website's origin(s), comma-separated |
+
+   The direct URL is required because Neon's pooled connection is PgBouncer in
+   transaction mode: `CREATE EXTENSION` and index builds hold session state a
+   transaction pooler does not carry, so schema work runs on the direct
+   connection instead. Leave it blank and the first boot fails while creating
+   the vector index.
+
+4. Deploy. The first build takes a few minutes; afterwards Render redeploys on
+   every push to the default branch.
+
+Then check the log, which is where a misconfiguration shows up:
+
+```bash
+curl https://studypilot-api.onrender.com/healthz
+```
+
+**On the free plan the instance sleeps after 15 minutes of inactivity**, and
+the next request waits roughly 30–60 seconds for it to wake. That is the
+trade-off you chose; nothing is lost, but the first page load after a quiet
+spell is slow.
+
+### Any other container host
+
+Point it at `services/api/Dockerfile` with the repository root as the build
+context, and set the same variables. `.env.example` is the annotated
+reference. On Railway:
 
 ```bash
 railway up --dockerfile services/api/Dockerfile
 ```
 
-Set these environment variables — `.env.example` is the annotated reference:
+## 3. Connect the website to the API
+
+The website is on Vercel and the API is on Render, which are different
+origins. There are two ways to join them, and they are not equivalent.
+
+### Cross-origin, with an explicit allowlist (what this deployment uses)
+
+The browser calls the API directly. `STUDYPILOT_CORS_ORIGINS` names the
+origins that are allowed to do so — comma-separated, scheme included, no
+trailing slash, and a wildcard is refused:
 
 ```bash
-STUDYPILOT_DEPLOYMENT_MODE=hosted
-STUDYPILOT_JWT_SECRET=<openssl rand -base64 48>
-STUDYPILOT_DATABASE_URL=<your postgres DSN>
-STUDYPILOT_VECTOR_STORE=pgvector
-STUDYPILOT_STORAGE_BACKEND=s3
-STUDYPILOT_S3_BUCKET=<bucket>
-
-# Neon prints these four with `neon env pull`; paste them as-is. The code
-# reads the AWS-standard names, so nothing needs renaming.
-AWS_ENDPOINT_URL_S3=<bucket endpoint>
-AWS_REGION=<e.g. us-east-2, or "auto" for R2>
-AWS_ACCESS_KEY_ID=<key>
-AWS_SECRET_ACCESS_KEY=<secret>
+STUDYPILOT_CORS_ORIGINS=https://studypilot-swart-theta.vercel.app,https://studypilot-shaifs-projects.vercel.app
 ```
 
-**The signing secret must be identical across every instance and must not
-change** — rotating it signs everyone out.
-
-The app refuses to start in hosted mode without a secret, and logs a specific
-warning for each piece of state still on local disk. Check the startup logs: if
-you see `durability_risk`, something will be lost on redeploy.
-
-Verify:
+Then tell the website where the API is, as a Vercel environment variable for
+the production environment, and redeploy:
 
 ```bash
-curl https://your-api-host/healthz
+VITE_API_BASE_URL=https://studypilot-api.onrender.com
 ```
 
-## 3. Deploy the website
+This works because identity travels in an `Authorization` header rather than
+a cookie. The API never allows credentials on any origin, so no cookie is
+ever sent cross-origin and there is no CSRF surface to defend — which is also
+why **this arrangement requires Neon Auth**; the built-in cookie sessions
+cannot work across origins. The service says so at boot if you configure both.
 
-Point the website at your API. The committed `vercel.json` has no API rewrite,
-so the site deploys cleanly before a backend exists; this adds it:
+### Same-origin, through a Vercel rewrite
+
+The alternative keeps one origin by having Vercel proxy `/api/*` to the API,
+which is what the built-in cookie sessions need:
 
 ```bash
-./scripts/set-api-host.sh your-api-host.up.railway.app
+./scripts/set-api-host.sh studypilot-api.onrender.com
 ```
 
-Commit the change — Vercel reads `vercel.json` from the repository at deploy
-time, so it must be in the commit it builds.
+Commit the change — Vercel reads `vercel.json` from the commit it builds —
+and leave `VITE_API_BASE_URL` and `STUDYPILOT_CORS_ORIGINS` unset.
 
-Then import the GitHub repository at
-[vercel.com/new](https://vercel.com/new). The settings in `vercel.json` are
-picked up automatically; no framework preset is needed.
+The catch is uploads. Every byte of a PDF then travels through Vercel's proxy,
+and Vercel documents a 4.5 MB request body limit for its Functions; whether an
+external rewrite shares that limit is not documented either way. This
+application accepts uploads up to 25 MB, so the cross-origin arrangement above
+was chosen instead, where the file goes straight to the API and the question
+does not arise.
 
-Or from the command line:
+### Deploying the site
+
+Import the GitHub repository at [vercel.com/new](https://vercel.com/new). The
+settings in `vercel.json` are picked up automatically; no framework preset is
+needed. Or from the command line:
 
 ```bash
 npx vercel --prod
 ```
+
+The browser build needs two variables, set in the Vercel project (Settings →
+Environment Variables, Production) **before** the build that should pick them
+up — Vite inlines them at build time, so changing one requires a redeploy:
+
+| Variable | Value |
+| --- | --- |
+| `VITE_NEON_AUTH_URL` | the Auth URL from `neon env pull` |
+| `VITE_API_BASE_URL` | your Render URL, for the cross-origin arrangement |
+
+Finally, register the site's origins with Neon Auth, or sign-in fails with
+`invalid domain`:
+
+```bash
+neon neon-auth domain add https://studypilot-swart-theta.vercel.app
+```
+
+Localhost is pre-approved for development — but by hostname. `http://localhost:5174`
+is accepted and `http://127.0.0.1:5174` is not, which is worth knowing before
+you spend an afternoon on it.
 
 ## 4. Create your account and close registration
 
@@ -307,6 +386,11 @@ Verified by the test suite unless noted:
 - [x] Accounts cannot see each other's courses, documents, pages or retrieval
 - [x] Uploads validated by magic bytes and size before anything is stored
 - [x] Document text is treated as untrusted; the agent graph exposes no tools
+- [x] A hosted deployment grants no cross-origin access unless its environment
+      names the origins; the development defaults never apply
+- [x] `*` is refused as an allowed origin rather than quietly ignored
+- [x] Credentials are never allowed on a cross-origin response, so no cookie
+      is ever sent to another origin
 - [ ] **Close registration** once your account exists — your step
 - [ ] **Set a bucket lifecycle/backup policy** — your step
 - [ ] **Turn on database backups** — your step, and your provider's feature
@@ -344,7 +428,7 @@ If any value is wrong, that is the problem:
 | `"vector_backend": "numpy"` | The vector index is in memory only; search degrades after a restart. |
 | `Cannot reach bucket '…'` | Wrong bucket name or endpoint, or the credentials cannot see it. |
 | `reachable but not writable` | The R2 token is read-only. It needs Object Read **and** Write. |
-| `durability_risk` | Something is still on the container's disk. Named in the message. |
+| `configuration_risk` | Something is still on the container's disk, or the identity provider cannot work with the origins configured. Named in the message. |
 
 ### A note on Cloudflare R2 and boto3
 
@@ -374,3 +458,47 @@ STUDYPILOT_TEST_DATABASE_URL=postgresql://postgres:studypilot@127.0.0.1:55432/st
 That runs 11 integration tests against real PostgreSQL covering `tsvector`
 search, pgvector similarity, the full upload-to-quiz workflow, and isolation
 between accounts. They skip cleanly when the variable is unset.
+
+### Running the real image before you deploy
+
+The integration tests above run the code. They do not run the *artefact*, and
+the two worst deployment bugs this project has had lived only in the artefact:
+a dependency that was present in the development environment but never
+declared for the image, and a client that failed open when the API was
+missing. Both passed every test and both were obvious within a minute of
+doing this:
+
+```bash
+docker build -f services/api/Dockerfile -t studypilot-api:check .
+```
+
+Write the environment Render will have into a file — the same variables the
+blueprint prompts for — and run it on a spare port:
+
+```bash
+docker run --rm --env-file ./render.env -p 10000:10000 studypilot-api:check
+```
+
+Then read the startup log, and check the four things that cannot be tested
+any other way:
+
+```bash
+curl -s http://127.0.0.1:10000/api/auth/status
+```
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:10000/api/courses
+```
+
+A preflight from an origin on the allowlist must come back with a matching
+`access-control-allow-origin`, and one from any other origin must not:
+
+```bash
+curl -s -D- -o /dev/null -X OPTIONS http://127.0.0.1:10000/api/courses -H 'Origin: https://not-listed.example' -H 'Access-Control-Request-Method: GET'
+```
+
+Finally drive it from a browser, which is the only thing that exercises the
+real token: run the website with `VITE_API_BASE_URL=http://127.0.0.1:10000`
+on a port listed in `STUDYPILOT_CORS_ORIGINS`, open it on `localhost` (not
+`127.0.0.1`, which Neon Auth does not treat as localhost) and sign in. Delete
+the environment file afterwards; it holds your database password.

@@ -237,6 +237,29 @@ describe('StudyPilotClient', () => {
     }
   });
 
+  it('sends the same credentials on a binary fetch as on a JSON request', async () => {
+    // `<img src>` and pdf.js cannot attach a header, so protected binaries go
+    // through fetchBlobUrl. It once sent the desktop token alone, which meant
+    // the reader's PDF and previews were the only 401s on a hosted site.
+    const blob = new Blob(['%PDF-1.7'], { type: 'application/pdf' });
+    fetchMock.mockResolvedValue(new Response(blob, { status: 200 }));
+    vi.stubGlobal('URL', { ...URL, createObjectURL: () => 'blob:stub' });
+    const client = new StudyPilotClient(
+      platform({
+        kind: 'web',
+        apiBaseUrl: 'https://api.example',
+        getApiToken: async () => null,
+        getBearerToken: async () => 'neon-jwt',
+      }),
+    );
+
+    await client.fetchBlobUrl('/api/documents/doc-1/file');
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('https://api.example/api/documents/doc-1/file');
+    expect((init.headers as Record<string, string>).authorization).toBe('Bearer neon-jwt');
+  });
+
   it('sends no authorization header when the bearer cannot be obtained', async () => {
     // Nobody is signed in, or Neon is unreachable. The backend answers 401
     // and the gate shows its sign-in screen, which is the right outcome.

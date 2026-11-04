@@ -51,8 +51,8 @@ class RuntimeContext:
 
         # Loud, specific, and at boot: a hosted instance on an ephemeral disk
         # looks perfectly healthy right up until the first upload disappears.
-        for warning in settings.durability_warnings():
-            log.warning("durability_risk", extra={"detail": warning})
+        for warning in settings.configuration_warnings():
+            log.warning("configuration_risk", extra={"detail": warning})
 
         embedder = get_embedding_provider(settings)
         vector_store = build_vector_store(

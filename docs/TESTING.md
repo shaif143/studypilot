@@ -174,6 +174,21 @@ Recorded because they justify the tests existing.
    shortcut is now restricted to the desktop host and hosted deployments fail
    closed. Found by opening the deployed site, not by a test; now pinned by
    two cases in `tests/frontend/api-client.test.ts`.
+12. **The hosted image could not verify a single Neon token.** The `hosted`
+   extra declared plain `pyjwt`, and PyJWT registers EdDSA only when
+   `cryptography` is installed. The development environment had it anyway,
+   pulled in by another dependency, so all sixteen Neon Auth tests passed.
+   The image built, booted, reported healthy, connected to Neon, and then
+   answered every sign-in with `neon_token_rejected: EdDSA requires
+   'cryptography' to be installed` — in the container log, which on a free
+   hosting plan nobody reads. Found by running the real image against the
+   real branch with a real browser. Now `pyjwt[crypto]`, pinned by a test
+   that reads the manifest, because no test of the code could have seen it.
+13. **Binary fetches sent the wrong credential.** `fetchBlobUrl` attached only
+   the desktop token, so on a hosted deployment the reader's PDF and page
+   previews were the only requests in the application still 401ing while
+   every other screen worked. Both paths now build their headers in one
+   place.
 
 ---
 
@@ -201,6 +216,13 @@ Stated plainly rather than implied by omission.
   `npm run test:e2e` is wired, but no specs are written. The browser paths —
   upload through the real file picker, pdf.js canvas rendering, drag-to-resize,
   keyboard navigation — were verified by hand, not automatically.
+- **No test runs the hosted container.** The two worst bugs in the list above
+  — EdDSA missing from the image, and the API client failing open on a 404 —
+  existed only in the deployed artefact and were found by hand: building the
+  image, running it against a real Neon branch with the real environment, and
+  driving it from a browser on a second origin. That procedure is written
+  down in `docs/DEPLOYMENT.md` under "Running the hosted stack locally", but
+  nothing runs it automatically.
 - **The Neon Auth browser flows have no automated test.** Sign-up, sign-in,
   sign-out, session restoration after reload, per-account isolation and the
   wrong-password error were each exercised by hand against a live Neon branch,

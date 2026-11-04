@@ -12,7 +12,9 @@ Neon branch.
 
 from __future__ import annotations
 
+import tomllib
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import jwt
@@ -173,6 +175,36 @@ def test_empty_and_malformed_tokens_are_rejected(verifier):
     for bad in ("", "   ", "not-a-jwt", "aaa.bbb.ccc"):
         with pytest.raises(NeonAuthError):
             verifier.verify(bad)
+
+
+# --- packaging ------------------------------------------------------------
+def test_eddsa_is_actually_available_in_this_runtime():
+    """PyJWT registers EdDSA only when `cryptography` is installed.
+
+    Everything else in this file would pass without it on a machine where
+    some other dependency happens to pull `cryptography` in — which is what a
+    development environment looks like, and is why this went unnoticed.
+    """
+    assert "EdDSA" in jwt.algorithms.get_default_algorithms()
+
+
+def test_the_hosted_extra_requires_pyjwt_with_crypto():
+    """The bug this pins cost a deployment, and no unit test could see it.
+
+    The hosted image declared plain `pyjwt`, so it built, booted and reported
+    healthy — then rejected every Neon sign-in with "EdDSA requires
+    'cryptography' to be installed", in the container log where nobody was
+    looking. Asserted against the manifest because that is where the mistake
+    lives; the runtime check above cannot distinguish a declared dependency
+    from an accidental one.
+    """
+    manifest = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    with manifest.open("rb") as handle:
+        extras = tomllib.load(handle)["project"]["optional-dependencies"]
+    for extra in ("hosted", "dev"):
+        assert any(requirement.startswith("pyjwt[crypto]") for requirement in extras[extra]), (
+            f"the {extra} extra must install PyJWT with its crypto extra"
+        )
 
 
 # --- configuration --------------------------------------------------------

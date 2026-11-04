@@ -70,20 +70,18 @@ export class StudyPilotClient {
     this.#tokenPromise = null;
   }
 
-  async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-    const { method = 'GET', body, query, signal, form } = options;
-
-    let url = `${this.platform.apiBaseUrl}${path}`;
-    if (query) {
-      const params = new URLSearchParams();
-      for (const [key, value] of Object.entries(query)) {
-        if (value !== undefined && value !== null) params.set(key, String(value));
-      }
-      const encoded = params.toString();
-      if (encoded) url += `?${encoded}`;
-    }
-
+  /**
+   * Credentials for one request, whichever host this is.
+   *
+   * Built in one place because there are two kinds and two call sites: the
+   * JSON requests below, and the binary fetches behind `fetchBlobUrl`. When
+   * those drifted apart, the reader's PDF and page previews were the only
+   * thing in the application still sending the desktop token alone — they
+   * 401'd on a hosted deployment while every other screen worked.
+   */
+  async #authHeaders(): Promise<Record<string, string>> {
     const headers: Record<string, string> = {};
+
     const token = await this.#token();
     if (token) headers['x-studypilot-token'] = token;
 
@@ -100,6 +98,23 @@ export class StudyPilotClient {
       }
     }
 
+    return headers;
+  }
+
+  async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    const { method = 'GET', body, query, signal, form } = options;
+
+    let url = `${this.platform.apiBaseUrl}${path}`;
+    if (query) {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(query)) {
+        if (value !== undefined && value !== null) params.set(key, String(value));
+      }
+      const encoded = params.toString();
+      if (encoded) url += `?${encoded}`;
+    }
+
+    const headers = await this.#authHeaders();
     if (body !== undefined && !form) headers['content-type'] = 'application/json';
 
     let response: Response;
@@ -280,10 +295,12 @@ export class StudyPilotClient {
    * binaries are fetched here and handed to them as object URLs.
    */
   async fetchBlobUrl(path: string, signal?: AbortSignal): Promise<string> {
-    const headers: Record<string, string> = {};
-    const token = await this.#token();
-    if (token) headers['x-studypilot-token'] = token;
-    const response = await fetch(this.url(path), { headers, signal });
+    const headers = await this.#authHeaders();
+    const response = await fetch(this.url(path), {
+      headers,
+      signal,
+      credentials: 'same-origin',
+    });
     if (!response.ok) throw new ApiError(`Could not load ${path}`, response.status);
     return URL.createObjectURL(await response.blob());
   }

@@ -86,6 +86,107 @@ def test_desktop_mode_has_no_durability_warnings(settings: Settings):
     assert settings.durability_warnings() == []
 
 
+# --- cross-origin access --------------------------------------------------
+def test_hosted_mode_ignores_the_development_cors_defaults(tmp_path):
+    """localhost must never be able to read a hosted account.
+
+    The defaults exist for the dev server. A deployment that did not ask for
+    cross-origin access gets none, however it was started.
+    """
+    hosted = Settings(data_dir=tmp_path, deployment_mode="hosted", jwt_secret=SECRET)
+
+    assert "http://localhost:5173" in hosted.cors_origins
+    assert hosted.effective_cors_origins == ()
+
+
+def test_hosted_mode_allows_origins_named_explicitly(tmp_path):
+    hosted = Settings(
+        data_dir=tmp_path,
+        deployment_mode="hosted",
+        jwt_secret=SECRET,
+        cors_origins=("https://studypilot.example",),
+    )
+    assert hosted.effective_cors_origins == ("https://studypilot.example",)
+
+
+def test_desktop_mode_keeps_its_defaults(settings: Settings):
+    assert "tauri://localhost" in settings.effective_cors_origins
+
+
+def test_a_wildcard_origin_is_refused(tmp_path):
+    """Allowing every site to call an authenticated API is never the intent."""
+    with pytest.raises(ValueError, match="not accepted"):
+        Settings(data_dir=tmp_path, cors_origins=("*",))
+
+
+def test_origins_are_read_from_a_comma_separated_variable(monkeypatch, tmp_path):
+    """The form a hosting platform's environment field actually takes.
+
+    pydantic-settings decodes a tuple field as JSON by default, so without
+    `NoDecode` a plain list of origins fails to start the service — in the
+    deploy log, after the image has already built.
+    """
+    monkeypatch.setenv(
+        "STUDYPILOT_CORS_ORIGINS",
+        "https://studypilot.example, https://studypilot-preview.example/",
+    )
+    hosted = Settings(
+        data_dir=tmp_path,
+        deployment_mode="hosted",
+        auth_provider="neon",
+        neon_auth_jwks_url="https://auth.example/.well-known/jwks.json",
+    )
+    assert hosted.effective_cors_origins == (
+        "https://studypilot.example",
+        "https://studypilot-preview.example",
+    )
+
+
+def test_origins_are_normalised(tmp_path):
+    """A trailing slash never matches, and the mismatch is invisible."""
+    normalised = Settings(
+        data_dir=tmp_path,
+        cors_origins=(" https://studypilot.example/ ", ""),
+    ).cors_origins
+    assert normalised == ("https://studypilot.example",)
+
+
+def test_cross_origin_with_cookie_sessions_is_called_out(tmp_path):
+    """A browser will not send the cookie, so nobody could ever sign in."""
+    warnings = " ".join(
+        Settings(
+            data_dir=tmp_path,
+            deployment_mode="hosted",
+            jwt_secret=SECRET,
+            database_url="postgresql://user:pw@host/db",
+            storage_backend="s3",
+            s3_bucket="studypilot",
+            vector_store="pgvector",
+            cors_origins=("https://studypilot.example",),
+        ).configuration_warnings()
+    )
+    assert "cross-origin" in warnings.lower()
+    assert "STUDYPILOT_AUTH_PROVIDER=neon" in warnings
+
+
+def test_cross_origin_with_neon_auth_is_fine(tmp_path):
+    """Neon Auth sends a bearer header, which is not a credential."""
+    assert (
+        Settings(
+            data_dir=tmp_path,
+            deployment_mode="hosted",
+            auth_provider="neon",
+            neon_auth_jwks_url="https://auth.example/.well-known/jwks.json",
+            database_url="postgresql://user:pw@host/db",
+            storage_backend="s3",
+            s3_bucket="studypilot",
+            vector_store="pgvector",
+            cors_origins=("https://studypilot.example",),
+        ).configuration_warnings()
+        == []
+    )
+
+
 # --- password and email handling -----------------------------------------
 def test_passwords_are_hashed_not_stored(hosted_settings: Settings):
     passwords = PasswordService(hosted_settings)

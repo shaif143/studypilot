@@ -24,7 +24,12 @@ hosted = [
   "psycopg[binary]>=3.2",
   "boto3>=1.35",
   "argon2-cffi>=23.1",
-  "pyjwt>=2.9",
+  # The [crypto] extra is not optional here. The built-in sessions are HS256,
+  # which PyJWT does by itself, but Neon Auth signs with EdDSA and that needs
+  # `cryptography`. Without it the image builds, boots and reports healthy,
+  # and then rejects every single sign-in with "EdDSA requires 'cryptography'
+  # to be installed" — visible only in the container's log.
+  "pyjwt[crypto]>=2.9",
 ]
 # Static distilled embeddings: ~30 MB, CPU-only, no PyTorch. Recommended.
 local-models = ["model2vec>=0.3"]
@@ -37,7 +42,7 @@ dev = [
   "psycopg[binary]>=3.2",
   "boto3>=1.35",
   "argon2-cffi>=23.1",
-  "pyjwt>=2.9",
+  "pyjwt[crypto]>=2.9",
   "pytest-cov>=5.0",
   "ruff>=0.7",
   "pyinstaller>=6.11",

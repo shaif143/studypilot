@@ -8,6 +8,7 @@ platform user-data directory.
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import stat
@@ -15,10 +16,10 @@ import sys
 from contextlib import suppress
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import AliasChoices, Field, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 APP_NAME = "StudyPilot"
 
@@ -85,7 +86,16 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8765
     #: Origins allowed to call the API. Desktop uses the tauri:// scheme.
-    cors_origins: tuple[str, ...] = (
+    #:
+    #: These defaults are for local development only. A hosted deployment
+    #: ignores them entirely and allows nothing unless the environment names
+    #: the origins explicitly — see `effective_cors_origins`.
+    #:
+    #: `NoDecode` because the natural way to write this in a hosting
+    #: platform's environment form is a comma-separated list, and without it
+    #: pydantic-settings insists on JSON and fails before the validator below
+    #: ever sees the value.
+    cors_origins: Annotated[tuple[str, ...], NoDecode] = (
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "tauri://localhost",
@@ -204,6 +214,55 @@ class Settings(BaseSettings):
     def is_hosted(self) -> bool:
         return self.deployment_mode == "hosted"
 
+    @property
+    def effective_cors_origins(self) -> tuple[str, ...]:
+        """Origins this deployment actually grants cross-origin access to.
+
+        A hosted deployment served behind a reverse proxy that rewrites
+        `/api/*` is same-origin and needs none, which is why the answer here
+        is nothing at all unless `STUDYPILOT_CORS_ORIGINS` is set explicitly.
+        The development defaults never leak into a deployment: localhost on a
+        student's machine must not be able to read a hosted account.
+
+        Naming origins is the supported arrangement when the site and the API
+        are on different hosts — a static site on one platform and this
+        container on another. It is safe because the list is explicit, no
+        wildcard is accepted, and credentials are never allowed, so a browser
+        will not attach cookies to a cross-origin request. Identity therefore
+        has to travel in the `Authorization` header, which is what Neon Auth
+        does; the built-in cookie sessions only work same-origin.
+        """
+        if not self.is_hosted:
+            return self.cors_origins
+        if "cors_origins" not in self.model_fields_set:
+            return ()
+        return self.cors_origins
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _parse_origins(cls, value: object) -> object:
+        """Accept a comma-separated list, and refuse a wildcard.
+
+        Comma-separated because that is what fits in a hosting platform's
+        environment form; a JSON array still works for anyone who prefers it.
+
+        `*` is rejected rather than filtered out: a configuration that says
+        "allow everything" and silently allows nothing is worse than one that
+        refuses to start, and allowing every site on the internet to call an
+        authenticated API is never what was meant.
+        """
+        if isinstance(value, str):
+            text = value.strip()
+            value = json.loads(text) if text.startswith("[") else text.split(",")
+        if not isinstance(value, (list, tuple)):
+            return value
+        origins = [str(origin).strip().rstrip("/") for origin in value]
+        if any(origin == "*" for origin in origins):
+            raise ValueError(
+                "STUDYPILOT_CORS_ORIGINS must name each allowed origin; '*' is not accepted."
+            )
+        return tuple(origin for origin in origins if origin)
+
     @model_validator(mode="after")
     def _check_hosted_requirements(self) -> Settings:
         """Refuse to start a hosted deployment without an identity boundary.
@@ -239,6 +298,28 @@ class Settings(BaseSettings):
         if problems:
             raise ValueError("Hosted mode is misconfigured: " + "; ".join(problems))
         return self
+
+    def configuration_warnings(self) -> list[str]:
+        """Everything worth saying loudly at boot but not worth refusing over.
+
+        Durability, plus the one cross-origin arrangement that cannot work:
+        browsers do not attach cookies to a cross-origin request unless the
+        response allows credentials, and this API never does. A deployment
+        that names foreign origins and still relies on the built-in cookie
+        sessions would accept every request as anonymous and show a sign-in
+        screen that can never be got past.
+        """
+        warnings = self.durability_warnings()
+        if self.is_hosted and self.effective_cors_origins and not self.uses_neon_auth:
+            warnings.append(
+                "Cross-origin access is configured ("
+                + ", ".join(self.effective_cors_origins)
+                + ") but identity is the built-in cookie session, which a "
+                "browser will not send cross-origin. Either serve the site "
+                "and the API on one origin, or set "
+                "STUDYPILOT_AUTH_PROVIDER=neon to authenticate with bearer tokens."
+            )
+        return warnings
 
     def durability_warnings(self) -> list[str]:
         """Configuration that will lose data on an ephemeral filesystem.

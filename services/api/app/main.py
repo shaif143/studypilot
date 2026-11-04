@@ -74,13 +74,18 @@ def create_app(
         openapi_url="/openapi.json",
     )
 
-    # Hosted deployments are served same-origin (the frontend host rewrites
-    # /api/* to this backend), so no cross-origin access is granted at all.
-    # Credentials are allowed only for the desktop origins, which never send
-    # cookies anyway — it keeps a misconfigured origin from carrying a session.
+    # A hosted deployment grants nothing cross-origin unless its environment
+    # names the origins explicitly: the development defaults never apply, so
+    # localhost on a student's machine cannot read a hosted account. See
+    # `Settings.effective_cors_origins`.
+    #
+    # Credentials are never allowed, on any origin. The desktop origins send
+    # no cookies anyway, and refusing them keeps a misconfigured origin from
+    # carrying a session — which is also why a cross-origin deployment has to
+    # use bearer tokens rather than the built-in cookie sessions.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[] if settings.is_hosted else list(settings.cors_origins),
+        allow_origins=list(settings.effective_cors_origins),
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["content-type", "x-studypilot-token", "authorization"],
