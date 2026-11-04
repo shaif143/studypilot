@@ -31,10 +31,14 @@
     "api:schema": ".venv/bin/python scripts/dump-openapi.py",
     "api:test:pg": "STUDYPILOT_TEST_DATABASE_URL=postgresql://postgres:studypilot@127.0.0.1:55432/studypilot scripts/api-test.sh",
     "pg:up": "docker run -d --name studypilot-pg -e POSTGRES_PASSWORD=studypilot -e POSTGRES_DB=studypilot -p 55432:5432 pgvector/pgvector:pg17",
-    "pg:down": "docker rm -f studypilot-pg"
+    "pg:down": "docker rm -f studypilot-pg",
+    "neon:deploy": "neon deploy",
+    "neon:env": "neon env pull"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@neon/config": "^1.10.1",
+    "@neon/env": "^1.6.9",
     "@playwright/test": "1.64.1",
     "@testing-library/dom": "10.4.2",
     "@testing-library/jest-dom": "7.0.1",

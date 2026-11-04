@@ -17,7 +17,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 APP_NAME = "StudyPilot"
@@ -59,8 +59,19 @@ class Settings(BaseSettings):
 
     # --- Database --------------------------------------------------------
     #: A PostgreSQL DSN for hosted deployments. Empty means the local SQLite
-    #: file under ``data_dir``.
-    database_url: str = ""
+    #: file under ``data_dir``. Falls back to the provider-standard
+    #: ``DATABASE_URL`` so `neon env pull` output works unmodified.
+    database_url: str = Field(
+        default="", validation_alias=AliasChoices("STUDYPILOT_DATABASE_URL", "DATABASE_URL")
+    )
+    #: A *direct* (non-pooled) DSN for schema work. Neon routes the pooled
+    #: connection through PgBouncer in transaction mode, which cannot hold the
+    #: session state that DDL, CREATE EXTENSION and index builds rely on.
+    #: Optional: without it everything uses the one connection.
+    database_url_direct: str = Field(
+        default="",
+        validation_alias=AliasChoices("STUDYPILOT_DATABASE_URL_DIRECT", "DATABASE_URL_UNPOOLED"),
+    )
 
     # --- Object storage --------------------------------------------------
     storage_backend: Literal["local", "s3"] = "local"
@@ -88,6 +99,24 @@ class Settings(BaseSettings):
     api_token: str | None = None
     #: Disable auth only for unit tests; never for a running application.
     auth_disabled: bool = False
+    # --- Neon Auth (optional alternative identity provider) --------------
+    #: "builtin" uses this application's own email/password accounts.
+    #: "neon" delegates identity to Neon Auth and verifies its JWTs.
+    auth_provider: Literal["builtin", "neon"] = "builtin"
+    #: Injected by `neon deploy` / `neon env pull` under these exact names.
+    neon_auth_base_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("STUDYPILOT_NEON_AUTH_BASE_URL", "NEON_AUTH_BASE_URL"),
+    )
+    neon_auth_jwks_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("STUDYPILOT_NEON_AUTH_JWKS_URL", "NEON_AUTH_JWKS_URL"),
+    )
+
+    @property
+    def uses_neon_auth(self) -> bool:
+        return self.auth_provider == "neon"
+
     #: Hosted mode: signs session tokens. Must be set explicitly — a generated
     #: default would invalidate every session on each restart and differ
     #: between instances.
@@ -194,7 +223,13 @@ class Settings(BaseSettings):
         if not self.is_hosted:
             return self
         problems: list[str] = []
-        if len(self.jwt_secret) < 32:
+        if self.uses_neon_auth and not self.neon_auth_jwks_url:
+            problems.append(
+                "STUDYPILOT_AUTH_PROVIDER=neon requires NEON_AUTH_JWKS_URL (run `neon deploy`)"
+            )
+        # With Neon Auth, Neon signs the tokens and this service only verifies
+        # them, so there is no local secret to require.
+        if not self.uses_neon_auth and len(self.jwt_secret) < 32:
             problems.append(
                 "STUDYPILOT_JWT_SECRET must be set to at least 32 characters "
                 "(generate one with: openssl rand -base64 48)"

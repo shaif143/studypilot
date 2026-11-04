@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import SESSION_COOKIE, AuthError, TokenService
 from app.config import Settings
+from app.neon_auth import NeonAuthError, NeonIdentity, local_handle_for
 from app.runtime import RuntimeContext
 from app.storage.models import User
 from app.storage.repositories import (
@@ -114,18 +115,60 @@ def _user_from_session(context: RuntimeContext, session: Session, token: str | N
     return user
 
 
+def _user_from_neon_token(
+    context: RuntimeContext, session: Session, authorization: str | None
+) -> User | None:
+    """Resolve the account from a Neon Auth bearer token.
+
+    Neon owns the credential; this service only verifies the signature and
+    maps the immutable subject onto a local row, creating it on first sight so
+    a new Neon user needs no separate provisioning step.
+    """
+    verifier = context.neon_auth
+    if verifier is None or not authorization:
+        return None
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        return None
+
+    try:
+        identity: NeonIdentity = verifier.verify(token.strip())
+    except NeonAuthError as exc:
+        log.info("neon_token_rejected", extra={"reason": str(exc)})
+        return None
+
+    users = UserRepository(session)
+    handle = local_handle_for(identity)
+    user = users.get_by_handle(handle)
+    if user is None:
+        user = users.ensure_local_profile(handle=handle, display_name=identity.display_name)
+        user.is_local_profile = False
+        log.info("neon_account_linked", extra={"user_id": user.id})
+    # Keep the local copy current; Neon remains the source of truth.
+    if identity.email and user.email != identity.email:
+        user.email = identity.email
+    if identity.display_name and user.display_name != identity.display_name:
+        user.display_name = identity.display_name
+    session.flush()
+    return user
+
+
 def get_current_user_optional(
     context: Annotated[RuntimeContext, Depends(get_context)],
     session: SessionDep,
     studypilot_session: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+    authorization: Annotated[str | None, Header()] = None,
 ) -> User | None:
     """The acting user, or ``None`` when nobody is signed in.
 
     Desktop mode always has a user: the single local profile, created on first
-    use. Hosted mode has one only when a valid session cookie is presented.
+    use. Hosted mode resolves identity from whichever provider is configured —
+    a Neon Auth bearer token, or this application's own session cookie.
     """
     if not context.settings.is_hosted:
         return UserRepository(session).ensure_local_profile()
+    if context.settings.uses_neon_auth:
+        return _user_from_neon_token(context, session, authorization)
     return _user_from_session(context, session, studypilot_session)
 
 

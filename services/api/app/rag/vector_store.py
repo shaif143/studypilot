@@ -319,7 +319,7 @@ class PgVectorStore(VectorStore):
         errors: list[str] = []
         for extension in self.EXTENSIONS:
             try:
-                with self.database.engine.begin() as conn:
+                with self.database.ddl_engine.begin() as conn:
                     conn.execute(sql_text(f"CREATE EXTENSION IF NOT EXISTS {extension}"))
                 return extension.split()[0]
             except Exception as exc:
@@ -338,7 +338,7 @@ class PgVectorStore(VectorStore):
 
         for method in self.INDEX_METHODS:
             try:
-                with self.database.engine.begin() as conn:
+                with self.database.ddl_engine.begin() as conn:
                     conn.execute(
                         sql_text(
                             f"CREATE INDEX IF NOT EXISTS ix_{self.TABLE}_embedding "
@@ -371,7 +371,7 @@ class PgVectorStore(VectorStore):
         self._dimensions = dimensions
         extension = self._create_extension()
 
-        with self.database.engine.begin() as conn:
+        with self.database.ddl_engine.begin() as conn:
             existing = conn.execute(
                 sql_text(
                     "SELECT a.atttypmod FROM pg_attribute a "

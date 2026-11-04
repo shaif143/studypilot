@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from app.config import Settings
 from app.models.base import EmbeddingProvider
 from app.models.registry import get_embedding_provider
+from app.neon_auth import NeonAuthVerifier
 from app.rag.sparse import SparseIndex, build_sparse_index
 from app.rag.vector_store import VectorStore, build_vector_store
 from app.storage.db import Database
@@ -31,6 +32,8 @@ class RuntimeContext:
     vector_store: VectorStore
     sparse_index: SparseIndex
     embedder: EmbeddingProvider
+    #: Present only when identity is delegated to Neon Auth.
+    neon_auth: NeonAuthVerifier | None = None
 
     @classmethod
     def create(cls, settings: Settings, *, database: Database | None = None) -> RuntimeContext:
@@ -71,6 +74,9 @@ class RuntimeContext:
                 raise
             log.warning("storage_unreachable", extra={"detail": str(exc)})
 
+        # Built once: it caches the JWKS rather than fetching per request.
+        neon_auth = NeonAuthVerifier(settings) if settings.uses_neon_auth else None
+
         context = cls(
             settings=settings,
             database=database,
@@ -78,6 +84,7 @@ class RuntimeContext:
             vector_store=vector_store,
             sparse_index=build_sparse_index(database),
             embedder=embedder,
+            neon_auth=neon_auth,
         )
         log.info(
             "runtime_ready",
@@ -90,6 +97,7 @@ class RuntimeContext:
                 "database": database.dialect,
                 "mode": settings.deployment_mode,
                 "llm_provider": settings.llm_provider,
+                "auth_provider": settings.auth_provider,
             },
         )
         return context
@@ -108,5 +116,7 @@ class RuntimeContext:
             "embedding_model": self.embedder.model_id,
             "embedding_dimensions": self.embedder.dimensions,
             "llm_provider": self.settings.llm_provider,
+            "auth_provider": self.settings.auth_provider,
+            "neon_auth": self.neon_auth.health() if self.neon_auth else None,
             "data_dir": str(self.settings.data_dir),
         }

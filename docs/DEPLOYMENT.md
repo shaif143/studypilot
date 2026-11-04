@@ -40,6 +40,84 @@ which is why a container is the better fit.
 
 ---
 
+## Using Neon's CLI (fastest path)
+
+Neon's CLI provisions the database and auth, and writes their credentials into
+`.env.local`:
+
+```bash
+npm i -g neon@latest
+```
+
+```bash
+neon init -y --org-id <your-org> --project-id <your-project> --branch production --services postgres,auth
+```
+
+```bash
+neon deploy
+```
+
+That writes `neon.ts` (the services this project declares) and pulls
+`DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `NEON_AUTH_BASE_URL` and
+`NEON_AUTH_JWKS_URL`. The backend reads all four under those exact names, so
+nothing needs renaming.
+
+**Object storage is still separate.** It is not among the services above, and
+Neon Object Storage is unavailable in some regions (including `aws-eu-west-2`).
+Use Cloudflare R2 or another S3-compatible bucket — `S3BlobStore` works with
+any of them.
+
+### Pooled and direct connections
+
+Neon gives two connection strings and the backend uses both:
+
+| Variable | Used for |
+| --- | --- |
+| `DATABASE_URL` (pooled, `-pooler` host) | Normal query traffic |
+| `DATABASE_URL_UNPOOLED` (direct) | `create_all`, `CREATE EXTENSION`, index builds |
+
+The pooled connection goes through PgBouncer in transaction mode, which cannot
+hold session state, so schema work must not use it. Prepared statements are
+also disabled on the pooled engine: psycopg3 begins using them after a few
+executions, and behind PgBouncer a later connection inherits the name but not
+the statement — producing `prepared statement "_pg3_0" already exists`
+intermittently, under load, long after deployment.
+
+### Identity: built-in or Neon Auth
+
+`STUDYPILOT_AUTH_PROVIDER` selects between them.
+
+| Value | Behaviour |
+| --- | --- |
+| `builtin` *(default)* | This application's own accounts: Argon2id passwords, session cookies. Needs `STUDYPILOT_JWT_SECRET`. |
+| `neon` | Identity is delegated to Neon Auth. The browser signs in with `@neon/auth` and sends `Authorization: Bearer <jwt>`; this backend verifies the EdDSA signature against `NEON_AUTH_JWKS_URL`. No local signing secret is needed — Neon signs. |
+
+Under `neon`, a Neon subject is mapped to a local `users` row keyed
+`neon:<sub>` and created on first sight, so no separate provisioning step is
+required. The desktop application is unaffected: it has no browser to run a
+JavaScript auth client in and keeps its local profile.
+
+Neon Auth tokens last 15 minutes, so a browser client must refresh them —
+`@neon/auth` does this itself.
+
+### Testing against Neon
+
+Never point the integration tests at a branch holding real data: they tear
+down with `DROP SCHEMA public CASCADE`. Use a throwaway branch, which is what
+Neon branching is for:
+
+```bash
+neon branch create --name studypilot-ci --parent production
+```
+
+```bash
+STUDYPILOT_TEST_DATABASE_URL="$(neon connection-string studypilot-ci)" npm run api:test
+```
+
+```bash
+neon branch delete studypilot-ci
+```
+
 ## 1. Provision the three services
 
 You need accounts on these; each has a free tier that comfortably fits one

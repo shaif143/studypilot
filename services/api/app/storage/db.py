@@ -28,18 +28,51 @@ class Database:
     state, so tests can construct an isolated database without global state.
     """
 
-    def __init__(self, url: str, *, echo: bool = False) -> None:
+    def __init__(self, url: str, *, direct_url: str = "", echo: bool = False) -> None:
         self.url = url
         # "sqlite" | "postgresql" | ... — drives the dialect-specific pieces
         # (pragmas, full-text structures) without scattering URL parsing about.
         self.dialect = url.split(":", 1)[0].split("+", 1)[0]
-        connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
-        self.engine: Engine = create_engine(url, echo=echo, future=True, connect_args=connect_args)
-        if url.startswith("sqlite"):
+        self.engine: Engine = self._build_engine(url, echo=echo)
+
+        # A separate engine for schema work. Managed providers put the normal
+        # connection behind PgBouncer in transaction mode, which cannot hold
+        # the session state that DDL, CREATE EXTENSION and index builds need.
+        # Without a direct URL this is the same engine, which is correct for
+        # SQLite and for an unpooled PostgreSQL.
+        self.ddl_engine: Engine = (
+            self._build_engine(direct_url, echo=echo) if direct_url else self.engine
+        )
+        self.has_direct_connection = bool(direct_url)
+
+        if self.dialect == "sqlite":
             self._install_sqlite_pragmas()
         self._session_factory = sessionmaker(
             bind=self.engine, expire_on_commit=False, class_=Session
         )
+
+    def _build_engine(self, url: str, *, echo: bool) -> Engine:
+        connect_args: dict[str, object] = {}
+        engine_kwargs: dict[str, object] = {"echo": echo, "future": True}
+
+        if url.startswith("sqlite"):
+            connect_args["check_same_thread"] = False
+        else:
+            # Managed Postgres closes idle connections; recycle before it does,
+            # and check liveness so a stale socket surfaces as a retry rather
+            # than a request failure.
+            engine_kwargs |= {"pool_pre_ping": True, "pool_recycle": 280, "pool_size": 5}
+            if "+psycopg" in url:
+                # psycopg3 starts using server-side prepared statements after a
+                # few executions of the same query. Behind PgBouncer in
+                # transaction mode a later connection inherits the name but not
+                # the statement, and the query fails with
+                # `prepared statement "_pg3_0" already exists` — intermittently,
+                # under load, long after deployment. Turning them off is the
+                # documented price of pooling.
+                connect_args["prepare_threshold"] = None
+
+        return create_engine(url, connect_args=connect_args, **engine_kwargs)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> Database:
@@ -54,7 +87,14 @@ class Database:
         :func:`test_from_settings_honours_the_configured_database` exists.
         """
         if settings.database_url:
-            return cls(normalise_database_url(settings.database_url))
+            return cls(
+                normalise_database_url(settings.database_url),
+                direct_url=(
+                    normalise_database_url(settings.database_url_direct)
+                    if settings.database_url_direct
+                    else ""
+                ),
+            )
         settings.ensure_dirs()
         return cls(f"sqlite+pysqlite:///{settings.db_path}")
 
@@ -73,7 +113,7 @@ class Database:
             cursor.close()
 
     def create_all(self) -> None:
-        Base.metadata.create_all(self.engine)
+        Base.metadata.create_all(self.ddl_engine)
         self._add_missing_columns()
         self._create_search_structures()
 
@@ -87,8 +127,8 @@ class Database:
         default — and anything more involved should bring in Alembic rather
         than grow this.
         """
-        inspector = inspect(self.engine)
-        with self.engine.begin() as conn:
+        inspector = inspect(self.ddl_engine)
+        with self.ddl_engine.begin() as conn:
             for table in Base.metadata.sorted_tables:
                 if not inspector.has_table(table.name):
                     continue
@@ -132,7 +172,7 @@ class Database:
         :class:`app.rag.sparse.SparseIndex`.
         """
         if self.dialect == "sqlite":
-            with self.engine.begin() as conn:
+            with self.ddl_engine.begin() as conn:
                 try:
                     conn.execute(
                         text(
@@ -151,7 +191,7 @@ class Database:
             return
 
         if self.dialect == "postgresql":
-            with self.engine.begin() as conn:
+            with self.ddl_engine.begin() as conn:
                 conn.execute(
                     text(
                         "CREATE TABLE IF NOT EXISTS chunk_search ("
@@ -202,6 +242,8 @@ class Database:
 
     def dispose(self) -> None:
         self.engine.dispose()
+        if self.ddl_engine is not self.engine:
+            self.ddl_engine.dispose()
 
 
 def normalise_database_url(url: str) -> str:
