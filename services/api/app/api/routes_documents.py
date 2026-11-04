@@ -13,7 +13,7 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 
 from app.api.deps import (
     ChunksDep,
@@ -33,6 +33,7 @@ from app.api.schemas import (
     UploadResponse,
 )
 from app.ingestion.pipeline import UnsupportedFileError, ingest_document, validate_upload
+from app.storage.files import BlobNotFoundError
 
 log = logging.getLogger(__name__)
 
@@ -98,8 +99,8 @@ async def upload_document(
 
     result = ingest_document(
         document=document,
-        source_path=context.blobs.path_for(content_hash),
         settings=context.settings,
+        blobs=context.blobs,
         embedder=context.embedder,
         vector_store=context.vector_store,
         sparse_index=context.sparse_index,
@@ -161,7 +162,7 @@ def page_preview(
     context: ContextDep,
     user: UserDep,
     documents: DocumentsDep,
-) -> FileResponse:
+) -> Response:
     """Serve a rendered page image.
 
     The ownership check happens first, and the resolved path is confined to the
@@ -172,15 +173,15 @@ def page_preview(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="No preview for this page."
         )
-    root = context.settings.preview_dir.resolve()
-    target = (root / page.preview_path).resolve()
-    if not target.is_relative_to(root) or not target.is_file():
+    try:
+        data = context.blobs.read_asset(page.preview_path)
+    except BlobNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Preview file is missing."
-        )
-    return FileResponse(
-        target,
-        media_type="image/webp" if target.suffix == ".webp" else "image/png",
+        ) from exc
+    return Response(
+        content=data,
+        media_type="image/webp" if page.preview_path.endswith(".webp") else "image/png",
         headers={"Cache-Control": "private, max-age=86400"},
     )
 
@@ -188,20 +189,23 @@ def page_preview(
 @router.get("/documents/{document_id}/file")
 def document_file(
     document_id: str, context: ContextDep, user: UserDep, documents: DocumentsDep
-) -> FileResponse:
+) -> Response:
     """Serve the original PDF so the reader can render it client-side."""
     document = documents.get(user.id, document_id)
-    path = context.blobs.path_for(document.content_hash)
-    if not path.is_file():
+    try:
+        data = context.blobs.read(document.content_hash)
+    except BlobNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="The stored file is missing. Upload it again.",
-        )
-    return FileResponse(
-        path,
+        ) from exc
+    return Response(
+        content=data,
         media_type="application/pdf",
-        filename=document.original_filename,
-        headers={"Cache-Control": "private, max-age=3600"},
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "Content-Disposition": f'inline; filename="{document.original_filename}"',
+        },
     )
 
 
@@ -224,11 +228,7 @@ def delete_document(
     documents.delete(user.id, document_id)
 
     # Remove previews and, if no other document shares the bytes, the blob.
-    preview_dir = context.settings.preview_dir / document_id
-    if preview_dir.is_dir():
-        for child in preview_dir.iterdir():
-            child.unlink(missing_ok=True)
-        preview_dir.rmdir()
+    context.blobs.delete_asset_prefix(document_id)
 
     from sqlalchemy import func, select
 

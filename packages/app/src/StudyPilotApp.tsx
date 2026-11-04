@@ -7,13 +7,14 @@
  * drifting apart.
  */
 import type { Platform } from '@studypilot/shared';
-import { Button } from '@studypilot/ui';
+import { Button, Spinner } from '@studypilot/ui';
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Component, type ErrorInfo, type ReactNode, useState } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
 import { AppShell } from './components/AppShell';
 import { AppProvider } from './context';
+import { useAuthStatus } from './hooks/queries';
 import { AnalyticsScreen } from './screens/AnalyticsScreen';
 import { AssessmentScreen } from './screens/AssessmentScreen';
 import { CoursesScreen } from './screens/CoursesScreen';
@@ -23,6 +24,7 @@ import { LibraryScreen } from './screens/LibraryScreen';
 import { NotesScreen } from './screens/NotesScreen';
 import { ReaderScreen } from './screens/ReaderScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { SignInScreen } from './screens/SignInScreen';
 import { TutorScreen } from './screens/TutorScreen';
 
 function createQueryClient(): QueryClient {
@@ -57,6 +59,7 @@ export function StudyPilotApp({ platform }: StudyPilotAppProps) {
     <QueryClientProvider client={queryClient}>
       <AppProvider platform={platform}>
         <RouteErrorBoundary>
+          <AuthGate>
           <AppShell>
             <Routes>
               <Route path="/" element={<DashboardScreen />} />
@@ -73,10 +76,41 @@ export function StudyPilotApp({ platform }: StudyPilotAppProps) {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </AppShell>
+          </AuthGate>
         </RouteErrorBoundary>
       </AppProvider>
     </QueryClientProvider>
   );
+}
+
+/**
+ * Decides whether this deployment needs a sign-in before the app is usable.
+ *
+ * The desktop backend does not mount the account routes, so the status query
+ * reports that no authentication is required and this renders straight
+ * through — the gate costs the desktop one cheap request and nothing else.
+ */
+function AuthGate({ children }: { children: ReactNode }) {
+  const status = useAuthStatus();
+
+  if (status.isPending) {
+    return (
+      <div className="flex h-full items-center justify-center gap-2 text-[var(--text-muted)]">
+        <Spinner size={14} />
+        <span className="text-sm">Connecting…</span>
+      </div>
+    );
+  }
+
+  // A failure here means the backend is unreachable, not that the user is
+  // signed out. Render the app so its own error states can explain that.
+  if (status.isError) return <>{children}</>;
+
+  if (status.data?.requires_authentication && !status.data.authenticated) {
+    return <SignInScreen registrationOpen={status.data.registration_open} />;
+  }
+
+  return <>{children}</>;
 }
 
 /**

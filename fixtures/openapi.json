@@ -1,6 +1,29 @@
 {
   "components": {
     "schemas": {
+      "AccountOut": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "display_name"
+        ],
+        "title": "AccountOut",
+        "type": "object"
+      },
       "AnswerResponse": {
         "properties": {
           "abstained": {
@@ -471,6 +494,39 @@
           "dwell_ms"
         ],
         "title": "AttentionSampleIn",
+        "type": "object"
+      },
+      "AuthStatusOut": {
+        "properties": {
+          "account": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccountOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "authenticated": {
+            "title": "Authenticated",
+            "type": "boolean"
+          },
+          "registration_open": {
+            "title": "Registration Open",
+            "type": "boolean"
+          },
+          "requires_authentication": {
+            "title": "Requires Authentication",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "authenticated",
+          "requires_authentication",
+          "registration_open"
+        ],
+        "title": "AuthStatusOut",
         "type": "object"
       },
       "Body_upload_document_api_courses__course_id__documents_post": {
@@ -1374,6 +1430,26 @@
         "title": "LearningSessionOut",
         "type": "object"
       },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "maxLength": 320,
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 256,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
       "MasteryOut": {
         "properties": {
           "confident": {
@@ -1759,6 +1835,26 @@
         "title": "PageSummaryOut",
         "type": "object"
       },
+      "PasswordChangeRequest": {
+        "properties": {
+          "current_password": {
+            "maxLength": 256,
+            "title": "Current Password",
+            "type": "string"
+          },
+          "new_password": {
+            "maxLength": 256,
+            "title": "New Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "PasswordChangeRequest",
+        "type": "object"
+      },
       "ProviderInfoOut": {
         "properties": {
           "available": {
@@ -2073,6 +2169,32 @@
           "priority"
         ],
         "title": "RecommendationOut",
+        "type": "object"
+      },
+      "RegisterRequest": {
+        "properties": {
+          "display_name": {
+            "default": "",
+            "maxLength": 256,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "email": {
+            "maxLength": 320,
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 256,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "RegisterRequest",
         "type": "object"
       },
       "ResponseIn": {
@@ -2693,6 +2815,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -2777,6 +2915,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -2879,6 +3033,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -2947,6 +3117,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -3033,6 +3219,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -3117,6 +3319,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -3190,6 +3408,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -3267,6 +3501,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "requestBody": {
@@ -3342,6 +3592,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -3414,6 +3680,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -3441,6 +3723,247 @@
         "summary": "Attention Report",
         "tags": [
           "privacy"
+        ]
+      }
+    },
+    "/api/auth/change-password": {
+      "post": {
+        "operationId": "change_password_api_auth_change_password_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change Password",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "operationId": "login_api_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "operationId": "logout_api_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/logout-everywhere": {
+      "post": {
+        "description": "Invalidate every outstanding session for this account.",
+        "operationId": "logout_everywhere_api_auth_logout_everywhere_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Logout Everywhere",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "operationId": "register_api_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/status": {
+      "get": {
+        "description": "What the frontend needs to decide whether to show a sign-in screen.",
+        "operationId": "status__api_auth_status_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Status ",
+        "tags": [
+          "auth"
         ]
       }
     },
@@ -3488,6 +4011,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -3555,6 +4094,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -3641,6 +4196,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -3705,6 +4276,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -3777,6 +4364,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -3862,6 +4465,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "requestBody": {
@@ -3946,6 +4565,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -4016,6 +4651,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -4098,6 +4749,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -4177,6 +4844,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -4241,6 +4924,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -4317,6 +5016,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -4389,6 +5104,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -4477,6 +5208,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -4561,6 +5308,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -4632,6 +5395,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -4754,6 +5533,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -4822,6 +5617,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -4912,6 +5723,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "requestBody": {
@@ -4995,6 +5822,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -5142,6 +5985,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -5210,6 +6069,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -5295,6 +6170,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -5359,6 +6250,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -5431,6 +6338,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -5508,6 +6431,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -5573,6 +6512,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -5715,6 +6670,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -5794,6 +6765,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -5868,6 +6855,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -5932,6 +6935,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -6005,6 +7024,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -6100,6 +7135,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -6169,6 +7220,22 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
           }
         ],
         "responses": {
@@ -6231,6 +7298,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],
@@ -6307,6 +7390,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
             }
           }
         ],

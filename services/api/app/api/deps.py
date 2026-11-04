@@ -11,12 +11,14 @@ server-side, and the desktop shell injects it in Rust.
 from __future__ import annotations
 
 import hmac
+import logging
 from collections.abc import Iterator
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi import Cookie, Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from app.auth import SESSION_COOKIE, AuthError, TokenService
 from app.config import Settings
 from app.runtime import RuntimeContext
 from app.storage.models import User
@@ -33,6 +35,8 @@ from app.storage.repositories import (
     TopicRepository,
     UserRepository,
 )
+
+log = logging.getLogger(__name__)
 
 TOKEN_HEADER = "x-studypilot-token"
 
@@ -55,9 +59,16 @@ def require_token(
     x_studypilot_token: Annotated[str | None, Header(alias=TOKEN_HEADER)] = None,
     authorization: Annotated[str | None, Header()] = None,
 ) -> None:
-    """Reject requests without the local shared secret."""
+    """Reject requests without the local shared secret.
+
+    This guards the *desktop* backend, where the secret proves the caller is
+    the Tauri shell's webview rather than another process on the machine. In
+    hosted mode there is no such secret and no such boundary — identity comes
+    from the session cookie, enforced by :func:`get_current_user` — so this
+    check stands down rather than rejecting every request.
+    """
     settings = context.settings
-    if settings.auth_disabled:
+    if settings.auth_disabled or settings.is_hosted:
         return
     expected = settings.resolve_api_token()
     supplied = x_studypilot_token
@@ -82,18 +93,67 @@ SessionDep = Annotated[Session, Depends(get_session)]
 ContextDep = Annotated[RuntimeContext, Depends(get_context)]
 
 
-def get_current_user(session: SessionDep) -> User:
-    """Resolve the acting user.
+def _user_from_session(context: RuntimeContext, session: Session, token: str | None) -> User | None:
+    """Resolve the signed-in account from a session cookie, if any."""
+    if not token:
+        return None
+    try:
+        claims = TokenService(context.settings).verify(token)
+    except (AuthError, RuntimeError):
+        return None
 
-    On the desktop there is exactly one local profile and it is created on first
-    use.  A hosted deployment replaces this dependency with one that validates a
-    session cookie or bearer JWT; every repository below already requires an
-    explicit user id, so nothing downstream changes.
+    user = session.get(User, claims.user_id)
+    if user is None or user.email is None:
+        return None
+    # A bumped version revokes every token issued before it, which is how a
+    # password change and "sign out everywhere" take effect without a server
+    # side session table.
+    if claims.token_version != user.token_version:
+        log.info("session_revoked", extra={"user_id": user.id})
+        return None
+    return user
+
+
+def get_current_user_optional(
+    context: Annotated[RuntimeContext, Depends(get_context)],
+    session: SessionDep,
+    studypilot_session: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+) -> User | None:
+    """The acting user, or ``None`` when nobody is signed in.
+
+    Desktop mode always has a user: the single local profile, created on first
+    use. Hosted mode has one only when a valid session cookie is presented.
     """
-    return UserRepository(session).ensure_local_profile()
+    if not context.settings.is_hosted:
+        return UserRepository(session).ensure_local_profile()
+    return _user_from_session(context, session, studypilot_session)
+
+
+def current_user_optional():
+    """``Depends`` wrapper, so routes can declare an optional user readably."""
+    return Depends(get_current_user_optional)
+
+
+def get_current_user(
+    user: Annotated[User | None, Depends(get_current_user_optional)],
+) -> User:
+    """Require a signed-in user.
+
+    Every repository below takes an explicit ``user_id`` and filters on it, so
+    this is the only place the acting identity is decided — and the only place
+    that needs to change between the two deployment modes.
+    """
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sign in to continue.",
+            headers={"WWW-Authenticate": "Cookie"},
+        )
+    return user
 
 
 UserDep = Annotated[User, Depends(get_current_user)]
+OptionalUserDep = Annotated[User | None, Depends(get_current_user_optional)]
 
 
 # --- repository providers -------------------------------------------------

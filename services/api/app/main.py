@@ -23,6 +23,7 @@ from app import __version__
 from app.api import (
     routes_analytics,
     routes_assessment,
+    routes_auth,
     routes_courses,
     routes_documents,
     routes_flashcards,
@@ -73,9 +74,13 @@ def create_app(
         openapi_url="/openapi.json",
     )
 
+    # Hosted deployments are served same-origin (the frontend host rewrites
+    # /api/* to this backend), so no cross-origin access is granted at all.
+    # Credentials are allowed only for the desktop origins, which never send
+    # cookies anyway — it keeps a misconfigured origin from carrying a session.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=list(settings.cors_origins),
+        allow_origins=[] if settings.is_hosted else list(settings.cors_origins),
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["content-type", "x-studypilot-token", "authorization"],
@@ -113,6 +118,9 @@ def create_app(
     # --- routes ----------------------------------------------------------
     app.include_router(routes_health.public_router)
     app.include_router(routes_health.router)
+    # Accounts exist only where there is something to sign in to.
+    if settings.is_hosted:
+        app.include_router(routes_auth.router)
     app.include_router(routes_settings.router)
     app.include_router(routes_courses.router)
     app.include_router(routes_documents.router)

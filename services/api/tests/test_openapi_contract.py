@@ -22,7 +22,13 @@ SNAPSHOT = Path(__file__).resolve().parents[3] / "fixtures" / "openapi.json"
 
 
 def current_schema(tmp_path: Path) -> dict:
-    settings = Settings(data_dir=tmp_path / "schema", auth_disabled=True)
+    # Hosted mode, to match the snapshot: it mounts the account routes that the
+    # desktop build omits, so this is the complete API surface.
+    settings = Settings(
+        data_dir=tmp_path / "schema",
+        deployment_mode="hosted",
+        jwt_secret="x" * 48,
+    )
     schema = create_app(settings).openapi()
     schema.get("info", {}).pop("version", None)
     return schema

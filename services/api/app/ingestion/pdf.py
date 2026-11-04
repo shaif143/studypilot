@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import re
 import statistics
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -72,7 +73,8 @@ class ExtractedPage:
     has_equations: bool = False
     has_figures: bool = False
     has_tables: bool = False
-    preview_filename: str = ""
+    #: Storage key of the rendered preview, as returned by the sink.
+    preview_key: str = ""
     #: Set when the page yielded no usable text (e.g. a scanned slide).
     warning: str = ""
 
@@ -140,10 +142,22 @@ def _block_spans(block: dict[str, Any]) -> list[dict[str, Any]]:
     return spans
 
 
+#: Receives (page_number, image bytes, media type) and returns a storage key.
+PreviewSink = Callable[[int, bytes, str], str]
+
+
 def extract_pdf(
-    path: Path, *, max_pages: int, preview_dir: Path | None = None, preview_dpi: int = 110
+    path: Path,
+    *,
+    max_pages: int,
+    preview_sink: PreviewSink | None = None,
+    preview_dpi: int = 110,
 ) -> ExtractedDocument:
     """Extract structure from a PDF file.
+
+    Page previews are handed to ``preview_sink`` one at a time rather than
+    returned, so a long document never holds every rendered image in memory,
+    and so this module needs to know nothing about where they are stored.
 
     Raises :class:`UnreadableDocumentError` only when the file cannot be opened
     as a PDF at all.  Every other problem is recorded as a warning so a partly
@@ -170,7 +184,7 @@ def extract_pdf(
 
         pages: list[ExtractedPage] = []
         for page_index in range(limit):
-            pages.append(_extract_page(document, page_index, preview_dir, preview_dpi, warnings))
+            pages.append(_extract_page(document, page_index, preview_sink, preview_dpi, warnings))
 
         raw_title = (document.metadata or {}).get("title") or ""
         title = raw_title.strip()
@@ -194,7 +208,7 @@ def extract_pdf(
 def _extract_page(
     document: pymupdf.Document,
     page_index: int,
-    preview_dir: Path | None,
+    preview_sink: PreviewSink | None,
     preview_dpi: int,
     warnings: list[str],
 ) -> ExtractedPage:
@@ -278,9 +292,9 @@ def _extract_page(
 
     page_text = "\n\n".join(element.text for element in elements)
 
-    preview_filename = ""
-    if preview_dir is not None:
-        preview_filename = _render_preview(page, page_number, preview_dir, preview_dpi, warnings)
+    preview_key = ""
+    if preview_sink is not None:
+        preview_key = _render_preview(page, page_number, preview_sink, preview_dpi, warnings)
 
     warning = ""
     if not page_text.strip():
@@ -296,7 +310,7 @@ def _extract_page(
         has_equations=any(e.kind == "equation" for e in elements),
         has_figures=figure_count > 0,
         has_tables=any(e.kind == "table" for e in elements),
-        preview_filename=preview_filename,
+        preview_key=preview_key,
         warning=warning,
     )
 
@@ -304,23 +318,26 @@ def _extract_page(
 def _render_preview(
     page: pymupdf.Page,
     page_number: int,
-    preview_dir: Path,
+    sink: PreviewSink,
     dpi: int,
     warnings: list[str],
 ) -> str:
+    """Render one page and hand it to the sink, which returns its storage key.
+
+    A preview is a convenience — the reader draws the real PDF with pdf.js and
+    only falls back to these images — so a rendering or storage failure costs
+    the preview and is recorded, never the page's extracted text.
+    """
     try:
-        preview_dir.mkdir(parents=True, exist_ok=True)
         pixmap = page.get_pixmap(dpi=dpi, alpha=False)
-        filename = f"page-{page_number:04d}.webp"
-        target = preview_dir / filename
         try:
-            target.write_bytes(pixmap.pil_tobytes(format="WEBP", quality=82))
+            data = pixmap.pil_tobytes(format="WEBP", quality=82)
+            media_type = "image/webp"
         except Exception:
             # Pillow is optional; PNG works from PyMuPDF alone.
-            filename = f"page-{page_number:04d}.png"
-            target = preview_dir / filename
-            target.write_bytes(pixmap.tobytes("png"))
-        return filename
-    except Exception as exc:  # pragma: no cover - rendering edge cases
+            data = pixmap.tobytes("png")
+            media_type = "image/png"
+        return sink(page_number, data, media_type)
+    except Exception as exc:
         warnings.append(f"Page {page_number}: preview could not be rendered ({exc}).")
         return ""

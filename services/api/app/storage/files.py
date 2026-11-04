@@ -1,26 +1,104 @@
-"""Content-addressed blob storage for uploaded documents.
+"""Binary storage for uploaded documents and rendered page previews.
 
-Files are stored under the user data directory keyed by SHA-256, which gives
-free de-duplication and makes it impossible for a database row to point at a
-file whose contents have silently changed.
+Two implementations behind one interface:
+
+``LocalBlobStore``
+    Content-addressed files under the user data directory. The desktop default.
+``S3BlobStore``
+    Any S3-compatible object store (AWS S3, Cloudflare R2, Backblaze B2,
+    MinIO). The hosted default, because a serverless or container host has no
+    durable local disk.
+
+Documents are keyed by the SHA-256 of their bytes, which gives free
+de-duplication and makes it impossible for a database row to point at a file
+whose contents have silently changed. Derived assets — page previews — are
+keyed by an explicit path instead, because they are regenerable and belong to
+a particular document rather than to a particular byte sequence.
 """
 
 from __future__ import annotations
 
 import hashlib
+import logging
 import shutil
 import stat
+import tempfile
+from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
+log = logging.getLogger(__name__)
 
-class BlobStore:
-    def __init__(self, root: Path) -> None:
-        self.root = root
-        self.root.mkdir(parents=True, exist_ok=True)
+
+class BlobNotFoundError(KeyError):
+    """The requested object is not in the store."""
+
+
+class BlobStore(ABC):
+    @property
+    @abstractmethod
+    def backend(self) -> str: ...
 
     @staticmethod
     def hash_bytes(data: bytes) -> str:
         return hashlib.sha256(data).hexdigest()
+
+    # --- documents -------------------------------------------------------
+    @abstractmethod
+    def put(self, data: bytes) -> str:
+        """Store bytes, returning their content hash."""
+
+    @abstractmethod
+    def read(self, content_hash: str) -> bytes: ...
+
+    @abstractmethod
+    def exists(self, content_hash: str) -> bool: ...
+
+    @abstractmethod
+    def delete(self, content_hash: str) -> None: ...
+
+    @contextmanager
+    def local_path(self, content_hash: str) -> Iterator[Path]:
+        """Yield a filesystem path to the object.
+
+        PyMuPDF is happiest with a real file. The local store yields its own
+        path directly; a remote store downloads to a temporary file and removes
+        it afterwards, so callers never need to know which is in use.
+        """
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as handle:
+            handle.write(self.read(content_hash))
+            handle.flush()
+            yield Path(handle.name)
+
+    # --- derived assets (page previews) ----------------------------------
+    @abstractmethod
+    def put_asset(self, key: str, data: bytes, content_type: str) -> str:
+        """Store a derived asset under an explicit key; returns that key."""
+
+    @abstractmethod
+    def read_asset(self, key: str) -> bytes: ...
+
+    @abstractmethod
+    def delete_asset_prefix(self, prefix: str) -> None:
+        """Remove every asset whose key starts with ``prefix``."""
+
+    # --- lifecycle -------------------------------------------------------
+    @abstractmethod
+    def clear(self) -> None:
+        """Remove everything. Used by the delete-all-my-data control."""
+
+
+class LocalBlobStore(BlobStore):
+    def __init__(self, root: Path, asset_root: Path | None = None) -> None:
+        self.root = root
+        self.asset_root = asset_root or root.parent / "previews"
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.asset_root.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def backend(self) -> str:
+        return "local"
 
     def path_for(self, content_hash: str) -> Path:
         # Two-level fan-out keeps directory sizes reasonable.
@@ -42,7 +120,17 @@ class BlobStore:
         return content_hash
 
     def read(self, content_hash: str) -> bytes:
-        return self.path_for(content_hash).read_bytes()
+        target = self.path_for(content_hash)
+        if not target.is_file():
+            raise BlobNotFoundError(content_hash)
+        return target.read_bytes()
+
+    @contextmanager
+    def local_path(self, content_hash: str) -> Iterator[Path]:
+        target = self.path_for(content_hash)
+        if not target.is_file():
+            raise BlobNotFoundError(content_hash)
+        yield target
 
     def delete(self, content_hash: str) -> None:
         target = self.path_for(content_hash)
@@ -55,7 +143,162 @@ class BlobStore:
             except OSError:
                 break
 
+    def _asset_path(self, key: str) -> Path:
+        # The key is built from ids we generate, never from user input, but it
+        # is still confined to the asset root so a bad caller cannot escape it.
+        resolved = (self.asset_root / key).resolve()
+        if not resolved.is_relative_to(self.asset_root.resolve()):
+            raise BlobNotFoundError(key)
+        return resolved
+
+    def put_asset(self, key: str, data: bytes, content_type: str) -> str:
+        target = self._asset_path(key)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        return key
+
+    def read_asset(self, key: str) -> bytes:
+        target = self._asset_path(key)
+        if not target.is_file():
+            raise BlobNotFoundError(key)
+        return target.read_bytes()
+
+    def delete_asset_prefix(self, prefix: str) -> None:
+        target = self._asset_path(prefix)
+        if target.is_dir():
+            shutil.rmtree(target, ignore_errors=True)
+        elif target.is_file():
+            target.unlink()
+
     def clear(self) -> None:
-        if self.root.exists():
-            shutil.rmtree(self.root)
-        self.root.mkdir(parents=True, exist_ok=True)
+        for root in (self.root, self.asset_root):
+            if root.exists():
+                shutil.rmtree(root)
+            root.mkdir(parents=True, exist_ok=True)
+
+
+class S3BlobStore(BlobStore):
+    """Any S3-compatible object store.
+
+    ``endpoint_url`` is what makes this work with R2, B2 or MinIO as well as
+    AWS. Credentials come from the environment or the instance role; they are
+    never read from the frontend or stored in the database.
+    """
+
+    DOCUMENT_PREFIX = "documents/"
+    ASSET_PREFIX = "previews/"
+
+    def __init__(
+        self,
+        bucket: str,
+        *,
+        endpoint_url: str | None = None,
+        region: str | None = None,
+        prefix: str = "",
+    ) -> None:
+        try:
+            import boto3
+        except ImportError as exc:  # pragma: no cover - optional extra
+            raise RuntimeError("S3 storage needs boto3. Install the 'hosted' extra.") from exc
+
+        self.bucket = bucket
+        self.prefix = prefix.strip("/") + "/" if prefix.strip("/") else ""
+        self._client = boto3.client(
+            "s3",
+            endpoint_url=endpoint_url or None,
+            region_name=region or None,
+        )
+
+    @property
+    def backend(self) -> str:
+        return "s3"
+
+    def _document_key(self, content_hash: str) -> str:
+        return f"{self.prefix}{self.DOCUMENT_PREFIX}{content_hash}"
+
+    def _asset_key(self, key: str) -> str:
+        return f"{self.prefix}{self.ASSET_PREFIX}{key.lstrip('/')}"
+
+    def put(self, data: bytes) -> str:
+        content_hash = self.hash_bytes(data)
+        if not self.exists(content_hash):
+            self._client.put_object(
+                Bucket=self.bucket,
+                Key=self._document_key(content_hash),
+                Body=data,
+                ContentType="application/pdf",
+            )
+        return content_hash
+
+    def read(self, content_hash: str) -> bytes:
+        try:
+            response = self._client.get_object(
+                Bucket=self.bucket, Key=self._document_key(content_hash)
+            )
+        except self._client.exceptions.NoSuchKey as exc:
+            raise BlobNotFoundError(content_hash) from exc
+        return response["Body"].read()
+
+    def exists(self, content_hash: str) -> bool:
+        try:
+            self._client.head_object(Bucket=self.bucket, Key=self._document_key(content_hash))
+        except Exception:
+            return False
+        return True
+
+    def delete(self, content_hash: str) -> None:
+        self._client.delete_object(Bucket=self.bucket, Key=self._document_key(content_hash))
+
+    def put_asset(self, key: str, data: bytes, content_type: str) -> str:
+        self._client.put_object(
+            Bucket=self.bucket,
+            Key=self._asset_key(key),
+            Body=data,
+            ContentType=content_type,
+        )
+        return key
+
+    def read_asset(self, key: str) -> bytes:
+        try:
+            response = self._client.get_object(Bucket=self.bucket, Key=self._asset_key(key))
+        except self._client.exceptions.NoSuchKey as exc:
+            raise BlobNotFoundError(key) from exc
+        return response["Body"].read()
+
+    def _iter_keys(self, prefix: str) -> Iterator[str]:
+        paginator = self._client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+            for item in page.get("Contents", []):
+                yield item["Key"]
+
+    def _delete_keys(self, prefix: str) -> None:
+        batch: list[dict[str, str]] = []
+        for key in self._iter_keys(prefix):
+            batch.append({"Key": key})
+            # The delete_objects API caps each request at 1000 keys.
+            if len(batch) == 1000:
+                self._client.delete_objects(Bucket=self.bucket, Delete={"Objects": batch})
+                batch = []
+        if batch:
+            self._client.delete_objects(Bucket=self.bucket, Delete={"Objects": batch})
+
+    def delete_asset_prefix(self, prefix: str) -> None:
+        self._delete_keys(self._asset_key(prefix))
+
+    def clear(self) -> None:
+        self._delete_keys(f"{self.prefix}{self.DOCUMENT_PREFIX}")
+        self._delete_keys(f"{self.prefix}{self.ASSET_PREFIX}")
+
+
+def build_blob_store(settings) -> BlobStore:
+    """Build the store the configuration asks for."""
+    if settings.storage_backend == "s3":
+        if not settings.s3_bucket:
+            raise RuntimeError("STUDYPILOT_STORAGE_BACKEND=s3 requires STUDYPILOT_S3_BUCKET.")
+        return S3BlobStore(
+            settings.s3_bucket,
+            endpoint_url=settings.s3_endpoint_url,
+            region=settings.s3_region,
+            prefix=settings.s3_prefix,
+        )
+    return LocalBlobStore(settings.blob_dir, settings.preview_dir)

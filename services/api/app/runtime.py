@@ -15,10 +15,10 @@ from dataclasses import dataclass
 from app.config import Settings
 from app.models.base import EmbeddingProvider
 from app.models.registry import get_embedding_provider
-from app.rag.sparse import SparseIndex
+from app.rag.sparse import SparseIndex, build_sparse_index
 from app.rag.vector_store import VectorStore, build_vector_store
 from app.storage.db import Database
-from app.storage.files import BlobStore
+from app.storage.files import BlobStore, build_blob_store
 
 log = logging.getLogger(__name__)
 
@@ -46,16 +46,27 @@ class RuntimeContext:
         database = database or Database.from_settings(settings)
         database.create_all()
 
+        # Loud, specific, and at boot: a hosted instance on an ephemeral disk
+        # looks perfectly healthy right up until the first upload disappears.
+        for warning in settings.durability_warnings():
+            log.warning("durability_risk", extra={"detail": warning})
+
         embedder = get_embedding_provider(settings)
-        vector_store = build_vector_store(settings.vector_store, settings.vector_dir)
+        vector_store = build_vector_store(
+            settings.vector_store,
+            settings.vector_dir,
+            url=settings.qdrant_url,
+            api_key=settings.qdrant_api_key,
+            database=database,
+        )
         vector_store.ensure_collection(embedder.dimensions)
 
         context = cls(
             settings=settings,
             database=database,
-            blobs=BlobStore(settings.blob_dir),
+            blobs=build_blob_store(settings),
             vector_store=vector_store,
-            sparse_index=SparseIndex(database),
+            sparse_index=build_sparse_index(database),
             embedder=embedder,
         )
         log.info(
@@ -64,7 +75,10 @@ class RuntimeContext:
                 "data_dir": str(settings.data_dir),
                 "vector_backend": vector_store.backend,
                 "embedding_model": embedder.model_id,
-                "sparse_backend": "fts5" if context.sparse_index.use_fts else "python-bm25",
+                "sparse_backend": context.sparse_index.backend,
+                "storage_backend": context.blobs.backend,
+                "database": database.dialect,
+                "mode": settings.deployment_mode,
                 "llm_provider": settings.llm_provider,
             },
         )
@@ -77,7 +91,10 @@ class RuntimeContext:
         return {
             "vector_backend": self.vector_store.backend,
             "vector_count": self.vector_store.count(),
-            "sparse_backend": "fts5" if self.sparse_index.use_fts else "python-bm25",
+            "sparse_backend": self.sparse_index.backend,
+            "storage_backend": self.blobs.backend,
+            "database": self.database.dialect,
+            "deployment_mode": self.settings.deployment_mode,
             "embedding_model": self.embedder.model_id,
             "embedding_dimensions": self.embedder.dimensions,
             "llm_provider": self.settings.llm_provider,

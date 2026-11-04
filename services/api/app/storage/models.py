@@ -59,6 +59,17 @@ class User(Base, TimestampMixin):
     display_name: Mapped[str] = mapped_column(String(256), default="")
     is_local_profile: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    # --- hosted accounts -------------------------------------------------
+    #: Null for the desktop's local profile, which has nothing to sign in to.
+    #: Stored lower-cased so lookups are case-insensitive.
+    email: Mapped[str | None] = mapped_column(String(320), unique=True, default=None)
+    #: Argon2id hash. Never a password, and never logged.
+    password_hash: Mapped[str | None] = mapped_column(String(512), default=None)
+    #: Bumping this invalidates every outstanding session for the user, which
+    #: is what a password change and "sign out everywhere" both need.
+    token_version: Mapped[int] = mapped_column(Integer, default=0)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
     courses: Mapped[list[Course]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )

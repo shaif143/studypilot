@@ -7,7 +7,7 @@ import pytest
 from app.models.embeddings import HashingEmbedder
 from app.rag.fusion import reciprocal_rank_fusion
 from app.rag.retriever import HybridRetriever, classify_query
-from app.rag.sparse import SparseIndex
+from app.rag.sparse import build_sparse_index
 from app.rag.vector_store import NumpyVectorStore, VectorRecord
 from app.storage.repositories import (
     ChunkRepository,
@@ -72,7 +72,7 @@ def _build_retriever(context, session):
         settings=context.settings,
         embedder=context.embedder,
         vector_store=context.vector_store,
-        sparse_index=SparseIndex(context.database),
+        sparse_index=build_sparse_index(context.database),
         chunks=ChunkRepository(session),
         documents=DocumentRepository(session),
     )
@@ -142,7 +142,7 @@ def test_sparse_index_handles_fts_syntax_in_questions(client, indexed_document, 
     """FTS5 operators typed by a student must not break or inject into the query."""
     with context.database.session() as session:
         user = UserRepository(session).ensure_local_profile()
-        index = SparseIndex(context.database)
+        index = build_sparse_index(context.database)
         hits = index.search(session, 'padding OR "NEAR(x y)" AND *', user_id=user.id, limit=5)
     assert isinstance(hits, list)
 

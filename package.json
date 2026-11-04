@@ -28,7 +28,10 @@
     "check": "npm run typecheck && npm run lint && npm run test && npm run api:lint && npm run api:test",
     "build:sidecar": "scripts/build-sidecar.sh",
     "build:dmg": "scripts/make-dmg.sh",
-    "api:schema": ".venv/bin/python scripts/dump-openapi.py"
+    "api:schema": ".venv/bin/python scripts/dump-openapi.py",
+    "api:test:pg": "STUDYPILOT_TEST_DATABASE_URL=postgresql://postgres:studypilot@127.0.0.1:55432/studypilot scripts/api-test.sh",
+    "pg:up": "docker run -d --name studypilot-pg -e POSTGRES_PASSWORD=studypilot -e POSTGRES_DB=studypilot -p 55432:5432 pgvector/pgvector:pg17",
+    "pg:down": "docker rm -f studypilot-pg"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

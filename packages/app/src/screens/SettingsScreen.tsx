@@ -28,6 +28,7 @@ import {
   CloudOff,
   Download,
   Info,
+  LogOut,
   Trash2,
   XCircle,
 } from 'lucide-react';
@@ -37,8 +38,10 @@ import { ErrorPanel, PageBody, PageHeader } from '../components/AppShell';
 import { useApp } from '../context';
 import {
   describeError,
+  useAuthStatus,
   useDeleteAllData,
   useHealth,
+  useLogout,
   useProviders,
   useSettings,
   useUpdateSettings,
@@ -51,6 +54,8 @@ export function SettingsScreen() {
   const health = useHealth();
   const update = useUpdateSettings();
   const deleteAll = useDeleteAllData();
+  const auth = useAuthStatus();
+  const logout = useLogout();
 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -94,6 +99,34 @@ export function SettingsScreen() {
         ) : (
           <div className="max-w-3xl space-y-4">
             {update.error ? <ErrorPanel message={describeError(update.error)} /> : null}
+
+            {/* --- Account (hosted deployments only) ---------------------- */}
+            {auth.data?.requires_authentication ? (
+              <Card>
+                <SectionHeading
+                  title="Account"
+                  description="Your material is private to this account."
+                  action={
+                    <Button
+                      size="sm"
+                      icon={<LogOut size={14} />}
+                      loading={logout.isPending}
+                      onClick={() => void logout.mutateAsync().catch(() => undefined)}
+                    >
+                      Sign out
+                    </Button>
+                  }
+                />
+                {auth.data.account ? (
+                  <p className="mt-2 text-[0.8125rem] text-[var(--text-secondary)]">
+                    Signed in as{' '}
+                    <span className="font-medium text-[var(--text-primary)]">
+                      {auth.data.account.email}
+                    </span>
+                  </p>
+                ) : null}
+              </Card>
+            ) : null}
 
             {/* --- AI providers ------------------------------------------- */}
             <Card>

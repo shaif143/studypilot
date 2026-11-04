@@ -15,8 +15,9 @@ import sys
 from contextlib import suppress
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 APP_NAME = "StudyPilot"
@@ -48,8 +49,26 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # --- Deployment ------------------------------------------------------
+    #: "desktop" keeps the single local profile and local storage. "hosted"
+    #: requires real authentication and refuses to start without a JWT secret.
+    deployment_mode: Literal["desktop", "hosted"] = "desktop"
+
     # --- Paths -----------------------------------------------------------
     data_dir: Path = Field(default_factory=default_data_dir)
+
+    # --- Database --------------------------------------------------------
+    #: A PostgreSQL DSN for hosted deployments. Empty means the local SQLite
+    #: file under ``data_dir``.
+    database_url: str = ""
+
+    # --- Object storage --------------------------------------------------
+    storage_backend: Literal["local", "s3"] = "local"
+    s3_bucket: str = ""
+    #: Set for S3-compatible providers (Cloudflare R2, Backblaze B2, MinIO).
+    s3_endpoint_url: str = ""
+    s3_region: str = ""
+    s3_prefix: str = ""
 
     # --- HTTP ------------------------------------------------------------
     host: str = "127.0.0.1"
@@ -63,11 +82,25 @@ class Settings(BaseSettings):
     )
 
     # --- Authentication --------------------------------------------------
-    #: When provided (desktop sidecar), this token is used verbatim. Otherwise a
-    #: token is generated once and persisted with 0600 permissions.
+    #: Desktop: a shared secret between the Tauri shell and the sidecar. When
+    #: provided it is used verbatim; otherwise one is generated and persisted
+    #: with 0600 permissions. Not used in hosted mode.
     api_token: str | None = None
     #: Disable auth only for unit tests; never for a running application.
     auth_disabled: bool = False
+    #: Hosted mode: signs session tokens. Must be set explicitly — a generated
+    #: default would invalidate every session on each restart and differ
+    #: between instances.
+    jwt_secret: str = ""
+    access_token_hours: int = 24 * 14
+    #: Whether new accounts may be created. Turn off once yours exists.
+    allow_registration: bool = True
+    #: Argon2id parameters. The defaults target roughly 50 ms on a small
+    #: container, which is the usual balance between cost to an attacker and
+    #: latency for a legitimate sign-in.
+    argon2_time_cost: int = 2
+    argon2_memory_kib: int = 64 * 1024
+    argon2_parallelism: int = 2
 
     # --- Upload limits ---------------------------------------------------
     max_upload_bytes: int = 80 * 1024 * 1024
@@ -85,7 +118,12 @@ class Settings(BaseSettings):
     allow_cloud_processing: bool = False
 
     # --- Retrieval -------------------------------------------------------
+    #: "qdrant-local" (embedded, desktop default) | "pgvector" (inside the
+    #: PostgreSQL database, recommended for hosted) | "qdrant-remote" | "numpy"
     vector_store: str = "qdrant-local"
+    #: Required when vector_store is "qdrant-remote".
+    qdrant_url: str = ""
+    qdrant_api_key: str = ""
     retrieval_top_k: int = 8
     retrieval_candidates: int = 40
     #: Minimum fused score for evidence to count toward sufficiency.
@@ -132,6 +170,69 @@ class Settings(BaseSettings):
         # pragma: no cover - chmod can fail on unusual filesystems
         with suppress(OSError):
             self.data_dir.chmod(stat.S_IRWXU)
+
+    @property
+    def is_hosted(self) -> bool:
+        return self.deployment_mode == "hosted"
+
+    @model_validator(mode="after")
+    def _check_hosted_requirements(self) -> Settings:
+        """Refuse to start a hosted deployment without an identity boundary.
+
+        Only the identity requirements are fatal, because getting them wrong is
+        not recoverable: without a signing secret there are no sessions, and
+        with auth disabled every visitor shares one profile and can read
+        everything anyone uploads.
+
+        Storage durability is checked separately, at startup, because the right
+        answer depends on the host — SQLite on a container with a persistent
+        volume is perfectly sound, while the same configuration on a serverless
+        platform loses every upload. That distinction cannot be made from the
+        configuration alone, so it is reported as a warning rather than guessed
+        at here.
+        """
+        if not self.is_hosted:
+            return self
+        problems: list[str] = []
+        if len(self.jwt_secret) < 32:
+            problems.append(
+                "STUDYPILOT_JWT_SECRET must be set to at least 32 characters "
+                "(generate one with: openssl rand -base64 48)"
+            )
+        if self.auth_disabled:
+            problems.append("STUDYPILOT_AUTH_DISABLED must be false in hosted mode")
+        if problems:
+            raise ValueError("Hosted mode is misconfigured: " + "; ".join(problems))
+        return self
+
+    def durability_warnings(self) -> list[str]:
+        """Configuration that will lose data on an ephemeral filesystem.
+
+        Returned rather than raised: these are correct on a host with a
+        persistent volume and fatal on a serverless one.
+        """
+        if not self.is_hosted:
+            return []
+        warnings: list[str] = []
+        if not self.database_url:
+            warnings.append(
+                "Using a local SQLite file. Correct on a host with a persistent "
+                "volume; on a serverless platform every upload will be lost. "
+                "Set STUDYPILOT_DATABASE_URL to use PostgreSQL."
+            )
+        if self.storage_backend == "local":
+            warnings.append(
+                "Uploaded files are being written to local disk. Set "
+                "STUDYPILOT_STORAGE_BACKEND=s3 with STUDYPILOT_S3_BUCKET for "
+                "durable object storage."
+            )
+        if self.vector_store == "qdrant-local":
+            warnings.append(
+                "The vector index is embedded on local disk and cannot be shared "
+                "between instances. Set STUDYPILOT_VECTOR_STORE=pgvector to keep "
+                "it in PostgreSQL, or qdrant-remote with STUDYPILOT_QDRANT_URL."
+            )
+        return warnings
 
     def resolve_api_token(self) -> str:
         """Return the shared secret for the local API, creating it if needed."""

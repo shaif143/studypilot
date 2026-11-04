@@ -19,9 +19,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "services" / "api"))
 
-# Build the schema without touching the user's real data directory.
+# Build the schema without touching the user's real data directory. Hosted
+# mode is used because it exposes the *complete* surface: the account routes
+# are not mounted on the desktop, and the frontend's contract test needs them.
 os.environ.setdefault("STUDYPILOT_DATA_DIR", str(ROOT / ".tmp-openapi"))
-os.environ.setdefault("STUDYPILOT_AUTH_DISABLED", "1")
+os.environ.setdefault("STUDYPILOT_DEPLOYMENT_MODE", "hosted")
+os.environ.setdefault("STUDYPILOT_JWT_SECRET", "x" * 48)
 
 from app.main import create_app
 

@@ -29,8 +29,8 @@ Nothing in the suite needs the network, a model download, or a running server.
 
 | Suite | Tests | Status |
 | --- | --- | --- |
-| Backend (`services/api/tests`) | 100 | ✅ all passing |
-| Frontend (`tests/frontend`) | 79 | ✅ all passing |
+| Backend (`services/api/tests`) | 156 | ✅ all passing (145 + 11 PostgreSQL integration) |
+| Frontend (`tests/frontend`) | 85 | ✅ all passing |
 | ESLint | — | ✅ clean |
 | TypeScript | — | ✅ clean |
 | Ruff lint + format | — | ✅ clean |
@@ -74,6 +74,9 @@ simulate quitting and relaunching.
 | `test_retrieval.py` | RRF agreement and weighting, query classification, embedder determinism and normalisation, **cross-user isolation**, document and course scoping, insufficiency on off-syllabus questions, corrective reformulation, FTS5 syntax in a student's question, deletion removing material from retrieval |
 | `test_learning.py` | That one wrong answer does **not** collapse mastery; that mastery is not claimed without evidence; MCQ being weaker evidence than a written answer; partial credit landing between right and wrong; prerequisite-first recommendations; SM-2 lapse and growth behaviour |
 | `test_assessment.py` | Line-wrap reflow, page-furniture stripping, rejection of morphologically confusable distractors, deterministic generation under a seed, exact MCQ and numeric marking, tolerance behaviour near zero, rubric partial credit, unmarkable answers reported as such |
+| `test_auth.py` | Hosted accounts: registration, sign-in that reveals nothing about which addresses exist, Argon2id hashing and salting, token forgery and `alg:none` rejection, session revocation on password change and sign-out-everywhere, every data route requiring a session, and **isolation between accounts** across listings, documents, previews, retrieval and deletion |
+| `test_cookie_security.py` | The session cookie is HttpOnly and `SameSite=Lax` always, and `Secure` exactly when the request arrived over TLS — including behind a proxy, where only `x-forwarded-proto` records the real scheme |
+| `test_postgres_integration.py` | The hosted data path against **real PostgreSQL**: `tsvector` ranking and scoping, tsquery syntax in a student's question, pgvector similarity and allow-list filtering, dimension-change rebuilds, the full upload-to-quiz workflow, and account isolation. Skipped unless `STUDYPILOT_TEST_DATABASE_URL` is set |
 | `test_supervision.py` | The parent-process watchdog, including an end-to-end test that a watched grandchild exits by itself when its parent is killed — the behaviour the packaged app depends on |
 | `test_openapi_contract.py` | The committed OpenAPI snapshot still matches the live app; `AnswerResponse` keeps its honesty fields; `QuestionOut` never exposes the answer key |
 | `test_security.py` | Auth required on every route, token file permissions, repository-level ownership, 404-not-403 for another user's rows, **path traversal** on previews, disguised uploads, size limits, the two-part consent gate, provider egress declarations, privacy defaults all off, prompt-injection containment, **fabricated citation markers being stripped**, ungrounded LLM questions rejected, export and delete-everything, webcam attention refused, log redaction |
@@ -128,7 +131,10 @@ Recorded because they justify the tests existing.
    marked as containing mathematics.
 5. **The token file created lazily**, after the dev proxy had already tried to
    read it — every request 401'd on a fresh install.
-6. **An orphaned backend after quitting the packaged app.** Found by launching
+6. **`sslmode=require` forced onto every DSN**, including loopback, so a local
+   PostgreSQL refused every connection. Found only by running the integration
+   tests against a real database; TLS is now required for remote hosts only.
+7. **An orphaned backend after quitting the packaged app.** Found by launching
    the built `.app` and checking the process table, not by a test. Tauri kills
    its direct child, but a one-file PyInstaller build forks a worker that
    survived — still serving on its port with the database open. Fixed with a
@@ -161,6 +167,9 @@ Stated plainly rather than implied by omission.
   `npm run test:e2e` is wired, but no specs are written. The browser paths —
   upload through the real file picker, pdf.js canvas rendering, drag-to-resize,
   keyboard navigation — were verified by hand, not automatically.
+- **Object storage is not integration-tested.** `S3BlobStore` is exercised
+  through its interface but never against a real bucket; only `LocalBlobStore`
+  runs in the suite. MinIO in Docker would close this.
 - **No Rust tests.** The Tauri shell's port reservation, token generation,
   readiness polling and shutdown were verified by building and running the app,
   not by `cargo test`.

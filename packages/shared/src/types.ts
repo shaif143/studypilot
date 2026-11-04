@@ -441,6 +441,20 @@ export interface AttentionReport {
   note: string;
 }
 
+export interface Account {
+  id: string;
+  email: string;
+  display_name: string;
+}
+
+export interface AuthStatus {
+  authenticated: boolean;
+  /** False on the desktop, where there is nothing to sign in to. */
+  requires_authentication: boolean;
+  registration_open: boolean;
+  account: Account | null;
+}
+
 export interface HealthResponse {
   status: 'ok';
   version: string;
@@ -448,6 +462,9 @@ export interface HealthResponse {
     vector_backend: string;
     vector_count: number;
     sparse_backend: string;
+    storage_backend: string;
+    database: string;
+    deployment_mode: 'desktop' | 'hosted';
     embedding_model: string;
     embedding_dimensions: number;
     llm_provider: string;

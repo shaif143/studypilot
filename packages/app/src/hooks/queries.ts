@@ -8,6 +8,7 @@
  */
 import { ApiError } from '@studypilot/api-client';
 import type {
+  AuthStatus,
   AnswerResponse,
   AskRequest,
   Assessment,
@@ -41,6 +42,7 @@ import {
 import { useClient } from '../context';
 
 export const keys = {
+  auth: ['auth'] as const,
   health: ['health'] as const,
   providers: ['providers'] as const,
   settings: ['settings'] as const,
@@ -75,6 +77,58 @@ const PROGRESS_KEYS = [
   ['recommendations'],
   ['flashcards'],
 ] as const;
+
+export function useAuthStatus() {
+  const client = useClient();
+  return useQuery<AuthStatus>({
+    queryKey: keys.auth,
+    queryFn: () => client.authStatus(),
+    // The gate renders off this; never serve it stale after a sign-in or out.
+    staleTime: 0,
+    retry: 1,
+  });
+}
+
+export function useLogin() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ email, password }: { email: string; password: string }) =>
+      client.login(email, password),
+    onSuccess: () => {
+      // Everything cached belonged to the previous (signed-out) state.
+      queryClient.clear();
+    },
+  });
+}
+
+export function useRegister() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      email,
+      password,
+      displayName,
+    }: {
+      email: string;
+      password: string;
+      displayName?: string;
+    }) => client.register(email, password, displayName ?? ''),
+    onSuccess: () => queryClient.clear(),
+  });
+}
+
+export function useLogout() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => client.logout(),
+    // Clear on settle, not just success: if the call fails the local cache
+    // must still be dropped rather than left showing another account's data.
+    onSettled: () => queryClient.clear(),
+  });
+}
 
 export function useHealth() {
   const client = useClient();

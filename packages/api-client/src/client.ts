@@ -1,7 +1,9 @@
 import type {
+  Account,
   AnswerResponse,
   Assessment,
   AskRequest,
+  AuthStatus,
   AttemptResult,
   AttentionReport,
   Course,
@@ -93,6 +95,10 @@ export class StudyPilotClient {
         headers,
         body: form ?? (body === undefined ? undefined : JSON.stringify(body)),
         signal,
+        // Hosted deployments authenticate with a session cookie and are served
+        // same-origin (the frontend host rewrites /api/* to the backend), so
+        // same-origin is both sufficient and the tighter of the two options.
+        credentials: 'same-origin',
       });
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === 'AbortError') throw cause;
@@ -138,6 +144,52 @@ export class StudyPilotClient {
   /** Unauthenticated liveness probe; used while the sidecar is starting. */
   liveness = () => this.request<{ status: string; version: string }>('/healthz');
   providers = () => this.request<ProvidersResponse>('/api/providers');
+
+  // --- accounts (hosted deployments only) ------------------------------
+  /**
+   * Ask whether this deployment needs a sign-in, and whether we have one.
+   *
+   * The desktop backend does not mount these routes at all, so a 404 is the
+   * correct, expected answer there and means "no accounts, carry on".
+   */
+  authStatus = async (): Promise<AuthStatus> => {
+    try {
+      return await this.request<AuthStatus>('/api/auth/status');
+    } catch (error) {
+      if (error instanceof ApiError && error.isNotFound) {
+        return {
+          authenticated: true,
+          requires_authentication: false,
+          registration_open: false,
+          account: null,
+        };
+      }
+      throw error;
+    }
+  };
+
+  register = (email: string, password: string, displayName = '') =>
+    this.request<Account>('/api/auth/register', {
+      method: 'POST',
+      body: { email, password, display_name: displayName },
+    });
+
+  login = (email: string, password: string) =>
+    this.request<Account>('/api/auth/login', {
+      method: 'POST',
+      body: { email, password },
+    });
+
+  logout = () => this.request<void>('/api/auth/logout', { method: 'POST' });
+
+  logoutEverywhere = () =>
+    this.request<void>('/api/auth/logout-everywhere', { method: 'POST' });
+
+  changePassword = (currentPassword: string, newPassword: string) =>
+    this.request<void>('/api/auth/change-password', {
+      method: 'POST',
+      body: { current_password: currentPassword, new_password: newPassword },
+    });
 
   // --- settings --------------------------------------------------------
   settings = () => this.request<UserSettings>('/api/settings');

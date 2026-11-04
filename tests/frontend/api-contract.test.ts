@@ -78,6 +78,12 @@ describe('API contract', () => {
   }
 
   it.each([
+    ['authStatus', () => client.authStatus()],
+    ['register', () => client.register('a@b.co', 'a-good-long-passphrase')],
+    ['login', () => client.login('a@b.co', 'a-good-long-passphrase')],
+    ['logout', () => client.logout()],
+    ['logoutEverywhere', () => client.logoutEverywhere()],
+    ['changePassword', () => client.changePassword('old-passphrase', 'new-passphrase')],
     ['health', () => client.health()],
     ['liveness', () => client.liveness()],
     ['providers', () => client.providers()],

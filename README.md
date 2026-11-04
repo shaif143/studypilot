@@ -33,11 +33,14 @@ This is an honest list. Everything marked ✅ was built, run and tested; see
 | Socratic assignment coaching | ✅ Progressive hints, per-course integrity policy |
 | Privacy controls | ✅ Export, delete-everything, per-feature consent, all off by default |
 | macOS packaging | ✅ ARM64 sidecar + `.app` / `.dmg` |
+| Hosted deployment | ✅ PostgreSQL + pgvector, S3 storage, accounts — see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |
+| Account authentication | ✅ Argon2id, session cookies, per-account isolation |
 | PPTX import | ❌ Declined with a clear message; export as PDF |
 | Camera-based attention tracking | ❌ Interface and simulated data only — see [`docs/PRIVACY.md`](docs/PRIVACY.md) |
 | Federated learning | ❌ Design only — see [`research/federated_learning/`](research/federated_learning/) |
 | Knowledge graph / Graph RAG | ❌ Schema supports prerequisites; no graph store |
-| Cloud sync, accounts, notarised distribution | ❌ Not started |
+| Cross-device sync | ❌ Not started — and not implied anywhere in the UI |
+| Notarised distribution | ❌ Needs signing credentials |
 
 ### About the default "no AI model" mode
 
@@ -113,8 +116,14 @@ credentials are configured.
 npm run check
 ```
 
-Runs the TypeScript typecheck, ESLint, 79 frontend unit tests, Ruff, and 100
-backend tests. Individually:
+Runs the TypeScript typecheck, ESLint, 85 frontend unit tests, Ruff, and 145
+backend tests. The 11 PostgreSQL integration tests need a database:
+
+```bash
+npm run pg:up && npm run api:test:pg
+```
+
+Individually:
 
 ```bash
 npm run typecheck && npm run lint && npm test && npm run api:lint && npm run api:test
@@ -164,6 +173,7 @@ supplying the API address and credential.
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Milestone checklist: done, experimental, planned |
 | [`docs/PRIVACY.md`](docs/PRIVACY.md) | Data flows, what leaves the device, what does not |
 | [`docs/TESTING.md`](docs/TESTING.md) | What is tested, what is not, how to run it |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Hosting the website and API, with a security checklist |
 
 ## Licence
 

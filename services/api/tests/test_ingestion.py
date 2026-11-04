@@ -16,7 +16,7 @@ def test_extracts_pages_text_and_headings(sample_pdf_bytes: bytes, tmp_path: Pat
     source = tmp_path / "lecture.pdf"
     source.write_bytes(sample_pdf_bytes)
 
-    document = extract_pdf(source, max_pages=50, preview_dir=tmp_path / "previews")
+    document = extract_pdf(source, max_pages=50)
 
     assert document.page_count == 9
     assert document.text_pages == 9
@@ -31,7 +31,7 @@ def test_extracts_pages_text_and_headings(sample_pdf_bytes: bytes, tmp_path: Pat
 def test_preserves_bounding_boxes_for_citations(sample_pdf_bytes: bytes, tmp_path: Path):
     source = tmp_path / "lecture.pdf"
     source.write_bytes(sample_pdf_bytes)
-    document = extract_pdf(source, max_pages=50, preview_dir=None)
+    document = extract_pdf(source, max_pages=50)
 
     page = document.pages[3]
     assert page.elements, "expected extracted elements"
@@ -43,19 +43,43 @@ def test_preserves_bounding_boxes_for_citations(sample_pdf_bytes: bytes, tmp_pat
 
 
 def test_renders_page_previews(sample_pdf_bytes: bytes, tmp_path: Path):
+    """Previews go to the sink one at a time, never held in memory together."""
     source = tmp_path / "lecture.pdf"
     source.write_bytes(sample_pdf_bytes)
-    previews = tmp_path / "previews"
-    document = extract_pdf(source, max_pages=50, preview_dir=previews)
 
-    assert document.pages[0].preview_filename
-    assert (previews / document.pages[0].preview_filename).is_file()
+    captured: list[tuple[int, int, str]] = []
+
+    def sink(page_number: int, data: bytes, media_type: str) -> str:
+        captured.append((page_number, len(data), media_type))
+        return f"doc/page-{page_number:04d}"
+
+    document = extract_pdf(source, max_pages=50, preview_sink=sink)
+
+    assert [page for page, _, _ in captured] == list(range(1, 10))
+    assert all(size > 500 for _, size, _ in captured)
+    assert all(media_type.startswith("image/") for _, _, media_type in captured)
+    assert document.pages[0].preview_key == "doc/page-0001"
+
+
+def test_extraction_survives_a_failing_preview_sink(sample_pdf_bytes: bytes, tmp_path: Path):
+    """A storage failure must cost the preview, not the page's text."""
+    source = tmp_path / "lecture.pdf"
+    source.write_bytes(sample_pdf_bytes)
+
+    def broken(_page: int, _data: bytes, _media_type: str) -> str:
+        raise RuntimeError("object store unavailable")
+
+    document = extract_pdf(source, max_pages=3, preview_sink=broken)
+
+    assert document.text_pages == 3
+    assert all(page.preview_key == "" for page in document.pages)
+    assert any("preview could not be rendered" in warning for warning in document.warnings)
 
 
 def test_detects_equations(sample_pdf_bytes: bytes, tmp_path: Path):
     source = tmp_path / "lecture.pdf"
     source.write_bytes(sample_pdf_bytes)
-    document = extract_pdf(source, max_pages=50, preview_dir=None)
+    document = extract_pdf(source, max_pages=50)
     assert any(page.has_equations for page in document.pages)
 
 
@@ -69,7 +93,7 @@ def test_rejects_non_pdf(tmp_path: Path):
 def test_page_limit_is_reported_not_silent(sample_pdf_bytes: bytes, tmp_path: Path):
     source = tmp_path / "lecture.pdf"
     source.write_bytes(sample_pdf_bytes)
-    document = extract_pdf(source, max_pages=3, preview_dir=None)
+    document = extract_pdf(source, max_pages=3)
     assert document.page_count == 3
     assert any("page limit" in warning for warning in document.warnings)
 
@@ -93,7 +117,7 @@ def test_upload_size_limit(settings):
 def test_topics_group_consecutive_pages(sample_pdf_bytes: bytes, tmp_path: Path):
     source = tmp_path / "lecture.pdf"
     source.write_bytes(sample_pdf_bytes)
-    document = extract_pdf(source, max_pages=50, preview_dir=None)
+    document = extract_pdf(source, max_pages=50)
 
     topics = detect_topics(document.pages, fallback_title="CNNs")
     slugs = {topic.slug for topic in topics}
@@ -112,7 +136,7 @@ def test_heading_normalisation():
 def test_chunking_produces_parents_and_children(sample_pdf_bytes: bytes, tmp_path: Path):
     source = tmp_path / "lecture.pdf"
     source.write_bytes(sample_pdf_bytes)
-    document = extract_pdf(source, max_pages=50, preview_dir=None)
+    document = extract_pdf(source, max_pages=50)
 
     chunks = build_chunks(document.pages, child_chars=400, child_overlap=50)
     parents = [chunk for chunk in chunks if chunk.level == "parent"]

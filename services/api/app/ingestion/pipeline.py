@@ -28,6 +28,7 @@ from app.ingestion.topics import (
 from app.models.base import EmbeddingProvider
 from app.rag.sparse import SparseIndex
 from app.rag.vector_store import VectorRecord, VectorStore
+from app.storage.files import BlobStore
 from app.storage.models import Chunk, Document, Page
 from app.storage.repositories import ChunkRepository, DocumentRepository, TopicRepository
 
@@ -79,8 +80,8 @@ def validate_upload(filename: str, data: bytes, settings: Settings) -> str:
 def ingest_document(
     *,
     document: Document,
-    source_path: Path,
     settings: Settings,
+    blobs: BlobStore,
     embedder: EmbeddingProvider,
     vector_store: VectorStore,
     sparse_index: SparseIndex,
@@ -92,11 +93,19 @@ def ingest_document(
     started = time.monotonic()
     documents.set_status(document, "processing", "Reading the document")
 
-    preview_dir = settings.preview_dir / document.id
+    def store_preview(page_number: int, data: bytes, media_type: str) -> str:
+        suffix = "webp" if media_type.endswith("webp") else "png"
+        return blobs.put_asset(f"{document.id}/page-{page_number:04d}.{suffix}", data, media_type)
+
     try:
-        extracted: ExtractedDocument = extract_pdf(
-            source_path, max_pages=settings.max_pdf_pages, preview_dir=preview_dir
-        )
+        # The store yields a real file: PyMuPDF wants a path, and a remote
+        # store downloads to a temporary one that is cleaned up on exit.
+        with blobs.local_path(document.content_hash) as source_path:
+            extracted: ExtractedDocument = extract_pdf(
+                source_path,
+                max_pages=settings.max_pdf_pages,
+                preview_sink=store_preview,
+            )
     except UnreadableDocumentError as exc:
         documents.set_status(document, "failed", str(exc))
         return IngestionResult(
@@ -120,11 +129,7 @@ def ingest_document(
                 text=extracted_page.text,
                 width=extracted_page.width,
                 height=extracted_page.height,
-                preview_path=(
-                    f"{document.id}/{extracted_page.preview_filename}"
-                    if extracted_page.preview_filename
-                    else ""
-                ),
+                preview_path=extracted_page.preview_key,
                 elements=[element.to_dict() for element in extracted_page.elements],
                 has_equations=extracted_page.has_equations,
                 has_figures=extracted_page.has_figures,

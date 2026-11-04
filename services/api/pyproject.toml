@@ -18,12 +18,26 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Everything a hosted deployment needs that the desktop build does not:
+# PostgreSQL, object storage, and account authentication.
+hosted = [
+  "psycopg[binary]>=3.2",
+  "boto3>=1.35",
+  "argon2-cffi>=23.1",
+  "pyjwt>=2.9",
+]
 # Static distilled embeddings: ~30 MB, CPU-only, no PyTorch. Recommended.
 local-models = ["model2vec>=0.3"]
 # Full transformer encoders. Best local quality, ~1 GB install.
 strong-models = ["sentence-transformers>=3.0"]
 dev = [
   "pytest>=8.3",
+  # The hosted extras are dev dependencies too: the auth and storage tests
+  # exercise them regardless of which mode is being built.
+  "psycopg[binary]>=3.2",
+  "boto3>=1.35",
+  "argon2-cffi>=23.1",
+  "pyjwt>=2.9",
   "pytest-cov>=5.0",
   "ruff>=0.7",
   "pyinstaller>=6.11",
