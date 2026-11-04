@@ -36,9 +36,14 @@ it up. Section 3 compares the two.
 | --- | --- |
 | Website | <https://studypilot-swart-theta.vercel.app> (Vercel) |
 | API | <https://studypilot-api-rvmt.onrender.com> (Render, free plan) |
-| Database, vector and full-text index | Neon, project `restless-rain-56302666`, branch `production` |
+| Database, vector and full-text index | Neon, project `tiny-art-03416162` (`aws-eu-central-1`), branch `main` |
 | Identity | Neon Auth on the same branch |
-| Object storage | **not configured** — uploads are on the container's disk |
+| Object storage | Neon Object Storage, bucket `studypilot-files`, on the same branch |
+
+The Neon project is in Frankfurt rather than London because object storage
+does not exist in `aws-eu-west-2`; it also puts the database in the same
+region as the Render service. The original project, `restless-rain-56302666`,
+is superseded.
 
 Render appends a suffix when the service name is taken, which is where
 `-rvmt` comes from; yours will differ.
@@ -490,54 +495,70 @@ If any value is wrong, that is the problem:
 | `reachable but not writable` | The R2 token is read-only. It needs Object Read **and** Write. |
 | `configuration_risk` | Something is still on the container's disk, or the identity provider cannot work with the origins configured. Named in the message. |
 
-## Adding object storage (Cloudflare R2)
+## Adding object storage
 
 Until this is done, uploaded PDFs live on the container's own disk and a free
 instance wipes it whenever it sleeps. This is the step that makes uploads
 durable.
 
-Neon Object Storage would be simpler, but it does not exist in every region —
-`aws-eu-west-2` is one of the ones without it — so R2 is the fallback. Any
-S3-compatible provider works the same way.
+### Neon Object Storage (what this deployment uses)
 
-### 1. Create the bucket and a token
+It comes from the same project as the database, branches with it, and the
+free plan includes 5 GB — so there is no second provider to sign up for and
+no payment method to add. The catch is regional: it exists only in
+`aws-eu-central-1`, `aws-us-east-1`, `aws-us-east-2` and
+`aws-ap-southeast-1`. A project elsewhere answers
 
-In the Cloudflare dashboard: **R2 → Create bucket**, give it a name, and pick
-a location. Then **Manage R2 API Tokens → Create API token**, scoped to
-**Object Read & Write** on that bucket alone — not account-wide. Cloudflare
-shows the secret access key once; copy it then.
+```text
+ERROR: platform branchable-storage is not available in this region
+```
 
-You now have four things: the bucket name, the access key ID, the secret
-access key, and the S3 endpoint, which Cloudflare shows on the bucket's
-settings page as `https://<account-id>.r2.cloudflarestorage.com`.
+and a bucket cannot be placed in a different region from its branch — it
+belongs to the branch. If your project is in the wrong region the choice is
+to recreate it in a supported one, or use an external provider.
 
-### 2. Set five variables on the API
+Declare the bucket in `neon.ts` and deploy:
 
-In the Render dashboard, **Environment** on the service, then redeploy:
+```bash
+neon config add bucket studypilot-files
+```
+
+```bash
+neon deploy
+```
+
+`neon deploy` writes `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`
+and `AWS_SECRET_ACCESS_KEY` into `.env.local` — the access key is a
+storage-scoped Neon credential, not an account-wide one. Set those four on
+the API along with:
 
 ```bash
 STUDYPILOT_STORAGE_BACKEND=s3
-STUDYPILOT_S3_BUCKET=<your bucket name>
-AWS_ENDPOINT_URL_S3=https://<account-id>.r2.cloudflarestorage.com
-AWS_ACCESS_KEY_ID=<access key id>
-AWS_SECRET_ACCESS_KEY=<secret access key>
-AWS_REGION=auto
+STUDYPILOT_S3_BUCKET=studypilot-files
 ```
 
-`AWS_REGION=auto` is right for R2: it ignores the region, but boto3 insists on
-having one. The endpoint carries no bucket name — the bucket is addressed
-path-style, which is pinned in code rather than negotiated.
+### Cloudflare R2, or any other S3 provider
 
-### 3. Check the deploy log
+Create the bucket, then an API token scoped to **Object Read & Write on that
+bucket alone**. The same six variables apply; the endpoint is
+`https://<account-id>.r2.cloudflarestorage.com` and `AWS_REGION=auto`,
+because R2 ignores the region but boto3 insists on having one.
+
+Worth knowing before you choose: R2's free tier is larger (10 GB) but
+Cloudflare requires a payment method on the account to enable R2 at all, and
+usage is not capped, so going over the allowance is billable.
+
+### Checking it worked
 
 The service writes and deletes a probe object at startup and **refuses to
 start if that fails**, so a wrong bucket, a mistyped endpoint or a read-only
 token shows up in the deploy log rather than on your first upload. A correct
-start says `"storage_backend": "s3"` on the `runtime_ready` line, and the
-local-disk `configuration_risk` warning disappears.
+start says `"storage_backend": "s3"` on the `runtime_ready` line and emits no
+`configuration_risk` warnings at all.
 
-Afterwards the bucket should contain a content-addressed PDF under
-`documents/` and one PNG per page under `previews/<document-id>/`.
+After one upload the bucket holds a content-addressed PDF under `documents/`
+and one PNG per page under `previews/<document-id>/`. Deleting the document
+through the application removes both.
 
 ### What happens to documents uploaded before the switch
 
