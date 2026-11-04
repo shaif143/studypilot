@@ -116,6 +116,17 @@ function AuthGate({ children }: { children: ReactNode }) {
           <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-[var(--text-secondary)]">
             {describeError(status.error)}
           </p>
+          {/*
+            This gate is the first thing a deployment hits, so it is also what
+            a site with no API behind it shows. Saying which three services are
+            missing is more use than the bare transport error, and the
+            dashboard that used to carry this copy no longer renders at all.
+          */}
+          <p className="mt-2 text-[0.75rem] leading-relaxed text-[var(--text-muted)]">
+            If this is a fresh deployment, the interface is served but the API it talks to has not
+            been configured yet. See <code>docs/DEPLOYMENT.md</code> for the three services it
+            needs.
+          </p>
           <Button className="mt-3" onClick={() => void status.refetch()}>
             Try again
           </Button>
