@@ -47,19 +47,31 @@ person's course material.
 
 | Need | Suggested | Why |
 | --- | --- | --- |
-| PostgreSQL **with pgvector** | [Neon](https://neon.tech), Supabase, or Railway Postgres | Holds everything: rows, full-text index, *and* the vector index |
-| Object storage | [Cloudflare R2](https://developers.cloudflare.com/r2/), Backblaze B2, or AWS S3 | Uploaded PDFs and rendered page previews |
-| Container host | [Railway](https://railway.app), [Render](https://render.com), or [Fly.io](https://fly.io) | Runs `services/api/Dockerfile` |
+| PostgreSQL **with a vector extension** | [Neon](https://neon.tech) | Holds everything: rows, full-text index, *and* the vector index |
+| Object storage | **Neon Object Storage** (same project), or [Cloudflare R2](https://developers.cloudflare.com/r2/) / Backblaze B2 / AWS S3 | Uploaded PDFs and rendered page previews |
+| Container host | [Render](https://render.com), [Railway](https://railway.app), or [Fly.io](https://fly.io) | Runs `services/api/Dockerfile` |
 
-pgvector is why there is no fourth service. The vector index lives inside the
-same Postgres database as everything else, so there is no separate search
-cluster to provision, pay for or keep in sync. Enable it once:
+Neon provides both the database and S3-compatible object storage from one
+project, so this is two sign-ups rather than three. Its storage is available
+in `aws-us-east-1`, `aws-us-east-2`, `aws-eu-central-1` and
+`aws-ap-southeast-1` — create the project in one of those.
+
+pgvector is why there is no separate search service: the vector index lives
+inside the same database as everything else.
+
+Providers differ in how they spell it, so the application probes rather than
+assumes — Neon ships `lakebase_vector` (which installs pgvector) and indexes
+with `lakebase_ann`; everywhere else ships `vector` and indexes with `hnsw`.
+The query syntax is identical either way, and a provider with neither index
+still works correctly, just by sequential scan.
+
+It enables the extension itself at startup if the role is permitted. If the
+log says it could not, run whichever your provider supports:
 
 ```sql
-CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS lakebase_vector CASCADE;  -- Neon
+CREATE EXTENSION IF NOT EXISTS vector;                   -- elsewhere
 ```
-
-(The application does this itself at startup if the role is permitted to.)
 
 ## 2. Deploy the API
 
@@ -78,8 +90,11 @@ STUDYPILOT_DATABASE_URL=<your postgres DSN>
 STUDYPILOT_VECTOR_STORE=pgvector
 STUDYPILOT_STORAGE_BACKEND=s3
 STUDYPILOT_S3_BUCKET=<bucket>
-STUDYPILOT_S3_ENDPOINT_URL=<for R2/B2; omit for AWS>
-STUDYPILOT_S3_REGION=auto
+
+# Neon prints these four with `neon env pull`; paste them as-is. The code
+# reads the AWS-standard names, so nothing needs renaming.
+AWS_ENDPOINT_URL_S3=<bucket endpoint>
+AWS_REGION=<e.g. us-east-2, or "auto" for R2>
 AWS_ACCESS_KEY_ID=<key>
 AWS_SECRET_ACCESS_KEY=<secret>
 ```

@@ -29,7 +29,7 @@ Nothing in the suite needs the network, a model download, or a running server.
 
 | Suite | Tests | Status |
 | --- | --- | --- |
-| Backend (`services/api/tests`) | 186 | ✅ all passing (175 + 11 PostgreSQL integration) |
+| Backend (`services/api/tests`) | 188 | ✅ all passing (175 + 13 PostgreSQL integration) |
 | Frontend (`tests/frontend`) | 85 | ✅ all passing |
 | ESLint | — | ✅ clean |
 | TypeScript | — | ✅ clean |

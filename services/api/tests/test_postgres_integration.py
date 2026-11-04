@@ -149,6 +149,64 @@ def test_pgvector_ranks_by_similarity_and_respects_the_allow_list(pg_database: D
     assert store.search(embedder.embed_query("anything"), limit=3, allowed_chunk_ids=set()) == []
 
 
+def test_pgvector_falls_back_across_providers(pg_database: Database):
+    """Neon and standard PostgreSQL offer different extensions and index types.
+
+    Neon ships ``lakebase_vector`` / ``lakebase_ann``; everyone else ships
+    ``pgvector`` / ``hnsw``. The query syntax is identical, so only setup has
+    to adapt — and it must adapt rather than assume, or the store fails to
+    initialise on one of the two.
+    """
+    from sqlalchemy import text
+
+    store = PgVectorStore(pg_database)
+    store.ensure_collection(HashingEmbedder().dimensions)
+
+    # This container is stock pgvector, so the Neon-specific names must have
+    # been tried and fallen back from.
+    assert store.index_method in {"hnsw", "lakebase_ann"}
+
+    with pg_database.engine.connect() as conn:
+        indexes = dict(
+            conn.execute(
+                text("SELECT indexname, indexdef FROM pg_indexes WHERE tablename='chunk_vectors'")
+            ).all()
+        )
+    assert "ix_chunk_vectors_embedding" in indexes
+    assert store.index_method in indexes["ix_chunk_vectors_embedding"]
+    # The scope index must exist too: it is what makes the access-control
+    # filter cheap rather than a full scan.
+    assert "ix_chunk_vectors_scope" in indexes
+
+
+def test_pgvector_still_works_without_any_index(pg_database: Database):
+    """Correctness must not depend on the approximate index, only speed."""
+    from sqlalchemy import text
+
+    embedder = HashingEmbedder()
+    store = PgVectorStore(pg_database)
+    store.ensure_collection(embedder.dimensions)
+    store.upsert(
+        [
+            VectorRecord(
+                chunk_id="padding",
+                vector=embedder.embed_query("Padding adds a border of zeros."),
+                payload={},
+            ),
+            VectorRecord(
+                chunk_id="lisbon",
+                vector=embedder.embed_query("Lisbon is the capital of Portugal."),
+                payload={},
+            ),
+        ]
+    )
+    with pg_database.engine.begin() as conn:
+        conn.execute(text("DROP INDEX IF EXISTS ix_chunk_vectors_embedding"))
+
+    hits = store.search(embedder.embed_query("padding border zeros"), limit=2)
+    assert hits[0].chunk_id == "padding"
+
+
 def test_pgvector_upsert_is_idempotent(pg_database: Database):
     embedder = HashingEmbedder()
     store = PgVectorStore(pg_database)

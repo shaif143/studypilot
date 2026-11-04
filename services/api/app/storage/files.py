@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import shutil
 import stat
 import tempfile
@@ -223,7 +224,11 @@ class S3BlobStore(BlobStore):
             raise RuntimeError("S3 storage needs boto3. Install the 'hosted' extra.") from exc
 
         self.bucket = bucket
-        self.endpoint_url = endpoint_url or ""
+        # Neon Object Storage injects the AWS-standard variables rather than
+        # ours, so fall back to them. That makes `neon env pull` output work
+        # as-is, with no provider-specific settings to copy across.
+        self.endpoint_url = endpoint_url or os.environ.get("AWS_ENDPOINT_URL_S3", "")
+        region = region or os.environ.get("AWS_REGION", "")
         self.prefix = prefix.strip("/") + "/" if prefix.strip("/") else ""
 
         # boto3 1.36 began sending `x-amz-checksum-crc32` on every upload by
@@ -234,6 +239,11 @@ class S3BlobStore(BlobStore):
         # S3 itself did until then, so this costs nothing against real S3.
         options: dict[str, Any] = {
             "retries": {"max_attempts": 3, "mode": "standard"},
+            # Neon Object Storage accepts path-style addressing only, and R2
+            # and MinIO both prefer it. boto3's "auto" default picks
+            # virtual-hosted style against a custom endpoint, which those
+            # providers reject — so it is pinned rather than negotiated.
+            "s3": {"addressing_style": "path"},
         }
         for option in ("request_checksum_calculation", "response_checksum_validation"):
             # Guard on support so an older botocore does not fail to construct.
@@ -241,7 +251,7 @@ class S3BlobStore(BlobStore):
                 options[option] = "when_required"
         self._client = boto3.client(
             "s3",
-            endpoint_url=endpoint_url or None,
+            endpoint_url=self.endpoint_url or None,
             region_name=region or None,
             config=Config(**options),
         )

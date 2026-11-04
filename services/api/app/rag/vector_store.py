@@ -279,19 +279,87 @@ class PgVectorStore(VectorStore):
     scope filter runs in the same query as the similarity search rather than
     as an allow-list shipped to another system.
 
-    An HNSW index gives approximate search; it is built once the table exists
-    and is what keeps queries fast as a corpus grows.
+    An approximate index keeps queries fast as a corpus grows. Which one is
+    available depends on the provider, so both the extension and the index
+    access method are probed rather than assumed:
+
+    * Neon ships ``lakebase_vector`` (which installs pgvector via ``CASCADE``)
+      and indexes with ``lakebase_ann``.
+    * Everyone else ships plain ``pgvector`` and indexes with ``hnsw``.
+
+    The *query* syntax is identical either way — same ``vector`` type, same
+    ``<=>`` cosine operator — so only setup differs, and a provider with
+    neither index still works correctly by sequential scan.
     """
 
     TABLE = "chunk_vectors"
 
+    #: Tried in order; the first that succeeds wins.
+    EXTENSIONS = ("lakebase_vector CASCADE", "vector")
+    INDEX_METHODS = ("lakebase_ann", "hnsw")
+
     def __init__(self, database: Database) -> None:
         self.database = database
         self._dimensions = 0
+        self.index_method = ""
 
     @property
     def backend(self) -> str:
         return "pgvector"
+
+    def _create_extension(self) -> str:
+        """Enable a pgvector-compatible extension; returns the one that worked.
+
+        Each attempt needs its own transaction: a failed ``CREATE EXTENSION``
+        aborts the surrounding one, so a shared transaction would poison every
+        later statement.
+        """
+        from sqlalchemy import text as sql_text
+
+        errors: list[str] = []
+        for extension in self.EXTENSIONS:
+            try:
+                with self.database.engine.begin() as conn:
+                    conn.execute(sql_text(f"CREATE EXTENSION IF NOT EXISTS {extension}"))
+                return extension.split()[0]
+            except Exception as exc:
+                errors.append(f"{extension}: {exc}")
+        raise RuntimeError(
+            "No pgvector-compatible extension could be enabled. The database role "
+            "may lack permission — try running it yourself:\n"
+            "  CREATE EXTENSION IF NOT EXISTS lakebase_vector CASCADE;  -- Neon\n"
+            "  CREATE EXTENSION IF NOT EXISTS vector;                   -- elsewhere\n"
+            "Attempts: " + "; ".join(errors)
+        )
+
+    def _create_index(self) -> str:
+        """Build the approximate index, returning the method used (or "")."""
+        from sqlalchemy import text as sql_text
+
+        for method in self.INDEX_METHODS:
+            try:
+                with self.database.engine.begin() as conn:
+                    conn.execute(
+                        sql_text(
+                            f"CREATE INDEX IF NOT EXISTS ix_{self.TABLE}_embedding "
+                            f"ON {self.TABLE} USING {method} (embedding vector_cosine_ops)"
+                        )
+                    )
+                return method
+            except Exception:
+                continue
+        # Correctness does not depend on the index, only speed, so this is a
+        # warning rather than a failure.
+        log.warning(
+            "no_vector_index",
+            extra={
+                "detail": (
+                    "Neither lakebase_ann nor hnsw is available; similarity search "
+                    "will use a sequential scan and slow down as the corpus grows."
+                )
+            },
+        )
+        return ""
 
     def _as_literal(self, vector: list[float]) -> str:
         # pgvector accepts its own text form: '[1,2,3]'.
@@ -301,9 +369,9 @@ class PgVectorStore(VectorStore):
         from sqlalchemy import text as sql_text
 
         self._dimensions = dimensions
-        with self.database.engine.begin() as conn:
-            conn.execute(sql_text("CREATE EXTENSION IF NOT EXISTS vector"))
+        extension = self._create_extension()
 
+        with self.database.engine.begin() as conn:
             existing = conn.execute(
                 sql_text(
                     "SELECT a.atttypmod FROM pg_attribute a "
@@ -333,16 +401,22 @@ class PgVectorStore(VectorStore):
             )
             conn.execute(
                 sql_text(
-                    f"CREATE INDEX IF NOT EXISTS ix_{self.TABLE}_embedding "
-                    f"ON {self.TABLE} USING hnsw (embedding vector_cosine_ops)"
-                )
-            )
-            conn.execute(
-                sql_text(
                     f"CREATE INDEX IF NOT EXISTS ix_{self.TABLE}_scope "
                     f"ON {self.TABLE} (user_id, course_id, document_id)"
                 )
             )
+
+        # After the table exists, and in its own transaction so a missing
+        # index method does not roll the table creation back.
+        self.index_method = self._create_index()
+        log.info(
+            "pgvector_ready",
+            extra={
+                "extension": extension,
+                "index_method": self.index_method or "none (sequential scan)",
+                "dimensions": dimensions,
+            },
+        )
 
     def upsert(self, records: list[VectorRecord]) -> None:
         from sqlalchemy import text as sql_text

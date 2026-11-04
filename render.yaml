@@ -15,6 +15,9 @@ services:
     # The build context is the repository root, because the Dockerfile copies
     # from services/api/.
     dockerContext: .
+    # Pick the region closest to your Neon project. Neon Object Storage is
+    # available in aws-us-east-1, aws-us-east-2, aws-eu-central-1 and
+    # aws-ap-southeast-1; frankfurt pairs with aws-eu-central-1.
     region: frankfurt
     plan: free
     healthCheckPath: /healthz
@@ -35,10 +38,15 @@ services:
       - key: STUDYPILOT_DATABASE_URL
         sync: false
 
-      # Cloudflare R2 (or any S3-compatible bucket).
+      # Object storage. Neon Object Storage is S3-compatible and comes from
+      # the same project as the database, so there is no second provider to
+      # sign up for; `neon env pull` prints all four values. Cloudflare R2,
+      # Backblaze B2 and AWS S3 work identically.
       - key: STUDYPILOT_S3_BUCKET
         sync: false
-      - key: STUDYPILOT_S3_ENDPOINT_URL
+      # The bucket endpoint. Neon calls this AWS_ENDPOINT_URL_S3 and the code
+      # reads either name, so paste it into whichever you prefer.
+      - key: AWS_ENDPOINT_URL_S3
         sync: false
       - key: AWS_ACCESS_KEY_ID
         sync: false
@@ -52,9 +60,10 @@ services:
         value: pgvector
       - key: STUDYPILOT_STORAGE_BACKEND
         value: s3
-      # R2 ignores the region but boto3 requires one.
-      - key: STUDYPILOT_S3_REGION
-        value: auto
+      # Neon uses a real region (e.g. us-east-2); R2 ignores it but boto3
+      # requires one. AWS_REGION is read when this is unset.
+      - key: AWS_REGION
+        sync: false
 
       # Nothing on the container's own disk needs to survive a restart; this
       # is only scratch space for temporary downloads during ingestion.
