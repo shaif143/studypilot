@@ -31,7 +31,15 @@ export function DashboardScreen() {
       />
       <PageBody>
         {isError ? (
-          <ErrorPanel message={describeError(error)} onRetry={() => void refetch()} />
+          <ErrorPanel
+            title="No backend is connected"
+            message={
+              describeError(error) +
+              ' This site serves the StudyPilot interface, but the API it talks to has not ' +
+              'been configured yet. See docs/DEPLOYMENT.md for the three services it needs.'
+            }
+            onRetry={() => void refetch()}
+          />
         ) : null}
 
         {isPending ? (

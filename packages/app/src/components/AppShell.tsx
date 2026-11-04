@@ -93,7 +93,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             </span>
           ) : health.isError ? (
             <span className="text-[var(--signal-danger)]">
-              Backend unreachable. Start it with <code>npm run dev:api</code>.
+              {platform.kind === 'desktop'
+                ? 'The local engine stopped. Quit and reopen StudyPilot.'
+                : 'No backend is connected to this site yet.'}
             </span>
           ) : (
             <div className="space-y-1">
