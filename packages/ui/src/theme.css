@@ -1,0 +1,350 @@
+/*
+ * StudyPilot design system.
+ *
+ * Tailwind 4, configured in CSS. The palette is deliberately restrained: a warm
+ * neutral paper tone for reading long passages, one indigo accent for actions,
+ * and semantic colours reserved for meaning (grounded vs ungrounded answers,
+ * mastery levels) rather than decoration.
+ *
+ * Every colour is defined once and re-declared for dark mode, so a component
+ * never needs a `dark:` variant for colour.
+ */
+@import 'tailwindcss';
+
+/*
+ * Tailwind 4 auto-detects source files by walking up from this stylesheet, which
+ * in a monorepo finds only this package. The application's classes live in
+ * sibling packages and in the two hosts, so they are declared explicitly —
+ * without these, utilities are generated for the design system alone and every
+ * screen renders unstyled.
+ */
+@source "../../app/src";
+@source "../../ui/src";
+@source "../../../apps/web/src";
+@source "../../../apps/desktop/src";
+
+@theme {
+  --font-sans:
+    ui-sans-serif, -apple-system, 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
+  --font-serif: 'New York', 'Iowan Old Style', Georgia, serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+
+  --radius-card: 0.75rem;
+  --radius-control: 0.5rem;
+
+  /* Brand accent */
+  --color-accent-50: oklch(0.97 0.015 275);
+  --color-accent-100: oklch(0.94 0.03 275);
+  --color-accent-200: oklch(0.88 0.06 275);
+  --color-accent-300: oklch(0.79 0.1 275);
+  --color-accent-400: oklch(0.68 0.15 275);
+  --color-accent-500: oklch(0.58 0.18 275);
+  --color-accent-600: oklch(0.5 0.18 275);
+  --color-accent-700: oklch(0.42 0.15 275);
+  --color-accent-800: oklch(0.34 0.11 275);
+  --color-accent-900: oklch(0.26 0.08 275);
+}
+
+/*
+ * Surfaces and text. These are plain CSS custom properties (not @theme tokens)
+ * because they are redefined per colour scheme; Tailwind utilities reference
+ * them through the arbitrary-value syntax in the component layer below.
+ */
+:root {
+  color-scheme: light;
+
+  --surface-page: oklch(0.985 0.003 90);
+  --surface-raised: oklch(1 0 0);
+  --surface-sunken: oklch(0.96 0.004 90);
+  --surface-overlay: oklch(1 0 0 / 0.86);
+  --surface-hover: oklch(0.95 0.005 275);
+  --surface-selected: oklch(0.94 0.025 275);
+
+  --border-subtle: oklch(0.91 0.004 90);
+  --border-strong: oklch(0.82 0.006 90);
+  --border-focus: var(--color-accent-500);
+
+  --text-primary: oklch(0.22 0.01 275);
+  --text-secondary: oklch(0.47 0.012 275);
+  --text-muted: oklch(0.62 0.012 275);
+  --text-inverse: oklch(0.99 0 0);
+  --text-accent: var(--color-accent-600);
+
+  /* Semantic: meaning, not decoration. */
+  --signal-grounded: oklch(0.52 0.13 155);
+  --signal-grounded-bg: oklch(0.95 0.04 155);
+  --signal-caution: oklch(0.58 0.13 75);
+  --signal-caution-bg: oklch(0.96 0.05 75);
+  --signal-danger: oklch(0.55 0.17 25);
+  --signal-danger-bg: oklch(0.96 0.03 25);
+  --signal-info: oklch(0.55 0.11 230);
+  --signal-info-bg: oklch(0.96 0.03 230);
+
+  --shadow-card: 0 1px 2px oklch(0.2 0.01 275 / 0.05), 0 1px 3px oklch(0.2 0.01 275 / 0.06);
+  --shadow-raised: 0 4px 12px oklch(0.2 0.01 275 / 0.08), 0 1px 3px oklch(0.2 0.01 275 / 0.06);
+  --shadow-overlay: 0 16px 48px oklch(0.2 0.01 275 / 0.18);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --surface-page: oklch(0.17 0.008 275);
+  --surface-raised: oklch(0.21 0.01 275);
+  --surface-sunken: oklch(0.14 0.008 275);
+  --surface-overlay: oklch(0.21 0.01 275 / 0.9);
+  --surface-hover: oklch(0.26 0.012 275);
+  --surface-selected: oklch(0.3 0.04 275);
+
+  --border-subtle: oklch(0.28 0.01 275);
+  --border-strong: oklch(0.38 0.014 275);
+
+  --text-primary: oklch(0.95 0.004 275);
+  --text-secondary: oklch(0.73 0.01 275);
+  --text-muted: oklch(0.58 0.012 275);
+  --text-inverse: oklch(0.17 0.008 275);
+  --text-accent: var(--color-accent-300);
+
+  --signal-grounded: oklch(0.72 0.14 155);
+  --signal-grounded-bg: oklch(0.28 0.05 155);
+  --signal-caution: oklch(0.78 0.13 75);
+  --signal-caution-bg: oklch(0.3 0.06 75);
+  --signal-danger: oklch(0.7 0.16 25);
+  --signal-danger-bg: oklch(0.29 0.06 25);
+  --signal-info: oklch(0.74 0.11 230);
+  --signal-info-bg: oklch(0.27 0.05 230);
+
+  --shadow-card: 0 1px 2px oklch(0 0 0 / 0.3);
+  --shadow-raised: 0 4px 14px oklch(0 0 0 / 0.4);
+  --shadow-overlay: 0 16px 48px oklch(0 0 0 / 0.55);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --surface-page: oklch(0.17 0.008 275);
+    --surface-raised: oklch(0.21 0.01 275);
+    --surface-sunken: oklch(0.14 0.008 275);
+    --surface-overlay: oklch(0.21 0.01 275 / 0.9);
+    --surface-hover: oklch(0.26 0.012 275);
+    --surface-selected: oklch(0.3 0.04 275);
+
+    --border-subtle: oklch(0.28 0.01 275);
+    --border-strong: oklch(0.38 0.014 275);
+
+    --text-primary: oklch(0.95 0.004 275);
+    --text-secondary: oklch(0.73 0.01 275);
+    --text-muted: oklch(0.58 0.012 275);
+    --text-inverse: oklch(0.17 0.008 275);
+    --text-accent: var(--color-accent-300);
+
+    --signal-grounded: oklch(0.72 0.14 155);
+    --signal-grounded-bg: oklch(0.28 0.05 155);
+    --signal-caution: oklch(0.78 0.13 75);
+    --signal-caution-bg: oklch(0.3 0.06 75);
+    --signal-danger: oklch(0.7 0.16 25);
+    --signal-danger-bg: oklch(0.29 0.06 25);
+    --signal-info: oklch(0.74 0.11 230);
+    --signal-info-bg: oklch(0.27 0.05 230);
+
+    --shadow-card: 0 1px 2px oklch(0 0 0 / 0.3);
+    --shadow-raised: 0 4px 14px oklch(0 0 0 / 0.4);
+    --shadow-overlay: 0 16px 48px oklch(0 0 0 / 0.55);
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border-subtle);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--surface-page);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    margin: 0;
+    /* The desktop shell should feel like an app, not a web page. */
+    overscroll-behavior: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Respect the user's motion preference everywhere, once. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  ::selection {
+    background: var(--surface-selected);
+  }
+}
+
+@layer components {
+  /* Long-form generated text: notes, explanations, answers. */
+  .sp-prose {
+    color: var(--text-primary);
+    line-height: 1.7;
+    font-size: 0.9375rem;
+  }
+  .sp-prose > * + * {
+    margin-top: 0.85em;
+  }
+  .sp-prose h1,
+  .sp-prose h2,
+  .sp-prose h3,
+  .sp-prose h4 {
+    font-weight: 600;
+    line-height: 1.3;
+    margin-top: 1.6em;
+    color: var(--text-primary);
+  }
+  .sp-prose h1 {
+    font-size: 1.4rem;
+  }
+  .sp-prose h2 {
+    font-size: 1.15rem;
+  }
+  .sp-prose h3 {
+    font-size: 1rem;
+  }
+  .sp-prose ul,
+  .sp-prose ol {
+    padding-left: 1.4em;
+  }
+  .sp-prose ul {
+    list-style: disc;
+  }
+  .sp-prose ol {
+    list-style: decimal;
+  }
+  .sp-prose li + li {
+    margin-top: 0.3em;
+  }
+  .sp-prose code {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+    background: var(--surface-sunken);
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+  }
+  .sp-prose pre {
+    background: var(--surface-sunken);
+    padding: 0.9em 1em;
+    border-radius: var(--radius-control);
+    overflow-x: auto;
+    border: 1px solid var(--border-subtle);
+  }
+  .sp-prose pre code {
+    background: none;
+    padding: 0;
+  }
+  .sp-prose blockquote {
+    border-left: 3px solid var(--color-accent-300);
+    padding: 0.1em 0 0.1em 1em;
+    color: var(--text-secondary);
+    font-style: normal;
+  }
+  .sp-prose a {
+    color: var(--text-accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .sp-prose table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875em;
+  }
+  .sp-prose th,
+  .sp-prose td {
+    border: 1px solid var(--border-subtle);
+    padding: 0.45em 0.6em;
+    text-align: left;
+  }
+  .sp-prose th {
+    background: var(--surface-sunken);
+    font-weight: 600;
+  }
+  .sp-prose hr {
+    border: 0;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  /* Inline citation marker rendered inside generated text. */
+  .sp-citation {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.15rem;
+    height: 1.15rem;
+    padding: 0 0.25rem;
+    margin: 0 0.1rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-accent-700);
+    background: var(--color-accent-100);
+    border: 1px solid var(--color-accent-200);
+    border-radius: 999px;
+    cursor: pointer;
+    vertical-align: baseline;
+    transition: background-color 120ms ease;
+  }
+  .sp-citation:hover {
+    background: var(--color-accent-200);
+  }
+  :root[data-theme='dark'] .sp-citation,
+  .sp-dark .sp-citation {
+    color: var(--color-accent-100);
+    background: var(--color-accent-800);
+    border-color: var(--color-accent-700);
+  }
+
+  /* Thin, unobtrusive scrollbars that match the surface. */
+  .sp-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+  .sp-scroll::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  .sp-scroll::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  .sp-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* KaTeX should inherit the reading colour rather than its own. */
+.katex {
+  color: inherit;
+  font-size: 1.04em;
+}
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.3em 0;
+}

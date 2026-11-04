@@ -1,0 +1,257 @@
+# Decision records
+
+Each entry records what was decided, why, and what it costs.
+
+---
+
+## 1. Python 3.13, not 3.14
+
+**Context.** The machine's default `python3` is 3.14.
+
+**Decision.** Pin to 3.13 (`requires-python = ">=3.11,<3.14"`).
+
+**Why.** Several dependencies have no 3.14 wheels and would build from source
+or fail outright. 3.13 resolves the whole set cleanly.
+
+**Cost.** One more thing for a contributor to install. `scripts/setup.sh` pins
+it explicitly so this is not a trap.
+
+---
+
+## 2. One application package, thin hosts
+
+**Context.** The requirement forbids duplicating logic between web and desktop.
+
+**Decision.** `packages/app` exports a single `<StudyPilotApp platform={…}>`
+containing every screen, route and data hook. The hosts contain an HTML file, a
+`main.tsx`, a router choice and a ~30-line platform adapter.
+
+**Why.** Shared *components* still allow two divergent applications. A shared
+*application* cannot diverge: a screen cannot be added to one host and
+forgotten in the other, because neither host contains screens.
+
+**Cost.** Anything genuinely host-specific must be expressed through the
+`Platform` interface rather than branched inline. So far that is the API
+address, the credential, and opening external links.
+
+---
+
+## 3. Internal packages consumed as source
+
+**Decision.** Vite aliases and `tsconfig` paths point at `src/index.ts`; the
+packages have no build step.
+
+**Why.** No build-order orchestration, cross-package hot reload, and one
+`tsc --build` typechecks everything.
+
+**Cost.** The packages are not independently publishable. They are not intended
+to be.
+
+---
+
+## 4. The default provider performs no generation
+
+**Context.** The app must work without a language model, and must never
+present something as tutoring that is not.
+
+**Decision.** The default `extractive` provider ranks sentences from retrieved
+material by overlap with the question and quotes them verbatim with citations.
+It declares `generative: false`, and every surface — badges, notices, the
+answer text itself — says the material was quoted, not explained.
+
+**Why.** It makes the entire pipeline — ingestion, retrieval, citation,
+assessment, progress — real and testable with no API key and no network, while
+being structurally incapable of inventing a fact. The alternative, shipping a
+model-shaped placeholder, is exactly the fabrication the brief prohibits.
+
+**Cost.** Out of the box the product is a very good search-and-recall tool
+rather than a tutor. That is stated plainly rather than hidden.
+
+---
+
+## 5. Hashed embeddings as the zero-install default
+
+**Decision.** Default to a deterministic hashed bag-of-n-grams embedder;
+`model2vec` and `sentence-transformers` are optional extras.
+
+**Why.** First run must work offline with no download. Hashing is weak
+semantically, but hybrid retrieval leans on BM25, which carries lexical queries
+well — and lexical is what most "what is X" questions are. It is also
+deterministic, which makes retrieval tests reproducible.
+
+**Cost.** Paraphrased questions retrieve worse until a real embedding model is
+installed. Settings says so, with the install command.
+
+---
+
+## 6. Sufficiency measured by term coverage, not rank score
+
+**Context.** The first implementation gated on fused rank score. It passed
+almost everything: *"What was the population of Lisbon in 1850?"* was judged
+sufficiently supported by a deck about convolutional networks.
+
+**Two causes.** The BM25 query included stop words, so `is`/`the`/`and` matched
+nearly every chunk; and RRF scores are scale-free, so the top result of a
+hopeless search scores about the same as the top result of a perfect one.
+
+**Decision.** Strip stop words from the sparse query, and gate on the fraction
+of the question's content words that appear in the retrieved passages.
+
+**Why.** Coverage is a signal about *this* question against *this* evidence.
+Rank position is not. A model's own confidence was never a candidate — it is
+not a measure of correctness.
+
+**Cost.** A question phrased entirely in synonyms of the material's vocabulary
+can be judged insufficient. The failure direction is the safe one: the tutor
+says it cannot answer rather than answering from general knowledge.
+
+---
+
+## 7. The sparse index runs inside the caller's transaction
+
+**Context.** `SparseIndex` originally opened its own connection.
+
+**Symptom.** `database is locked` during ingestion and deletion. SQLite allows
+one writer at a time, and the second connection deadlocked against the
+request's own open write transaction. Because index failures are non-fatal by
+design, this happened **silently**: documents were indexed for dense search
+only, and the test suite took 52 s instead of 4 s waiting on busy timeouts.
+
+**Decision.** Every `SparseIndex` method takes the caller's `Session`.
+
+**Lesson recorded here deliberately.** Non-fatal error handling turned a loud
+failure into a quiet capability loss. The warning was logged and ignored.
+
+---
+
+## 8. One-file PyInstaller bundle
+
+**Context.** Tauri's `externalBin` copies a single named executable into
+`Contents/MacOS`. A PyInstaller one-directory build also needs its `_internal`
+folder beside that executable, which the bundler would place in
+`Contents/Resources` instead — leaving the sidecar unable to find its own
+libraries.
+
+**Decision.** Build one file.
+
+**Cost.** ~110 MB and about six seconds of self-extraction on cold launch. The
+shell therefore starts the backend on a background thread and the window paints
+immediately with a "Starting the engine…" state.
+
+**Also.** `onnxruntime` is excluded: `qdrant-client` pulls it for the optional
+`fastembed` feature, which local mode never uses. That alone saved 18 MB.
+
+---
+
+## 9. Backend startup is asynchronous, and the token is written eagerly
+
+**Two related findings during first run.**
+
+The token file was created lazily on the first authenticated request, but the
+Vite dev proxy and the Tauri shell both read it as soon as the port opens —
+a chicken-and-egg that 401'd every request with no diagnosable cause. The token
+is now materialised in `RuntimeContext.create`.
+
+Starting the sidecar synchronously in Tauri's `setup` hook left an
+unresponsive window for the duration of self-extraction. Startup now runs on a
+background thread and the webview's first `backend_info` call awaits readiness.
+
+---
+
+## 10. LangGraph, but a small graph
+
+**Decision.** Use LangGraph for the supervisor, with a fixed state machine, no
+tool calling, and at most one corrective retrieval pass.
+
+**Why.** The typed state and checkpointing fit resumable study sessions. An
+autonomous loop does not: over one student's documents it buys nothing and
+costs tokens, latency and predictability. With no tools exposed, text injected
+into an uploaded PDF has nothing to invoke.
+
+**Cost.** Capabilities needing genuine multi-step tool use would require
+revisiting this. None of the current features do.
+
+---
+
+## 11. Deterministic code owns everything high-stakes
+
+**Decision.** Scope and permissions, retrieval, the sufficiency judgement,
+citation verification, MCQ and numeric marking, spaced-repetition scheduling,
+mastery updates and the recommended next action are all plain code. The model
+owns explanation text, and — when configured — question drafting and rubric
+application, both validated afterwards.
+
+**Why.** A student's progress record and revision schedule are high-stakes for
+their time. They must be reproducible and explainable.
+
+**Cost.** Deterministic question generation produces cloze-deletion items,
+which test recall rather than understanding. Labelled honestly as
+`source_derived` — "From your slides" — so it is never mistaken for more.
+
+---
+
+## 12. Question provenance is a first-class field
+
+**Decision.** Every question and flashcard carries `source_derived`,
+`ai_generated`, `past_paper`, `past_paper_variation` or `user`, and the UI
+always shows it. Nothing in the generation path can emit `past_paper`; that
+value exists only for questions extracted from a document the student uploaded
+and labelled as a past paper.
+
+**Why.** "Never invent examination history" is a hard requirement, and the
+difference between a real past question and a model's imitation is exactly what
+a student revising needs to know.
+
+---
+
+## 13. Cloud use requires consent twice
+
+**Decision.** A provider that transmits content off-device is refused unless
+*both* the stored user preference and an explicit per-request flag are set.
+Refusal degrades to offline quoting with a visible warning rather than failing.
+
+**Why.** A single global toggle, once flipped, silently applies to every future
+action. Per-request consent keeps the egress decision attached to the action
+that causes it.
+
+---
+
+## 14. Vitest on happy-dom; `legacy-peer-deps` in `.npmrc`
+
+Two environment workarounds, recorded so they can be removed later.
+
+- **happy-dom instead of jsdom.** jsdom 30 pulls `undici`, whose decompress
+  interceptor needs Node's zstd bindings (Node 24+). This machine runs Node
+  23.5, where the worker crashes on start.
+- **`legacy-peer-deps=true`.** npm 10.9.2's resolver crashes with a `TypeError`
+  while walking vitest's optional browser-runner peers on a from-scratch
+  install. It is an npm bug, not a real conflict; installs from the committed
+  lockfile work without it.
+
+---
+
+## 15. `react-hooks/preserve-manual-memoization` disabled
+
+**Decision.** Off; the other rules in `eslint-plugin-react-hooks` v7 stay as
+errors.
+
+**Why.** It reports that the React Compiler could not preserve a `useCallback`.
+The compiler is not enabled in this build, so the diagnostic has no runtime
+consequence. The correctness rules — `set-state-in-effect`, `immutability`,
+`exhaustive-deps` — were fixed properly rather than silenced: state seeded from
+server data is now adjusted during render (React's documented pattern), and
+effect bodies no longer call setState synchronously.
+
+---
+
+## 16. Deferred deliberately
+
+| Deferred | Reason |
+| --- | --- |
+| Neo4j / Graph RAG | Prerequisites are a list column; a graph store earns nothing yet |
+| Cache-augmented generation | Premature before retrieval quality is settled |
+| Cross-encoder reranking | RRF over two retrievers is enough at this corpus size |
+| Docling | Pulls PyTorch; PyMuPDF covers text, tables, equations and boxes |
+| Federated training | Needs a threat model and measurable controls first |
+| Camera gaze estimation | Interface and simulated data only; see `docs/PRIVACY.md` |
+| PPTX import | Declined with an actionable message rather than parsed badly |

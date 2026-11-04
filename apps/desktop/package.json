@@ -1,0 +1,25 @@
+{
+  "name": "@studypilot/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "@studypilot/app": "*",
+    "@tauri-apps/api": "2.12.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "@tauri-apps/plugin-opener": "2.7.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.4",
+    "@tauri-apps/cli": "2.12.4",
+    "tailwindcss": "4.3.4"
+  }
+}
