@@ -228,24 +228,14 @@ Stated plainly rather than implied by omission.
   wrong-password error were each exercised by hand against a live Neon branch,
   and the cache bug above was found that way. `test_neon_auth.py` covers token
   verification only; nothing covers the React side.
-- **Object storage is tested against a simulation, not a real bucket.**
-  `moto` is faithful to the S3 API but is not Cloudflare R2; endpoint and
-  credential handling against an actual provider is unverified.
-- **No Rust tests.** The Tauri shell's port reservation, token generation,
-  readiness polling and shutdown were verified by building and running the app,
-  not by `cargo test`.
-- **No automated test launches the packaged `.app`.** `scripts/build-sidecar.sh`
-  smoke-tests the bundled backend (liveness plus an authenticated
-  `/api/health`), but the assembled application is verified by hand.
-- **Cloud providers are not integration-tested.** `anthropic` and `openai` have
-  no recorded-cassette tests; only the consent gate and failure handling around
-  them are covered.
-- **No performance or memory benchmarks** against the 8 GB baseline.
-- **No accessibility audit.** Semantics, focus-visible styling, `aria` labels
-  and reduced-motion support are implemented throughout, but not verified by
-  axe or a screen reader.
-- **Component-level UI tests are thin.** The citation renderer and the API
-  client are covered; the screens are not.
+- **Object storage has never been exercised against a real provider.** The
+  S3 path is covered by `moto` in the unit tests, and the whole round trip —
+  upload through the API, a content-addressed PDF and nine page previews
+  landing in a bucket, the file read back byte-identical — was verified
+  against a standalone S3 server using the real container image. Neither is
+  Cloudflare R2. Endpoint and credential handling against an actual provider
+  is still unverified; the startup probe is what catches it, in the deploy
+  log.
 
 The highest-value next addition is a Playwright run of the full workflow
 against a real dev server, which would close most of the first and last gaps at

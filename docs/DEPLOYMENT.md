@@ -490,6 +490,69 @@ If any value is wrong, that is the problem:
 | `reachable but not writable` | The R2 token is read-only. It needs Object Read **and** Write. |
 | `configuration_risk` | Something is still on the container's disk, or the identity provider cannot work with the origins configured. Named in the message. |
 
+## Adding object storage (Cloudflare R2)
+
+Until this is done, uploaded PDFs live on the container's own disk and a free
+instance wipes it whenever it sleeps. This is the step that makes uploads
+durable.
+
+Neon Object Storage would be simpler, but it does not exist in every region —
+`aws-eu-west-2` is one of the ones without it — so R2 is the fallback. Any
+S3-compatible provider works the same way.
+
+### 1. Create the bucket and a token
+
+In the Cloudflare dashboard: **R2 → Create bucket**, give it a name, and pick
+a location. Then **Manage R2 API Tokens → Create API token**, scoped to
+**Object Read & Write** on that bucket alone — not account-wide. Cloudflare
+shows the secret access key once; copy it then.
+
+You now have four things: the bucket name, the access key ID, the secret
+access key, and the S3 endpoint, which Cloudflare shows on the bucket's
+settings page as `https://<account-id>.r2.cloudflarestorage.com`.
+
+### 2. Set five variables on the API
+
+In the Render dashboard, **Environment** on the service, then redeploy:
+
+```bash
+STUDYPILOT_STORAGE_BACKEND=s3
+STUDYPILOT_S3_BUCKET=<your bucket name>
+AWS_ENDPOINT_URL_S3=https://<account-id>.r2.cloudflarestorage.com
+AWS_ACCESS_KEY_ID=<access key id>
+AWS_SECRET_ACCESS_KEY=<secret access key>
+AWS_REGION=auto
+```
+
+`AWS_REGION=auto` is right for R2: it ignores the region, but boto3 insists on
+having one. The endpoint carries no bucket name — the bucket is addressed
+path-style, which is pinned in code rather than negotiated.
+
+### 3. Check the deploy log
+
+The service writes and deletes a probe object at startup and **refuses to
+start if that fails**, so a wrong bucket, a mistyped endpoint or a read-only
+token shows up in the deploy log rather than on your first upload. A correct
+start says `"storage_backend": "s3"` on the `runtime_ready` line, and the
+local-disk `configuration_risk` warning disappears.
+
+Afterwards the bucket should contain a content-addressed PDF under
+`documents/` and one PNG per page under `previews/<document-id>/`.
+
+### What happens to documents uploaded before the switch
+
+Their rows stay in the database and their text stays in the index, so **they
+remain searchable and the tutor still answers from them with citations** —
+the chunks live in PostgreSQL, not in the blob store. What is gone is the
+file itself: opening such a document in the reader returns
+
+```json
+{"detail": "The stored file is missing. Upload it again."}
+```
+
+with a 404, and the page previews are missing too. Upload the document again
+and everything is whole; the old row can be deleted from the library.
+
 ### A note on Cloudflare R2 and boto3
 
 boto3 1.36 began sending an `x-amz-checksum-crc32` header on every upload,
