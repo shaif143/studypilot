@@ -116,7 +116,7 @@ credentials are configured.
 npm run check
 ```
 
-Runs the TypeScript typecheck, ESLint, 85 frontend unit tests, Ruff, and 145
+Runs the TypeScript typecheck, ESLint, 85 frontend unit tests, Ruff, and 166
 backend tests. The 11 PostgreSQL integration tests need a database:
 
 ```bash

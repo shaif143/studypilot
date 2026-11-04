@@ -1,0 +1,85 @@
+# Render Blueprint for the StudyPilot API.
+#
+# Import this from the Render dashboard (New → Blueprint) and it provisions the
+# service with the right build, health check and environment. The values marked
+# `sync: false` are the ones only you can supply; Render prompts for each.
+#
+# The website is NOT here — it deploys to Vercel from the same repository. See
+# docs/DEPLOYMENT.md.
+
+services:
+  - type: web
+    name: studypilot-api
+    runtime: docker
+    dockerfilePath: ./services/api/Dockerfile
+    # The build context is the repository root, because the Dockerfile copies
+    # from services/api/.
+    dockerContext: .
+    region: frankfurt
+    plan: free
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+
+    envVars:
+      - key: STUDYPILOT_DEPLOYMENT_MODE
+        value: hosted
+
+      # Signs session cookies. Render generates it once and keeps it stable
+      # across deploys — regenerating it would sign everyone out.
+      - key: STUDYPILOT_JWT_SECRET
+        generateValue: true
+
+      # --- You supply these -------------------------------------------------
+      # Your Neon connection string. "postgres://" and a missing sslmode are
+      # corrected automatically, so paste it exactly as Neon gives it.
+      - key: STUDYPILOT_DATABASE_URL
+        sync: false
+
+      # Cloudflare R2 (or any S3-compatible bucket).
+      - key: STUDYPILOT_S3_BUCKET
+        sync: false
+      - key: STUDYPILOT_S3_ENDPOINT_URL
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+
+      # --- Fixed for this architecture --------------------------------------
+      # The vector index lives inside the same PostgreSQL database, which is
+      # why there is no separate search service to provision.
+      - key: STUDYPILOT_VECTOR_STORE
+        value: pgvector
+      - key: STUDYPILOT_STORAGE_BACKEND
+        value: s3
+      # R2 ignores the region but boto3 requires one.
+      - key: STUDYPILOT_S3_REGION
+        value: auto
+
+      # Nothing on the container's own disk needs to survive a restart; this
+      # is only scratch space for temporary downloads during ingestion.
+      - key: STUDYPILOT_DATA_DIR
+        value: /tmp/studypilot
+
+      # Default: no generation. The tutor quotes your own material with
+      # citations and says so. Set to anthropic or openai (plus the matching
+      # API key) for written explanations.
+      - key: STUDYPILOT_LLM_PROVIDER
+        value: extractive
+
+      # Free instances have 512 MB of RAM. Rendering previews for a very large
+      # PDF is the memory-hungry part, so the upload cap is lowered to match;
+      # raise it if you move to a paid instance.
+      - key: STUDYPILOT_MAX_UPLOAD_BYTES
+        value: "26214400"
+
+      - key: STUDYPILOT_LOG_LEVEL
+        value: INFO
+      # Leave false: document text, questions and answers are redacted.
+      - key: STUDYPILOT_LOG_SENSITIVE_CONTENT
+        value: "false"
+
+      # Turn this off once your account exists, or anyone who finds the URL
+      # can sign up.
+      - key: STUDYPILOT_ALLOW_REGISTRATION
+        value: "true"

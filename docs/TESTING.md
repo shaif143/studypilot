@@ -29,7 +29,7 @@ Nothing in the suite needs the network, a model download, or a running server.
 
 | Suite | Tests | Status |
 | --- | --- | --- |
-| Backend (`services/api/tests`) | 156 | ✅ all passing (145 + 11 PostgreSQL integration) |
+| Backend (`services/api/tests`) | 177 | ✅ all passing (166 + 11 PostgreSQL integration) |
 | Frontend (`tests/frontend`) | 85 | ✅ all passing |
 | ESLint | — | ✅ clean |
 | TypeScript | — | ✅ clean |
@@ -76,6 +76,8 @@ simulate quitting and relaunching.
 | `test_assessment.py` | Line-wrap reflow, page-furniture stripping, rejection of morphologically confusable distractors, deterministic generation under a seed, exact MCQ and numeric marking, tolerance behaviour near zero, rubric partial credit, unmarkable answers reported as such |
 | `test_auth.py` | Hosted accounts: registration, sign-in that reveals nothing about which addresses exist, Argon2id hashing and salting, token forgery and `alg:none` rejection, session revocation on password change and sign-out-everywhere, every data route requiring a session, and **isolation between accounts** across listings, documents, previews, retrieval and deletion |
 | `test_cookie_security.py` | The session cookie is HttpOnly and `SameSite=Lax` always, and `Secure` exactly when the request arrived over TLS — including behind a proxy, where only `x-forwarded-proto` records the real scheme |
+| `test_database_selection.py` | That `STUDYPILOT_DATABASE_URL` is actually honoured, end to end into the runtime context — the regression test for the silent SQLite fallback described below |
+| `test_object_storage.py` | `S3BlobStore` against a simulated S3 (`moto`): content addressing, asset prefixes, multi-batch deletion past the 1000-key API cap, prefix isolation between deployments, and that both store implementations are genuinely substitutable |
 | `test_postgres_integration.py` | The hosted data path against **real PostgreSQL**: `tsvector` ranking and scoping, tsquery syntax in a student's question, pgvector similarity and allow-list filtering, dimension-change rebuilds, the full upload-to-quiz workflow, and account isolation. Skipped unless `STUDYPILOT_TEST_DATABASE_URL` is set |
 | `test_supervision.py` | The parent-process watchdog, including an end-to-end test that a watched grandchild exits by itself when its parent is killed — the behaviour the packaged app depends on |
 | `test_openapi_contract.py` | The committed OpenAPI snapshot still matches the live app; `AnswerResponse` keeps its honesty fields; `QuestionOut` never exposes the answer key |
@@ -131,10 +133,18 @@ Recorded because they justify the tests existing.
    marked as containing mathematics.
 5. **The token file created lazily**, after the dev proxy had already tried to
    read it — every request 401'd on a fresh install.
-6. **`sslmode=require` forced onto every DSN**, including loopback, so a local
+6. **`STUDYPILOT_DATABASE_URL` silently ignored.** A patch to
+   `Database.from_settings` never applied — the formatter had already removed
+   the quotes from the type annotation the replacement was matching — so every
+   hosted deployment would have used ephemeral SQLite while *looking*
+   correctly configured. The durability warning designed to catch this stayed
+   silent, because the setting was present and only the code reading it was
+   missing. Found by running the real Docker image against PostgreSQL, not by
+   any unit test. Now pinned by `test_database_selection.py`.
+7. **`sslmode=require` forced onto every DSN**, including loopback, so a local
    PostgreSQL refused every connection. Found only by running the integration
    tests against a real database; TLS is now required for remote hosts only.
-7. **An orphaned backend after quitting the packaged app.** Found by launching
+8. **An orphaned backend after quitting the packaged app.** Found by launching
    the built `.app` and checking the process table, not by a test. Tauri kills
    its direct child, but a one-file PyInstaller build forks a worker that
    survived — still serving on its port with the database open. Fixed with a
@@ -167,9 +177,9 @@ Stated plainly rather than implied by omission.
   `npm run test:e2e` is wired, but no specs are written. The browser paths —
   upload through the real file picker, pdf.js canvas rendering, drag-to-resize,
   keyboard navigation — were verified by hand, not automatically.
-- **Object storage is not integration-tested.** `S3BlobStore` is exercised
-  through its interface but never against a real bucket; only `LocalBlobStore`
-  runs in the suite. MinIO in Docker would close this.
+- **Object storage is tested against a simulation, not a real bucket.**
+  `moto` is faithful to the S3 API but is not Cloudflare R2; endpoint and
+  credential handling against an actual provider is unverified.
 - **No Rust tests.** The Tauri shell's port reservation, token generation,
   readiness polling and shutdown were verified by building and running the app,
   not by `cargo test`.

@@ -43,6 +43,18 @@ class Database:
 
     @classmethod
     def from_settings(cls, settings: Settings) -> Database:
+        """Build the engine the configuration asks for.
+
+        A hosted deployment sets ``STUDYPILOT_DATABASE_URL`` to a PostgreSQL
+        DSN; everything else falls back to the desktop's local SQLite file.
+
+        Getting this wrong is not a visible failure — it is a silent one. The
+        service starts, serves requests and looks healthy while writing to a
+        disk that does not survive a redeploy, which is why
+        :func:`test_from_settings_honours_the_configured_database` exists.
+        """
+        if settings.database_url:
+            return cls(normalise_database_url(settings.database_url))
         settings.ensure_dirs()
         return cls(f"sqlite+pysqlite:///{settings.db_path}")
 

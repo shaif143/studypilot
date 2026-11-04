@@ -42,6 +42,8 @@ dev = [
   "ruff>=0.7",
   "pyinstaller>=6.11",
   "reportlab>=4.2",
+  # Simulates S3 in-process, so the object-store tests need no Docker.
+  "moto[s3]>=5.0",
 ]
 
 [project.scripts]
