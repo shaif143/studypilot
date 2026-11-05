@@ -7,7 +7,13 @@
  * contract the planner enforces, and this screen's job is to make the two
  * kinds of step look as different as they are.
  */
-import type { Assignment, AssignmentPlan, PlanCitation, PlanStep } from '@studypilot/shared';
+import type {
+  Assignment,
+  AssignmentPlan,
+  Citation,
+  PlanCitation,
+  PlanStep,
+} from '@studypilot/shared';
 import { Badge, Button, Callout, Card, EmptyState, SectionHeading, Skeleton } from '@studypilot/ui';
 import {
   AlertTriangle,
@@ -25,6 +31,7 @@ import { useId, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { ErrorPanel, PageBody, PageHeader } from '../components/AppShell';
+import { GroundedAnswer } from '../components/GroundedAnswer';
 import {
   describeError,
   useAssignments,
@@ -403,9 +410,15 @@ function StepCard({ courseId, plan, step }: { courseId: string; plan: Assignment
               {declined ? <Badge tone="neutral">declined</Badge> : null}
             </div>
 
-            <p className="mt-2 whitespace-pre-wrap text-[0.8125rem] leading-relaxed text-[var(--text-primary)]">
-              {step.instruction}
-            </p>
+            {/* Same renderer as the tutor: Markdown, KaTeX for the size
+                expressions the model writes, and [n] markers as clickable
+                citations that open the reader at the page. */}
+            <GroundedAnswer
+              className="mt-2 text-[0.8125rem]"
+              markdown={step.instruction}
+              citations={asCitations(step.citations)}
+              onCitationClick={(c) => navigate(`/read/${c.document_id}?page=${c.page_number}`)}
+            />
             {step.why ? (
               <p className="mt-1.5 text-[0.75rem] text-[var(--text-secondary)]">
                 <span className="font-medium">Why:</span> {step.why}
@@ -467,6 +480,11 @@ function StepCard({ courseId, plan, step }: { courseId: string; plan: Assignment
       </Card>
     </li>
   );
+}
+
+/** Plan citations carry no bounding box or score; the renderer needs the tutor's shape. */
+function asCitations(citations: PlanCitation[]): Citation[] {
+  return citations.map((c) => ({ ...c, bbox: null, score: 0, cited_inline: true }));
 }
 
 function CitationChip({ citation, onOpen }: { citation: PlanCitation; onOpen: () => void }) {
