@@ -91,7 +91,9 @@ def write_compound_file(streams: dict[str, bytes]) -> bytes:
                 right=right,
                 child=NOSTREAM,
                 start=starts[names.index(name)],
-                size=len(streams[name]),
+                # Declared at least the cutoff, or readers look for the
+                # stream in the mini-stream this file does not have.
+                size=max(len(streams[name]), MINI_CUTOFF),
             )
         )
     directory = _pad(b"".join(entries))
