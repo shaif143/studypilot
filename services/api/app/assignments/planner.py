@@ -1,7 +1,10 @@
-"""The assignment planner.
+"""The assignment planner's node implementations.
 
     brief ─▶ requirements ─▶ retrieve lecture material per requirement
           ─▶ draft steps ─▶ ground each step ─▶ plan
+
+The state machine that runs them, with its one corrective pass and the
+student's remembered decisions, is :mod:`app.assignments.graph`.
 
 Deterministic code owns: which documents count as course material, the
 retrieval, the grounding decision, the approval state, and the disclosure
@@ -44,11 +47,9 @@ from app.assignments.prompts import (
 )
 from app.config import Settings
 from app.models.base import (
-    ConsentRequiredError,
     EvidenceSnippet,
     GenerationRequest,
     LLMProvider,
-    ProviderUnavailableError,
 )
 from app.rag.retriever import HybridRetriever, RetrievedChunk
 from app.rag.sparse import content_terms
@@ -103,6 +104,8 @@ class PlanStep:
     #: What the model itself said about the step's grounding, kept for audit.
     model_flagged_beyond: bool = False
     beyond_reason: str = ""
+    #: Content terms of the step not found in its cited passages.
+    missing_terms: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -146,8 +149,13 @@ def build_plan(
     lecture_document_ids: list[str],
     integrity_policy: str = "",
     release_db: Callable[[], None] | None = None,
+    prior_decisions: list[dict[str, Any]] | None = None,
+    accepted_gaps: list[str] | None = None,
 ) -> PlanDraft:
     """Draft a plan. See the module docstring for the grounding rule.
+
+    Runs the LangGraph state machine in :mod:`app.assignments.graph`; the
+    functions below are its nodes' implementations.
 
     ``release_db`` is called right before each model call. A plan takes a
     model a minute or more — a quarter of an hour for an 8B model on a laptop
@@ -155,120 +163,24 @@ def build_plan(
     transaction for that long: on SQLite it blocks every writer in the
     application, and on PostgreSQL it pins one of five pooled connections.
     The session re-opens a transaction on its next query by itself.
+
+    ``prior_decisions`` are the student's approve/decline choices on the
+    previous draft of this brief; ``accepted_gaps`` the terms they have
+    accepted as beyond the slides anywhere in the course. Both are memory:
+    see the graph module for how they are applied.
     """
-    warnings: list[str] = []
-    brief_text = brief_text.strip()
-    if len(brief_text) > MAX_BRIEF_CHARS:
-        warnings.append(
-            f"The brief is long; only its first {MAX_BRIEF_CHARS:,} characters were used."
-        )
-        brief_text = brief_text[:MAX_BRIEF_CHARS]
-    if not brief_text:
-        return PlanDraft(
-            summary="",
-            requirements=[],
-            steps=[],
-            provider="none",
-            model="",
-            generative=False,
-            status="failed",
-            warnings=["No text could be read from this brief, so there is nothing to plan from."],
-        )
-    if not lecture_document_ids:
-        warnings.append(
-            "This course has no lecture material yet, so no step can be grounded. "
-            "Upload the lectures first for a guide that points to your slides."
-        )
+    from app.assignments.graph import PlannerDependencies, run_planner
 
-    generative = bool(getattr(llm.info, "generative", False))
-    tokens = {"in": 0, "out": 0}
-
-    # 1. requirements --------------------------------------------------------
-    summary, requirements = "", []
-    if generative:
-        try:
-            if release_db:
-                release_db()
-            summary, requirements, used = _extract_requirements_with_model(
-                llm, brief_title, brief_text
-            )
-            tokens["in"] += used[0]
-            tokens["out"] += used[1]
-        except (ProviderUnavailableError, ConsentRequiredError) as exc:
-            warnings.append(f"The model could not be used: {exc}")
-            generative = False
-        except _BadModelOutput as exc:
-            warnings.append(f"The model's requirement list could not be read ({exc}).")
-            generative = False
-    if not requirements:
-        summary, requirements = _extract_requirements_heuristically(brief_text)
-        if not requirements:
-            requirements = [
-                Requirement(id="r1", text=summary[:300] or "Complete the assignment as briefed.")
-            ]
-
-    # 2. evidence ------------------------------------------------------------
-    pool = _gather_evidence(
-        retriever,
-        requirements,
+    return run_planner(
+        PlannerDependencies(settings=settings, llm=llm, retriever=retriever, release_db=release_db),
         user_id=user_id,
         course_id=course_id,
+        brief_title=brief_title,
+        brief_text=brief_text,
         lecture_document_ids=lecture_document_ids,
-    )
-    snippets = _snippets_for(pool)
-
-    # 3. steps ---------------------------------------------------------------
-    provider_key = getattr(llm.info, "key", "unknown")
-    model_id = getattr(llm.info, "model", "")
-    raw_steps: list[dict[str, Any]] = []
-    if generative:
-        try:
-            if release_db:
-                release_db()
-            raw_steps, used = _draft_steps_with_model(
-                llm,
-                brief_title=brief_title,
-                brief_text=brief_text,
-                summary=summary,
-                requirements=requirements,
-                snippets=snippets,
-                integrity_policy=integrity_policy,
-            )
-            tokens["in"] += used[0]
-            tokens["out"] += used[1]
-            note = raw_steps[0].pop("_note", "") if raw_steps else ""
-            if note:
-                warnings.append(note)
-        except (ProviderUnavailableError, ConsentRequiredError) as exc:
-            warnings.append(f"The model could not be used: {exc}")
-            generative = False
-        except _BadModelOutput as exc:
-            warnings.append(f"The model's plan could not be read ({exc}).")
-            generative = False
-    if not raw_steps:
-        raw_steps = _draft_steps_heuristically(requirements, pool)
-        if not generative:
-            warnings.append(
-                "No language model was used: these are the brief's requirements with the "
-                "lecture passages that match each one, not a drafted plan. Connect a "
-                "model in Settings for step-by-step guidance."
-            )
-
-    # 4. grounding -----------------------------------------------------------
-    steps = _ground_steps(raw_steps, pool, settings)
-    status = "needs_approval" if any(s.approval == "pending" for s in steps) else "ready"
-
-    return PlanDraft(
-        summary=summary,
-        requirements=requirements,
-        steps=steps,
-        provider=provider_key if generative else "extractive",
-        model=model_id if generative else "",
-        generative=generative,
-        status=status,
-        warnings=warnings,
-        input_tokens=tokens["in"],
-        output_tokens=tokens["out"],
+        integrity_policy=integrity_policy,
+        prior_decisions=prior_decisions,
+        accepted_gaps=accepted_gaps,
     )
 
 
@@ -441,6 +353,8 @@ def _draft_steps_with_model(
     requirements: list[Requirement],
     snippets: list[EvidenceSnippet],
     integrity_policy: str,
+    prior_decisions: list[dict[str, Any]] | None = None,
+    accepted_gaps: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], tuple[int, int]]:
     result = llm.generate(
         GenerationRequest(
@@ -452,6 +366,8 @@ def _draft_steps_with_model(
                 requirements=[asdict(r) for r in requirements],
                 snippets=snippets,
                 integrity_policy=integrity_policy,
+                prior_decisions=prior_decisions or [],
+                accepted_gaps=accepted_gaps or [],
             ),
             question=brief_title,
             evidence=snippets,
@@ -615,6 +531,7 @@ def _ground_steps(
                 coverage=round(coverage, 3),
                 model_flagged_beyond=model_beyond,
                 beyond_reason=str(raw.get("beyond_reason", "")),
+                missing_terms=_content_only(missing)[:8],
             )
         )
     return steps

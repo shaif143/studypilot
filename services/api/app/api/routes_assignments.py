@@ -135,6 +135,26 @@ def draft_plan(
         if d.kind in LECTURE_KINDS and d.status in {"indexed", "partial"}
     ]
 
+    # --- memory: what the student decided before -------------------------
+    # On the previous draft of this brief, and anywhere in this course.
+    previous = plans.latest_for_document(user.id, brief.id)
+    prior_decisions = [
+        {
+            "title": step.get("title", ""),
+            "approval": step.get("approval"),
+            "missing_terms": step.get("missing_terms") or [],
+        }
+        for step in (previous.steps if previous else [])
+        if step.get("approval") in {"approved", "declined"}
+    ]
+    accepted_gaps: list[str] = []
+    for plan_row in plans.latest_by_document(user.id, brief.course_id).values():
+        for step in plan_row.steps:
+            if step.get("approval") == "approved" and step.get("grounding") == "beyond":
+                for term in step.get("missing_terms") or []:
+                    if term not in accepted_gaps:
+                        accepted_gaps.append(term)
+
     draft = build_plan(
         settings=settings,
         llm=provider,
@@ -147,6 +167,8 @@ def draft_plan(
         integrity_policy=course.integrity_policy,
         # End the read transaction before each model call; see build_plan.
         release_db=db_session.commit,
+        prior_decisions=prior_decisions,
+        accepted_gaps=accepted_gaps,
     )
     record = draft.to_record()
     record["warnings"] = provider_warnings + record["warnings"]

@@ -264,15 +264,36 @@ follow from a model being involved:
 
 ## Assignment guides
 
-`app/assignments/planner.py` turns an assignment brief into a step-by-step
-plan grounded in the course's lecture material:
+`app/assignments/graph.py` is a LangGraph state machine that turns an
+assignment brief into a step-by-step plan grounded in the course's lecture
+material; `app/assignments/planner.py` holds the node implementations:
 
 ```text
-brief ─▶ requirements ─▶ retrieve lecture passages per requirement
-      ─▶ draft steps ─▶ ground each step ─▶ plan (ready | needs_approval)
+prepare ─▶ requirements ─▶ retrieve ─▶ draft ─▶ ground ─┬─▶ finish
+                              ▲                          │
+                              └── one corrective pass ───┘
 ```
 
-Two model calls, both returning JSON that is parsed and validated rather
+The same discipline as the tutor graph: no tool calling, every decision
+that matters made by code, and a bounded loop. The corrective pass runs
+once, and only when two or more steps were held back purely because their
+wording did not match the passages retrieved for the *requirements*: the
+graph retrieves again with those steps' own words, re-drafts against the
+larger pool and re-grounds. A step still uncovered after that is beyond the
+slides, and the plan says so.
+
+**Memory.** The route loads the student's decisions on the previous draft of
+the same brief, and the terms they have already accepted as beyond the slides
+anywhere in the course, into the graph state. The `draft` node shows them to
+the model (do not re-propose what was declined; keep what was approved,
+still marked beyond); the `ground` node applies them by code — a pending
+`beyond` step with the same title as one the student declined stays
+declined, an approved one stays approved, and a grounded step is never
+touched. Decisions are carried, never invented. Persisted plans in
+`assignment_plans` are the memory store; on the desktop that is the SQLite
+file in the app's data directory.
+
+Two model calls per pass (three with the corrective pass), all returning JSON that is parsed and validated rather
 than trusted: one reduces the brief to its requirements (deliverables,
 constraints, criteria, tools), one drafts steps against those requirements
 and the retrieved passages. Output budgets are generous (4,000 and 8,000

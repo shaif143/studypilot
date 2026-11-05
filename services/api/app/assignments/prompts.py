@@ -90,6 +90,8 @@ def plan_prompt(
     requirements: list[dict[str, object]],
     snippets: list[EvidenceSnippet],
     integrity_policy: str = "",
+    prior_decisions: list[dict[str, object]] | None = None,
+    accepted_gaps: list[str] | None = None,
 ) -> str:
     req_lines = "\n".join(
         f"- {r.get('id')}: [{r.get('kind')}] {r.get('text')}" for r in requirements
@@ -112,12 +114,44 @@ def plan_prompt(
         else ""
     )
 
+    memory = _memory_block(prior_decisions or [], accepted_gaps or [])
+
     return (
         f"Assignment brief: {brief_title}\n\n"
         f"Summary of the brief:\n{summary}\n\n"
         f"Requirements:\n{req_lines}\n\n"
         f"<brief>\n{brief_text}\n</brief>\n\n"
         f"Lecture material from this course:\n\n{evidence}"
-        f"{policy}\n\n"
+        f"{policy}{memory}\n\n"
         "Draft the plan as JSON."
     )
+
+
+def _memory_block(prior_decisions: list[dict[str, object]], accepted_gaps: list[str]) -> str:
+    """The student's earlier decisions, for the model to respect.
+
+    Code enforces them afterwards (see app.assignments.graph); telling the
+    model keeps it from re-proposing a declined step under new wording.
+    """
+    declined = [str(d.get("title")) for d in prior_decisions if d.get("approval") == "declined"]
+    approved = [str(d.get("title")) for d in prior_decisions if d.get("approval") == "approved"]
+    if not (declined or approved or accepted_gaps):
+        return ""
+    lines = ["\n\nThe student's earlier decisions, which you must respect:"]
+    if declined:
+        lines.append(
+            "- They DECLINED these steps on the previous draft. Do not propose them again, "
+            "in any wording: " + "; ".join(declined)
+        )
+    if approved:
+        lines.append(
+            "- They APPROVED these steps although they go beyond the lecture material. Keep "
+            "them, still marked beyond_slides, without re-arguing: " + "; ".join(approved)
+        )
+    if accepted_gaps:
+        lines.append(
+            "- Elsewhere in this course they have already accepted that the slides do not "
+            "cover: " + ", ".join(accepted_gaps[:20]) + ". You may rely on those without "
+            "hedging, but still mark such steps beyond_slides."
+        )
+    return "\n".join(lines)

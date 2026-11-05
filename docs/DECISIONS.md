@@ -319,7 +319,28 @@ permission classifier refused to run the suite, which is how it was caught.
 
 ---
 
-## 20. Deferred deliberately
+## 20. The planner is a LangGraph graph, with memory in the state
+
+**Decision.** The assignment planner runs as a `StateGraph`
+(`app/assignments/graph.py`) with one bounded corrective pass, and the
+student's earlier decisions are part of its state, applied by code.
+
+**Why.** It was first written as a linear pipeline, which was honest but not
+what the product calls for: the tutor already runs on LangGraph, the
+corrective retrieve-and-redraft is a cycle, and "remember what I declined"
+needs state that outlives one model call. Making the planner a graph keeps
+one orchestration model across the agents and makes the loop bound explicit
+(`corrective_done`). Memory lives in the persisted plans, not in the model,
+so it is inspectable and deletable with the rest of the student's data.
+
+**Not chosen.** A LangGraph checkpointer. The plan is small and already
+persisted whole in `assignment_plans`; a second store of partial graph state
+would be a second thing to migrate and delete for no resumability a student
+would notice (a plan takes a minute).
+
+---
+
+## 21. Deferred deliberately
 
 | Deferred | Reason |
 | --- | --- |
