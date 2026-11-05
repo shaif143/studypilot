@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -29,6 +30,24 @@ def _clear_settings_cache():
     reset_settings_cache()
     yield
     reset_settings_cache()
+
+
+@pytest.fixture(autouse=True)
+def _no_real_google(monkeypatch):
+    """No test may open a browser or reach Google; a Drive test installs its own fake."""
+    from app import secrets
+    from app.integrations import google_drive
+
+    monkeypatch.setattr(google_drive, "open_in_browser", lambda url: True)
+    monkeypatch.setattr(
+        google_drive,
+        "TRANSPORT",
+        httpx.MockTransport(lambda request: httpx.Response(599, json={"error": "no network"})),
+    )
+    for variable in ("GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"):
+        monkeypatch.delenv(variable, raising=False)
+    # Keys and the token-encryption key go to memory, never this Mac's Keychain.
+    monkeypatch.setattr(secrets, "store", secrets.MemoryStore())
 
 
 @pytest.fixture

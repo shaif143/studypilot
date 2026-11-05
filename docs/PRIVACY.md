@@ -31,6 +31,8 @@ Nothing leaves the device until a cloud provider is both enabled in Settings
 | Vector index | `…/StudyPilot/vectors/` |
 | API token | `…/StudyPilot/api_token` (mode `0600`) |
 | Cloud provider API keys entered in Settings | The **macOS Keychain** (service `StudyPilot`), encrypted and unlocked with your login — never a plain file. Only sent to that provider, with the text you ask about. If no keychain is usable, a `0600` file in the data directory, and Settings says so. |
+| Google Drive sign-in | The refresh token is in the database **encrypted**; the key that unlocks it is in the Keychain. Read-only scope. Disconnect revokes it at Google. |
+| Documents linked from Google Drive | **Not stored.** Only their text index (pages, topics, chunks, vectors) is here; the file is read from Drive when you open it. |
 
 The data directory is created `rwx------`. On the web, the same data lives
 wherever the backend that the site is configured to talk to stores it.
@@ -49,6 +51,8 @@ wherever the backend that the site is configured to talk to stores it.
 | Drafting an assignment guide with a cloud provider | **Yes** — the brief's text and the lecture passages retrieved for it |
 | Uploading an **image** brief | **Yes, if** cloud processing is on and you opt in on the upload — the image is sent to the vision model. Otherwise the upload is refused with a message, never read silently |
 | Uploading an **audio** brief | **No** when the local Whisper model is installed; otherwise **yes** under the same two-part consent — the recording is sent to Gemini |
+| Connecting Google Drive | **Yes** — a sign-in with Google, in your browser. StudyPilot receives a read-only token; it sends Google nothing of yours |
+| Indexing or opening a file from Drive | Data comes **from** Google to this device (the file's bytes, read and dropped). Nothing is written to Drive |
 | Telemetry | Never — none is collected or transmitted |
 
 Each provider declares `sends_data_off_device` in code, and the Settings screen
@@ -95,6 +99,8 @@ diagnosed without exposing material.
 | Delete everything | Settings → Your data | Hard-deletes the profile, every row, the vector index, the sparse index and all stored files |
 | Delete one document | Lecture Library | Removes the file, its previews and every index entry derived from it |
 | Delete one course | My Courses | Cascades to its documents, topics and indexes |
+| Disconnect Google Drive | Settings → Google Drive | Revokes the token at Google, forgets it and every linked folder. Indexed documents stay until you delete them |
+| Unlink a Drive folder | Lecture Library | Stops syncing; documents stay |
 | Per-feature consent | Settings → Privacy | Each off by default |
 
 Deletion is immediate and not reversible. The export exists so you can take a

@@ -1,13 +1,27 @@
 /**
- * Lecture library: upload documents and open them in the reader.
+ * Lecture library: upload documents, link Google Drive folders, open the reader.
  *
  * The upload result is reported exactly as the backend returned it — page
  * count, indexed passage count, and any extraction warnings — because a PDF
  * that produced no text is a very different outcome from one that indexed
- * cleanly, and the student needs to know which they got.
+ * cleanly, and the student needs to know which they got. A folder upload is
+ * the same, once per file, with the files the folder held but the app could
+ * not take listed by name.
+ *
+ * A Drive folder is different in kind: the files stay in Drive, the app keeps
+ * only its index, and "Sync now" follows the folder. Those documents say so
+ * in the list, because opening one needs the connection to be live.
  */
 import { formatBytes, formatRelativeTime } from '@studypilot/shared';
-import type { DocumentStatus, UploadResult } from '@studypilot/shared';
+import type {
+  DocumentStatus,
+  DriveFile,
+  DriveImportOutcome,
+  DriveImportResult,
+  DriveImportStatus,
+  DriveLink,
+  UploadResult,
+} from '@studypilot/shared';
 import {
   Badge,
   Button,
@@ -17,17 +31,27 @@ import {
   EmptyState,
   Field,
   Input,
+  ProgressBar,
   Select,
   Skeleton,
+  Spinner,
+  Toggle,
   type Tone,
 } from '@studypilot/ui';
 import {
   AlertTriangle,
   BookOpen,
   CheckCircle2,
+  ChevronRight,
+  Cloud,
   FileText,
+  Folder,
+  FolderOpen,
+  RefreshCw,
   Trash2,
+  Unlink,
   Upload,
+  X,
 } from 'lucide-react';
 import { useCallback, useId, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
@@ -38,8 +62,22 @@ import {
   useCourses,
   useDeleteDocument,
   useDocuments,
+  useDriveFiles,
+  useGoogleDrive,
+  useImportFromDrive,
+  useSyncDriveLink,
+  useUnlinkDriveFolder,
   useUploadDocument,
 } from '../hooks/queries';
+import {
+  ACCEPT_ATTRIBUTE,
+  SUPPORTED_DESCRIPTION,
+  filesFromDrop,
+  partitionFiles,
+  relativePathOf,
+  titleFor,
+  type Rejected,
+} from '../lib/uploads';
 
 const STATUS_TONE: Record<DocumentStatus, Tone> = {
   indexed: 'grounded',
@@ -64,6 +102,18 @@ const DOCUMENT_KINDS = [
   { value: 'textbook', label: 'Textbook chapter' },
 ];
 
+/** One file's upload, as it happened. */
+interface UploadEntry {
+  file: File;
+  result?: UploadResult;
+  error?: string;
+}
+
+export interface UploadBatch {
+  entries: UploadEntry[];
+  rejected: Rejected[];
+}
+
 export function LibraryScreen() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -72,18 +122,25 @@ export function LibraryScreen() {
   const courses = useCourses();
   const documents = useDocuments(courseFilter);
   const deleteDocument = useDeleteDocument();
+  const drive = useGoogleDrive();
 
   const [uploadFor, setUploadFor] = useState<string | null>(null);
+  const [driveFor, setDriveFor] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; title: string } | null>(null);
-  const [lastResult, setLastResult] = useState<UploadResult | null>(null);
+  const [lastBatch, setLastBatch] = useState<UploadBatch | null>(null);
+  const [lastImport, setLastImport] = useState<DriveImportResult | null>(null);
 
   const hasCourses = (courses.data?.length ?? 0) > 0;
+  const defaultCourse = courseFilter ?? courses.data?.[0]?.id ?? null;
+  const links = (drive.data?.links ?? []).filter(
+    (link) => !courseFilter || link.course_id === courseFilter,
+  );
 
   return (
     <>
       <PageHeader
         title="Lecture Library"
-        description="PDF lectures, past papers and assignment briefs. Everything stays on this device."
+        description="PDF lectures, past papers and assignment briefs. Uploads stay on this device; a linked Google Drive folder is read from Drive and only its index is kept here."
         actions={
           <>
             {hasCourses ? (
@@ -105,21 +162,40 @@ export function LibraryScreen() {
               </Select>
             ) : null}
             <Button
+              icon={<Cloud size={15} />}
+              disabled={!hasCourses}
+              title={hasCourses ? undefined : 'Create a course first'}
+              onClick={() => setDriveFor(defaultCourse)}
+            >
+              Google Drive
+            </Button>
+            <Button
               variant="primary"
               icon={<Upload size={15} />}
               disabled={!hasCourses}
               title={hasCourses ? undefined : 'Create a course first'}
-              onClick={() => setUploadFor(courseFilter ?? courses.data?.[0]?.id ?? null)}
+              onClick={() => setUploadFor(defaultCourse)}
             >
-              Upload PDF
+              Upload
             </Button>
           </>
         }
       />
       <PageBody>
         <div className="space-y-4">
-          {lastResult ? (
-            <UploadSummary result={lastResult} onDismiss={() => setLastResult(null)} />
+          {lastBatch ? (
+            <BatchSummary batch={lastBatch} onDismiss={() => setLastBatch(null)} />
+          ) : null}
+          {lastImport ? (
+            <ImportSummary result={lastImport} onDismiss={() => setLastImport(null)} />
+          ) : null}
+
+          {links.length > 0 ? (
+            <LinkedFolders
+              links={links}
+              courses={courses.data ?? []}
+              onSynced={setLastImport}
+            />
           ) : null}
 
           {documents.isError ? (
@@ -150,25 +226,33 @@ export function LibraryScreen() {
             <EmptyState
               icon={<Upload size={22} />}
               title="No documents in this view"
-              description="Upload a lecture PDF. StudyPilot will extract its text, equations and figures, detect its topics, and index it for search."
+              description="Upload lecture files or a whole folder, or link a Google Drive folder. StudyPilot extracts the text, equations and figures, detects topics, and indexes everything for search."
               action={
-                <Button
-                  variant="primary"
-                  onClick={() => setUploadFor(courseFilter ?? courses.data?.[0]?.id ?? null)}
-                >
-                  Upload a PDF
-                </Button>
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Button variant="primary" onClick={() => setUploadFor(defaultCourse)}>
+                    Upload files or a folder
+                  </Button>
+                  <Button icon={<Cloud size={14} />} onClick={() => setDriveFor(defaultCourse)}>
+                    Link a Google Drive folder
+                  </Button>
+                </div>
               }
             />
           ) : (
             <ul className="space-y-2">
               {documents.data?.map((document) => {
                 const course = courses.data?.find((item) => item.id === document.course_id);
+                const fromDrive = document.source === 'google_drive';
+                const drivePath = document.extraction_meta.drive_path;
                 return (
                   <li key={document.id}>
                     <Card className="flex flex-wrap items-center gap-4" padded={false}>
                       <div className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-4">
-                        <FileText size={18} className="shrink-0 text-[var(--text-muted)]" />
+                        {fromDrive ? (
+                          <Cloud size={18} className="shrink-0 text-[var(--text-muted)]" />
+                        ) : (
+                          <FileText size={18} className="shrink-0 text-[var(--text-muted)]" />
+                        )}
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-1.5">
                             <Link
@@ -186,11 +270,21 @@ export function LibraryScreen() {
                             {document.kind !== 'lecture' ? (
                               <Badge tone="accent">{document.kind.replace('_', ' ')}</Badge>
                             ) : null}
+                            {fromDrive ? (
+                              <Badge
+                                tone="info"
+                                icon={<Cloud size={11} />}
+                                title="The file stays in Google Drive; only its index is kept here."
+                              >
+                                Google Drive
+                              </Badge>
+                            ) : null}
                           </div>
                           <p className="mt-0.5 truncate text-[0.75rem] text-[var(--text-secondary)]">
                             {course ? `${course.title} · ` : ''}
-                            {document.page_count} pages · {formatBytes(document.byte_size)} ·{' '}
-                            {formatRelativeTime(document.created_at)}
+                            {drivePath ? `${drivePath} · ` : ''}
+                            {document.page_count} pages · {formatBytes(document.byte_size)}
+                            {fromDrive ? ' in Drive' : ''} · {formatRelativeTime(document.created_at)}
                           </p>
                           {document.status_detail ? (
                             <p className="mt-0.5 line-clamp-2 text-[0.75rem] text-[var(--signal-caution)]">
@@ -227,9 +321,22 @@ export function LibraryScreen() {
           courseId={uploadFor}
           courses={courses.data ?? []}
           onClose={() => setUploadFor(null)}
-          onUploaded={(result) => {
+          onUploaded={(batch) => {
             setUploadFor(null);
-            setLastResult(result);
+            setLastImport(null);
+            setLastBatch(batch);
+          }}
+        />
+
+        <DriveImportDialog
+          open={driveFor !== null}
+          courseId={driveFor}
+          courses={courses.data ?? []}
+          onClose={() => setDriveFor(null)}
+          onImported={(result) => {
+            setDriveFor(null);
+            setLastBatch(null);
+            setLastImport(result);
           }}
         />
 
@@ -237,7 +344,7 @@ export function LibraryScreen() {
           open={confirmDelete !== null}
           onClose={() => setConfirmDelete(null)}
           title={`Delete ${confirmDelete?.title ?? 'document'}?`}
-          description="The file, its page previews and every index entry built from it are removed from this device. Quizzes already generated from it are kept."
+          description="The file, its page previews and every index entry built from it are removed from this device. Quizzes already generated from it are kept. A file in Google Drive is not touched."
           footer={
             <>
               <Button onClick={() => setConfirmDelete(null)}>Cancel</Button>
@@ -259,15 +366,69 @@ export function LibraryScreen() {
   );
 }
 
-function UploadSummary({
-  result,
-  onDismiss,
-}: {
-  result: UploadResult;
-  onDismiss: () => void;
-}) {
-  const tone: Tone =
-    result.status === 'indexed' ? 'grounded' : result.status === 'failed' ? 'danger' : 'caution';
+// --- upload results --------------------------------------------------------------
+function resultTone(result: UploadResult): Tone {
+  return result.status === 'indexed' ? 'grounded' : result.status === 'failed' ? 'danger' : 'caution';
+}
+
+function BatchSummary({ batch, onDismiss }: { batch: UploadBatch; onDismiss: () => void }) {
+  const { entries, rejected } = batch;
+  const indexed = entries.filter((e) => e.result?.status === 'indexed').length;
+  const failed = entries.filter((e) => e.error || e.result?.status === 'failed').length;
+  const tone: Tone = failed === 0 && rejected.length === 0 ? 'grounded' : failed === entries.length ? 'danger' : 'caution';
+
+  if (entries.length === 1 && rejected.length === 0) {
+    const [entry] = entries;
+    if (entry?.result) return <SingleSummary result={entry.result} onDismiss={onDismiss} />;
+  }
+
+  return (
+    <Callout
+      tone={tone}
+      icon={tone === 'grounded' ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+      title={`${indexed} of ${entries.length} file${entries.length === 1 ? '' : 's'} indexed${
+        rejected.length ? `, ${rejected.length} not taken` : ''
+      }`}
+      action={
+        <Button size="sm" variant="ghost" onClick={onDismiss}>
+          Dismiss
+        </Button>
+      }
+    >
+      <ul className="max-h-56 space-y-0.5 overflow-y-auto text-[0.75rem]">
+        {entries.map((entry) => (
+          <li key={relativePathOf(entry.file)} className="flex flex-wrap items-center gap-1.5">
+            <span className="truncate">{relativePathOf(entry.file)}</span>
+            {entry.result ? (
+              <>
+                <Badge tone={resultTone(entry.result)}>
+                  {entry.result.deduplicated ? 'already here' : STATUS_LABEL[entry.result.status]}
+                </Badge>
+                <span className="text-[var(--text-muted)]">
+                  {entry.result.page_count} pages, {entry.result.chunk_count} passages
+                </span>
+                <Link to={`/read/${entry.result.document.id}`} className="underline">
+                  Open
+                </Link>
+              </>
+            ) : (
+              <Badge tone="danger">{entry.error ?? 'Failed'}</Badge>
+            )}
+          </li>
+        ))}
+        {rejected.map((item) => (
+          <li key={relativePathOf(item.file)} className="flex flex-wrap items-center gap-1.5">
+            <span className="truncate text-[var(--text-muted)]">{relativePathOf(item.file)}</span>
+            <Badge tone="neutral">{item.reason}</Badge>
+          </li>
+        ))}
+      </ul>
+    </Callout>
+  );
+}
+
+function SingleSummary({ result, onDismiss }: { result: UploadResult; onDismiss: () => void }) {
+  const tone = resultTone(result);
   return (
     <Callout
       tone={tone}
@@ -312,6 +473,7 @@ function UploadSummary({
   );
 }
 
+// --- the upload dialog -----------------------------------------------------------
 function UploadDialog({
   open,
   courseId,
@@ -323,95 +485,99 @@ function UploadDialog({
   courseId: string | null;
   courses: Array<{ id: string; title: string }>;
   onClose: () => void;
-  onUploaded: (result: UploadResult) => void;
+  onUploaded: (batch: UploadBatch) => void;
 }) {
   const upload = useUploadDocument();
   const inputId = useId();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const filesRef = useRef<HTMLInputElement>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
 
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [rejected, setRejected] = useState<Rejected[]>([]);
   const [title, setTitle] = useState('');
   const [kind, setKind] = useState('lecture');
   const [selectedCourse, setSelectedCourse] = useState(courseId ?? '');
   const [dragging, setDragging] = useState(false);
-  const [localError, setLocalError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ done: number; current: string } | null>(null);
 
   const effectiveCourse = selectedCourse || courseId || courses[0]?.id || '';
+  const busy = progress !== null;
 
-  const accept = useCallback((candidate: File | undefined) => {
-    if (!candidate) return;
-    const name = candidate.name.toLowerCase();
-    const ok =
-      candidate.type === 'application/pdf' ||
-      /\.(pdf|pptx|png|jpe?g|webp|wav|mp3|m4a)$/.test(name) ||
-      candidate.type.startsWith('image/') ||
-      candidate.type.startsWith('audio/');
-    if (!ok) {
-      setLocalError(
-        'Supported files: PDF, PowerPoint (.pptx), PNG/JPEG/WebP images, and WAV/MP3/M4A audio. An old .ppt file needs saving as .pptx first.',
-      );
-      return;
-    }
-    setLocalError(null);
-    setFile(candidate);
-    if (!title) setTitle(candidate.name.replace(/\.pdf$/i, ''));
-  }, [title]);
+  const take = useCallback((candidates: Iterable<File>) => {
+    const partition = partitionFiles(candidates);
+    setFiles((current) => partitionFiles([...current, ...partition.accepted]).accepted);
+    setRejected((current) => [...current, ...partition.rejected]);
+  }, []);
 
   const reset = () => {
-    setFile(null);
+    setFiles([]);
+    setRejected([]);
     setTitle('');
     setKind('lecture');
-    setLocalError(null);
+    setProgress(null);
     upload.reset();
   };
+
+  const close = () => {
+    if (busy) return;
+    reset();
+    onClose();
+  };
+
+  const start = async () => {
+    if (files.length === 0 || !effectiveCourse) return;
+    const entries: UploadEntry[] = [];
+    for (const [index, file] of files.entries()) {
+      setProgress({ done: index, current: relativePathOf(file) });
+      try {
+        const result = await upload.mutateAsync({
+          courseId: effectiveCourse,
+          file,
+          title: files.length === 1 ? title.trim() || undefined : titleFor(file),
+          kind,
+        });
+        entries.push({ file, result });
+      } catch (error) {
+        entries.push({ file, error: describeError(error) });
+      }
+    }
+    setProgress(null);
+    const batch = { entries, rejected };
+    reset();
+    onUploaded(batch);
+  };
+
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
 
   return (
     <Dialog
       open={open}
-      onClose={() => {
-        reset();
-        onClose();
-      }}
-      title="Upload a document"
-      description="PDF only for now. The file is stored on this device and indexed locally."
+      onClose={close}
+      title="Upload files or a folder"
+      description="Everything is stored and indexed on this device. A folder is taken whole, including its subfolders; files of other types are listed, not lost."
+      width="lg"
       footer={
         <>
-          <Button
-            onClick={() => {
-              reset();
-              onClose();
-            }}
-          >
+          <Button onClick={close} disabled={busy}>
             Cancel
           </Button>
           <Button
             variant="primary"
-            loading={upload.isPending}
-            disabled={!file || !effectiveCourse}
-            onClick={async () => {
-              if (!file || !effectiveCourse) return;
-              try {
-                const result = await upload.mutateAsync({
-                  courseId: effectiveCourse,
-                  file,
-                  title: title.trim() || undefined,
-                  kind,
-                });
-                reset();
-                onUploaded(result);
-              } catch {
-                // Surfaced below via upload.error.
-              }
-            }}
+            loading={busy}
+            disabled={files.length === 0 || !effectiveCourse}
+            onClick={() => void start()}
           >
-            {upload.isPending ? 'Indexing…' : 'Upload and index'}
+            {busy
+              ? `Indexing ${progress.done + 1} of ${files.length}…`
+              : files.length > 1
+                ? `Upload and index ${files.length} files`
+                : 'Upload and index'}
           </Button>
         </>
       }
     >
       <div className="space-y-3">
-        {localError ? <ErrorPanel title="Wrong file type" message={localError} /> : null}
-        {upload.error ? (
+        {upload.error && !busy ? (
           <ErrorPanel title="Upload failed" message={describeError(upload.error)} />
         ) : null}
 
@@ -424,10 +590,10 @@ function UploadDialog({
           onDrop={(event) => {
             event.preventDefault();
             setDragging(false);
-            accept(event.dataTransfer.files[0]);
+            void filesFromDrop(event.dataTransfer).then(take);
           }}
           className={[
-            'rounded-[var(--radius-control)] border-2 border-dashed px-4 py-6 text-center transition-colors',
+            'rounded-[var(--radius-control)] border-2 border-dashed px-4 py-5 text-center transition-colors',
             dragging
               ? 'border-[var(--color-accent-500)] bg-[var(--color-accent-50)]'
               : 'border-[var(--border-strong)] bg-[var(--surface-sunken)]',
@@ -435,31 +601,96 @@ function UploadDialog({
         >
           <input
             id={inputId}
-            ref={inputRef}
+            ref={filesRef}
             type="file"
-            accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,.pptx,image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp,audio/wav,audio/mpeg,audio/mp4,.wav,.mp3,.m4a"
+            multiple
+            accept={ACCEPT_ATTRIBUTE}
             className="sr-only"
-            onChange={(event) => accept(event.target.files?.[0])}
+            onChange={(event) => {
+              take(Array.from(event.target.files ?? []));
+              event.target.value = '';
+            }}
+          />
+          <input
+            ref={folderRef}
+            type="file"
+            multiple
+            aria-label="Choose a folder"
+            className="sr-only"
+            // A folder picker: not in React's typings, understood by every
+            // browser the app runs in.
+            {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+            onChange={(event) => {
+              take(Array.from(event.target.files ?? []));
+              event.target.value = '';
+            }}
           />
           <Upload size={20} className="mx-auto text-[var(--text-muted)]" />
-          {file ? (
-            <p className="mt-2 text-[0.8125rem] font-medium text-[var(--text-primary)]">
-              {file.name} <span className="font-normal">({formatBytes(file.size)})</span>
-            </p>
-          ) : (
-            <p className="mt-2 text-[0.8125rem] text-[var(--text-secondary)]">
-              Drop a PDF here, or
-            </p>
-          )}
-          <Button size="sm" className="mt-2" onClick={() => inputRef.current?.click()}>
-            {file ? 'Choose a different file' : 'Choose a file'}
-          </Button>
+          <p className="mt-2 text-[0.8125rem] text-[var(--text-secondary)]">
+            {files.length === 0
+              ? 'Drop files or a folder here, or'
+              : `${files.length} file${files.length === 1 ? '' : 's'}, ${formatBytes(totalBytes)}`}
+          </p>
+          <div className="mt-2 flex flex-wrap justify-center gap-2">
+            <Button size="sm" disabled={busy} onClick={() => filesRef.current?.click()}>
+              Choose files
+            </Button>
+            <Button
+              size="sm"
+              disabled={busy}
+              icon={<FolderOpen size={13} />}
+              onClick={() => folderRef.current?.click()}
+            >
+              Choose a folder
+            </Button>
+          </div>
+          <p className="mt-2 text-[0.6875rem] text-[var(--text-muted)]">{SUPPORTED_DESCRIPTION}</p>
         </div>
+
+        {busy ? (
+          <div>
+            <ProgressBar value={progress.done / files.length} label={progress.current} />
+          </div>
+        ) : null}
+
+        {files.length > 0 ? (
+          <ul className="max-h-40 space-y-1 overflow-y-auto rounded-[var(--radius-control)] border border-[var(--border-subtle)] p-2 text-[0.75rem]">
+            {files.map((file) => (
+              <li key={relativePathOf(file)} className="flex items-center gap-2">
+                <FileText size={12} className="shrink-0 text-[var(--text-muted)]" />
+                <span className="min-w-0 flex-1 truncate">{relativePathOf(file)}</span>
+                <span className="text-[var(--text-muted)]">{formatBytes(file.size)}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${file.name}`}
+                  disabled={busy}
+                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                  onClick={() => setFiles((current) => current.filter((item) => item !== file))}
+                >
+                  <X size={12} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        {rejected.length > 0 ? (
+          <Callout tone="caution" icon={<AlertTriangle size={14} />} title="Not taken">
+            <ul className="space-y-0.5">
+              {rejected.map((item) => (
+                <li key={relativePathOf(item.file)}>
+                  {relativePathOf(item.file)} — {item.reason}
+                </li>
+              ))}
+            </ul>
+          </Callout>
+        ) : null}
 
         {courses.length > 1 ? (
           <Field label="Course">
             <Select
               value={effectiveCourse}
+              disabled={busy}
               onChange={(event) => setSelectedCourse(event.target.value)}
             >
               {courses.map((course) => (
@@ -471,15 +702,22 @@ function UploadDialog({
           </Field>
         ) : null}
 
-        <Field label="Title" hint="Defaults to the file name.">
-          <Input value={title} onChange={(event) => setTitle(event.target.value)} />
-        </Field>
+        {files.length === 1 ? (
+          <Field label="Title" hint="Defaults to the file name.">
+            <Input
+              value={title}
+              disabled={busy}
+              placeholder={files[0] ? titleFor(files[0]) : ''}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </Field>
+        ) : null}
 
         <Field
-          label="What kind of document is this?"
+          label={files.length > 1 ? 'What kind of documents are these?' : 'What kind of document is this?'}
           hint="Questions are only ever labelled as coming from a past paper if you upload one and say so."
         >
-          <Select value={kind} onChange={(event) => setKind(event.target.value)}>
+          <Select value={kind} disabled={busy} onChange={(event) => setKind(event.target.value)}>
             {DOCUMENT_KINDS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -487,6 +725,436 @@ function UploadDialog({
             ))}
           </Select>
         </Field>
+      </div>
+    </Dialog>
+  );
+}
+
+// --- Google Drive ------------------------------------------------------------------
+const IMPORT_TONE: Record<DriveImportStatus, Tone> = {
+  indexed: 'grounded',
+  partial: 'caution',
+  failed: 'danger',
+  skipped: 'neutral',
+  unchanged: 'neutral',
+  removed: 'caution',
+};
+
+const IMPORT_LABEL: Record<DriveImportStatus, string> = {
+  indexed: 'Indexed',
+  partial: 'Partly indexed',
+  failed: 'Failed',
+  skipped: 'Skipped',
+  unchanged: 'Unchanged',
+  removed: 'Removed',
+};
+
+function countsSentence(counts: DriveImportResult['counts']): string {
+  const parts = (Object.keys(IMPORT_LABEL) as DriveImportStatus[])
+    .filter((status) => counts[status])
+    .map((status) => `${counts[status]} ${IMPORT_LABEL[status].toLowerCase()}`);
+  return parts.length ? parts.join(', ') : 'nothing to do';
+}
+
+function ImportSummary({
+  result,
+  onDismiss,
+}: {
+  result: DriveImportResult;
+  onDismiss: () => void;
+}) {
+  const failed = (result.counts.failed ?? 0) > 0;
+  const changed = (result.counts.indexed ?? 0) + (result.counts.partial ?? 0) + (result.counts.removed ?? 0);
+  const tone: Tone = failed ? 'caution' : changed > 0 ? 'grounded' : 'info';
+  return (
+    <Callout
+      tone={tone}
+      icon={failed ? <AlertTriangle size={14} /> : <Cloud size={14} />}
+      title={`Google Drive: ${countsSentence(result.counts)}`}
+      action={
+        <Button size="sm" variant="ghost" onClick={onDismiss}>
+          Dismiss
+        </Button>
+      }
+    >
+      <p className="mb-1">
+        Only the search index is kept here; the files stay in Drive
+        {result.duration_ms ? ` (${(result.duration_ms / 1000).toFixed(1)}s)` : ''}.
+      </p>
+      <OutcomeList outcomes={result.outcomes} />
+    </Callout>
+  );
+}
+
+function OutcomeList({ outcomes }: { outcomes: DriveImportOutcome[] }) {
+  return (
+    <ul className="max-h-56 space-y-0.5 overflow-y-auto text-[0.75rem]">
+      {outcomes.map((outcome) => (
+        <li key={outcome.file_id} className="flex flex-wrap items-center gap-1.5">
+          <span className="truncate">
+            {outcome.path ? `${outcome.path}/` : ''}
+            {outcome.name}
+          </span>
+          <Badge tone={IMPORT_TONE[outcome.status]}>{IMPORT_LABEL[outcome.status]}</Badge>
+          {outcome.detail ? (
+            <span className="text-[var(--text-muted)]">{outcome.detail}</span>
+          ) : null}
+          {outcome.document_id && outcome.status !== 'removed' ? (
+            <Link to={`/read/${outcome.document_id}`} className="underline">
+              Open
+            </Link>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function LinkedFolders({
+  links,
+  courses,
+  onSynced,
+}: {
+  links: DriveLink[];
+  courses: Array<{ id: string; title: string }>;
+  onSynced: (result: DriveImportResult) => void;
+}) {
+  const sync = useSyncDriveLink();
+  const unlink = useUnlinkDriveFolder();
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center gap-2">
+        <Cloud size={15} className="text-[var(--text-muted)]" />
+        <span className="text-[0.8125rem] font-medium text-[var(--text-primary)]">
+          Linked Google Drive folders
+        </span>
+        <span className="text-[0.75rem] text-[var(--text-muted)]">
+          Files stay in Drive; Sync now re-reads what changed.
+        </span>
+      </div>
+      <ul className="mt-2 divide-y divide-[var(--border-subtle)]">
+        {links.map((link) => {
+          const course = courses.find((item) => item.id === link.course_id);
+          const syncing = sync.isPending && sync.variables === link.id;
+          return (
+            <li key={link.id} className="flex flex-wrap items-center gap-3 py-2">
+              <Folder size={14} className="shrink-0 text-[var(--text-muted)]" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[0.8125rem] text-[var(--text-primary)]">
+                  {link.folder_name}
+                  {link.recursive ? '' : ' (this folder only)'}
+                </p>
+                <p className="text-[0.75rem] text-[var(--text-secondary)]">
+                  {course ? `${course.title} · ` : ''}
+                  {link.last_synced_at
+                    ? `synced ${formatRelativeTime(link.last_synced_at)}: ${countsSentence(link.last_summary)}`
+                    : 'never synced'}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                icon={<RefreshCw size={13} />}
+                loading={syncing}
+                onClick={() => sync.mutate(link.id, { onSuccess: onSynced })}
+              >
+                Sync now
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<Unlink size={13} />}
+                loading={unlink.isPending && unlink.variables === link.id}
+                onClick={() => unlink.mutate(link.id)}
+                title="Stop syncing. Documents already indexed stay."
+              >
+                Unlink
+              </Button>
+            </li>
+          );
+        })}
+      </ul>
+      {sync.error ? (
+        <Callout tone="danger" className="mt-2" icon={<AlertTriangle size={14} />}>
+          {describeError(sync.error)}
+        </Callout>
+      ) : null}
+    </Card>
+  );
+}
+
+interface Crumb {
+  id: string;
+  name: string;
+}
+
+function DriveImportDialog({
+  open,
+  courseId,
+  courses,
+  onClose,
+  onImported,
+}: {
+  open: boolean;
+  courseId: string | null;
+  courses: Array<{ id: string; title: string }>;
+  onClose: () => void;
+  onImported: (result: DriveImportResult) => void;
+}) {
+  const drive = useGoogleDrive();
+  const importFromDrive = useImportFromDrive();
+  const [selectedCourse, setSelectedCourse] = useState(courseId ?? '');
+  const [crumbs, setCrumbs] = useState<Crumb[]>([{ id: 'root', name: 'My Drive' }]);
+  const [pasted, setPasted] = useState('');
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [recursive, setRecursive] = useState(true);
+  const [keepLinked, setKeepLinked] = useState(true);
+
+  const connected = Boolean(drive.data?.connected);
+  const current = crumbs[crumbs.length - 1] ?? { id: 'root', name: 'My Drive' };
+  const listing = useDriveFiles(current.id, open && connected);
+  const effectiveCourse = selectedCourse || courseId || courses[0]?.id || '';
+  const busy = importFromDrive.isPending;
+
+  const openFolder = (file: DriveFile) => {
+    setCrumbs((stack) => [...stack, { id: file.id, name: file.name }]);
+    setChosen(new Set());
+  };
+
+  const goTo = (index: number) => {
+    setCrumbs((stack) => stack.slice(0, index + 1));
+    setChosen(new Set());
+  };
+
+  const openPasted = () => {
+    const text = pasted.trim();
+    if (!text) return;
+    setCrumbs([{ id: text, name: 'Pasted folder' }]);
+    setChosen(new Set());
+    setPasted('');
+  };
+
+  const close = () => {
+    if (busy) return;
+    importFromDrive.reset();
+    onClose();
+  };
+
+  const run = async () => {
+    if (!effectiveCourse) return;
+    const folderId = listing.data?.folder.id ?? current.id;
+    try {
+      const result = await importFromDrive.mutateAsync({
+        course_id: effectiveCourse,
+        folder: folderId,
+        file_ids: chosen.size ? Array.from(chosen) : [],
+        recursive,
+        link: chosen.size === 0 && keepLinked,
+      });
+      setChosen(new Set());
+      onImported(result);
+    } catch {
+      // Shown below through importFromDrive.error.
+    }
+  };
+
+  const importableCount = listing.data?.files.filter((f) => f.importable).length ?? 0;
+  const folderCount = listing.data?.files.filter((f) => f.is_folder).length ?? 0;
+
+  return (
+    <Dialog
+      open={open}
+      onClose={close}
+      title="Import from Google Drive"
+      description="Pick a folder, or files in it. Nothing is copied: StudyPilot reads each file once to index it, and opens it from Drive when you read it."
+      width="lg"
+      footer={
+        <>
+          <Button onClick={close} disabled={busy}>
+            {busy ? 'Working…' : 'Close'}
+          </Button>
+          {connected ? (
+            <Button
+              variant="primary"
+              icon={<Cloud size={14} />}
+              loading={busy}
+              disabled={!effectiveCourse || !listing.data || (chosen.size === 0 && importableCount + folderCount === 0)}
+              onClick={() => void run()}
+            >
+              {chosen.size > 0
+                ? `Index ${chosen.size} selected`
+                : `Index everything in ${listing.data?.folder.name ?? 'this folder'}`}
+            </Button>
+          ) : null}
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {drive.isPending ? (
+          <Skeleton className="h-16" />
+        ) : !drive.data?.configured || !connected ? (
+          <Callout tone="info" icon={<Cloud size={14} />} title="Connect Google Drive first">
+            {drive.data?.configured
+              ? 'Your Google account is not connected yet. '
+              : 'Google Drive is not set up on this installation yet. '}
+            <Link to="/settings" className="underline">
+              Open Settings → Google Drive
+            </Link>
+            .
+          </Callout>
+        ) : (
+          <>
+            {courses.length > 1 ? (
+              <Field label="Into course">
+                <Select
+                  value={effectiveCourse}
+                  disabled={busy}
+                  onChange={(event) => setSelectedCourse(event.target.value)}
+                >
+                  {courses.map((course) => (
+                    <option key={course.id} value={course.id}>
+                      {course.title}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : null}
+
+            <form
+              className="flex flex-wrap items-end gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                openPasted();
+              }}
+            >
+              <Field
+                label="Open a folder by link"
+                hint="Paste the link Drive gives you for a folder, or browse below."
+                className="min-w-[16rem] flex-1"
+              >
+                <Input
+                  value={pasted}
+                  disabled={busy}
+                  placeholder="https://drive.google.com/drive/folders/…"
+                  onChange={(event) => setPasted(event.target.value)}
+                />
+              </Field>
+              <Button type="submit" size="sm" disabled={!pasted.trim() || busy}>
+                Open
+              </Button>
+            </form>
+
+            <nav aria-label="Folder path" className="flex flex-wrap items-center gap-1 text-[0.8125rem]">
+              {crumbs.map((crumb, index) => (
+                <span key={`${crumb.id}-${index}`} className="flex items-center gap-1">
+                  {index > 0 ? <ChevronRight size={12} className="text-[var(--text-muted)]" /> : null}
+                  <button
+                    type="button"
+                    disabled={busy || index === crumbs.length - 1}
+                    className="rounded px-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:text-[var(--text-primary)] disabled:font-medium"
+                    onClick={() => goTo(index)}
+                  >
+                    {index === crumbs.length - 1 && listing.data ? listing.data.folder.name : crumb.name}
+                  </button>
+                </span>
+              ))}
+            </nav>
+
+            <div className="max-h-72 overflow-y-auto rounded-[var(--radius-control)] border border-[var(--border-subtle)]">
+              {listing.isPending ? (
+                <div className="flex items-center gap-2 p-3 text-[0.8125rem] text-[var(--text-secondary)]">
+                  <Spinner size={13} /> Reading the folder…
+                </div>
+              ) : listing.isError ? (
+                <div className="p-3">
+                  <ErrorPanel message={describeError(listing.error)} onRetry={() => void listing.refetch()} />
+                </div>
+              ) : listing.data?.files.length === 0 ? (
+                <p className="p-3 text-[0.8125rem] text-[var(--text-secondary)]">This folder is empty.</p>
+              ) : (
+                <ul className="divide-y divide-[var(--border-subtle)]">
+                  {listing.data?.files.map((file) =>
+                    file.is_folder ? (
+                      <li key={file.id}>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-[0.8125rem] hover:bg-[var(--surface-hover)]"
+                          onClick={() => openFolder(file)}
+                        >
+                          <Folder size={14} className="shrink-0 text-[var(--text-muted)]" />
+                          <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                          <ChevronRight size={14} className="text-[var(--text-muted)]" />
+                        </button>
+                      </li>
+                    ) : (
+                      <li key={file.id}>
+                        <label
+                          className={[
+                            'flex items-center gap-2 px-3 py-2 text-[0.8125rem]',
+                            file.importable ? 'cursor-pointer hover:bg-[var(--surface-hover)]' : 'opacity-60',
+                          ].join(' ')}
+                          title={file.why_skipped || undefined}
+                        >
+                          <input
+                            type="checkbox"
+                            className="shrink-0"
+                            disabled={!file.importable || busy}
+                            checked={chosen.has(file.id)}
+                            onChange={(event) =>
+                              setChosen((set) => {
+                                const next = new Set(set);
+                                if (event.target.checked) next.add(file.id);
+                                else next.delete(file.id);
+                                return next;
+                              })
+                            }
+                          />
+                          <FileText size={14} className="shrink-0 text-[var(--text-muted)]" />
+                          <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                          <span className="text-[0.75rem] text-[var(--text-muted)]">
+                            {file.importable
+                              ? file.size
+                                ? formatBytes(file.size)
+                                : 'Google format'
+                              : file.why_skipped}
+                          </span>
+                        </label>
+                      </li>
+                    ),
+                  )}
+                </ul>
+              )}
+            </div>
+
+            {chosen.size === 0 ? (
+              <div className="divide-y divide-[var(--border-subtle)]">
+                <Toggle
+                  checked={recursive}
+                  disabled={busy}
+                  onChange={setRecursive}
+                  label="Include subfolders"
+                  description="Everything below this folder, up to 300 files per run."
+                />
+                <Toggle
+                  checked={keepLinked}
+                  disabled={busy}
+                  onChange={setKeepLinked}
+                  label="Keep this folder linked to the course"
+                  description="Sync now in the Library re-reads changed files, adds new ones and removes deleted ones."
+                />
+              </div>
+            ) : (
+              <p className="text-[0.75rem] text-[var(--text-muted)]">
+                Only the selected files are indexed; the folder is not linked. Clear the selection
+                to index and link the whole folder.
+              </p>
+            )}
+
+            {importFromDrive.error ? (
+              <ErrorPanel title="Import failed" message={describeError(importFromDrive.error)} />
+            ) : null}
+          </>
+        )}
       </div>
     </Dialog>
   );

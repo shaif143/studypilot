@@ -142,6 +142,20 @@ services:
       - key: GEMINI_API_KEY
         sync: false
 
+      # --- Google Drive (optional) -------------------------------------------
+      # A "Web application" OAuth client whose redirect URI is
+      #   https://<this service>/api/integrations/google/callback
+      # Leave blank to keep the feature off; Settings then says it is not set
+      # up here. docs/DEPLOYMENT.md → "Google Drive on a hosted site".
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: STUDYPILOT_PUBLIC_API_URL
+        sync: false
+      - key: STUDYPILOT_WEB_ORIGIN
+        sync: false
+
       # --- Behaviour --------------------------------------------------------
       # Default: no generation. The tutor quotes your own material with
       # citations and says so. Set to anthropic or openai (plus the matching

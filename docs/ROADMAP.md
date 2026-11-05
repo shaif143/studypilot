@@ -22,6 +22,8 @@ Legend: ✅ implemented and tested · 🧪 experimental or interface-only ·
 
 - ✅ Course management (create, edit, archive, delete, cascade)
 - ✅ PDF upload with magic-byte validation, size limits and de-duplication
+- ✅ Folder upload (files and subfolders at once, each with its own result)
+- ✅ Google Drive: read-only connection, linked folders, sync — files stay in Drive, only the index is kept
 - ✅ Reader: real pdf.js rendering, zoom, page navigation, keyboard shortcuts
 - ✅ Extraction: text, headings, tables, equations, figures, bounding boxes
 - ✅ Page previews rendered server-side as a fallback
@@ -126,8 +128,8 @@ Legend: ✅ implemented and tested · 🧪 experimental or interface-only ·
    noticeably.
 2. **Background ingestion with progress.** Upload is synchronous. Fine for a
    lecture deck, not for a textbook.
-3. **More end-to-end coverage.** Two Playwright specs cover the MVP loop and the
-   new features; drag-to-resize, keyboard navigation and the desktop shell are
+3. **More end-to-end coverage.** Three Playwright specs cover the MVP loop, the
+   new features and folder upload; drag-to-resize, keyboard navigation and the desktop shell are
    still hand-verified.
 4. **Vision for diagrams.** Slides whose content is a figure currently yield no
    text, and the reader labels them honestly. This is the largest remaining

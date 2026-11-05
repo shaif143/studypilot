@@ -286,6 +286,47 @@ follow from a model being involved:
 - a provider that cannot read the file refuses with a message naming what is
   needed, and the document is marked `failed` rather than indexed empty.
 
+## Google Drive
+
+A linked Drive folder is the one case where a document's bytes are not here.
+
+```text
+Settings → Connect  ──►  Google consent (PKCE, drive.readonly)  ──►  callback on
+the backend's own port (desktop) or the hosted API's registered URL
+```
+
+* **Sign-in.** `app/integrations/google_drive.py` speaks OAuth 2.0 with PKCE
+  and the four Drive calls the app needs (`about`, `files.list`, `files.get`,
+  `files.export`). No Google SDK: they are plain HTTPS through `httpx`. The
+  state the browser brings back must match a flow this process started
+  (`oauth_flows`, 15-minute lifetime, used once); the verifier never leaves
+  the process. The desktop opens the consent page in the default browser and
+  Google redirects to `http://127.0.0.1:<port>/api/integrations/google/callback`,
+  which a *Desktop app* client accepts on any loopback port. A hosted site
+  uses a *Web application* client with its callback URL registered.
+* **Tokens.** Stored in `drive_connections` as a Fernet ciphertext. The key
+  is 32 random bytes kept in the macOS Keychain on the desktop (`app.secrets`)
+  and derived from the operator's secret when hosted. The API reports
+  "connected as …" and never a token.
+* **Import.** `drive_import.import_files` walks the folder (bounded at 300
+  files a run), fetches each importable file — PDF, `.pptx`, and Google Docs
+  or Slides exported as PDF — and runs the ordinary ingestion with
+  `source_bytes` and `keep_previews=False`. The pipeline writes the bytes to a
+  temporary file for the extractor and drops them; the document row carries
+  `source="google_drive"`, the Drive file id and its `modifiedTime`. No blob,
+  no page previews: a deck costs its text, topics, chunks and vectors. (A
+  `.pptx` keeps the PDF rendered from it, because that rendering is what the
+  reader shows and Drive has nothing to stream instead.)
+* **Reading.** `/documents/{id}/file` sees `source="google_drive"`, fetches
+  the file from Drive with the stored token (refreshed when expired) and
+  passes it straight through. The reader therefore needs the connection to
+  be live; without it the route answers 409 and says so, while the index —
+  search, citations, page text — keeps working.
+* **Sync.** A linked folder (`drive_links`) is re-walked on "Sync now": a file
+  whose `modifiedTime` moved is removed and read again, a new file is indexed,
+  and a document whose file is no longer in the folder is removed with its
+  index. Nothing is ever written to Drive.
+
 ## Assignment guides
 
 `app/assignments/graph.py` is a LangGraph state machine that turns an

@@ -13,7 +13,10 @@ reason attached rather than reported as a success.
 from __future__ import annotations
 
 import logging
+import tempfile
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -90,6 +93,22 @@ def validate_upload(filename: str, data: bytes, settings: Settings) -> str:
     )
 
 
+@contextmanager
+def _source_file(
+    blobs: BlobStore, document: Document, source_bytes: bytes | None
+) -> Iterator[Path]:
+    """A path to the document's bytes: the stored blob, or a temporary copy."""
+    if source_bytes is None:
+        with blobs.local_path(document.content_hash) as path:
+            yield Path(path)
+        return
+    suffix = Path(document.original_filename).suffix.lower() or ".bin"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as handle:
+        handle.write(source_bytes)
+        handle.flush()
+        yield Path(handle.name)
+
+
 def _extract_presentation(
     source_path: Path,
     document: Document,
@@ -103,8 +122,6 @@ def _extract_presentation(
     it is stored next to the page previews and its key recorded on the
     document; ``/documents/{id}/file`` serves it in place of the original.
     """
-    import tempfile
-
     deck = render_pptx_to_pdf(source_path, max_slides=settings.max_pdf_pages)
     rendered_key = blobs.put_asset(f"{document.id}/rendered.pdf", deck.pdf, "application/pdf")
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as handle:
@@ -133,13 +150,21 @@ def ingest_document(
     chunks: ChunkRepository,
     topics: TopicRepository,
     media_reader: MediaReader | None = None,
+    source_bytes: bytes | None = None,
+    keep_previews: bool = True,
 ) -> IngestionResult:
-    """Extract, chunk, embed and index a stored document.
+    """Extract, chunk, embed and index a document.
 
     PDFs are read deterministically. Image and audio briefs go through
     ``media_reader``, which carries whatever consent-gated model the caller
     resolved; without one, such a document fails with a message saying what
     is needed rather than being indexed empty.
+
+    Normally the bytes come from the blob store under ``content_hash``. A
+    document that is *not* kept here — one read from Google Drive — passes
+    them as ``source_bytes`` instead; they are written to a temporary file
+    for the extractor and discarded. ``keep_previews=False`` also skips the
+    rendered page images, so such a document costs only its text index.
     """
     started = time.monotonic()
     documents.set_status(document, "processing", "Reading the document")
@@ -148,10 +173,12 @@ def ingest_document(
         suffix = "webp" if media_type.endswith("webp") else "png"
         return blobs.put_asset(f"{document.id}/page-{page_number:04d}.{suffix}", data, media_type)
 
+    preview_sink = store_preview if keep_previews else None
+
     try:
         # The store yields a real file: PyMuPDF wants a path, and a remote
         # store downloads to a temporary one that is cleaned up on exit.
-        with blobs.local_path(document.content_hash) as source_path:
+        with _source_file(blobs, document, source_bytes) as source_path:
             extracted: ExtractedDocument
             if is_image(document.media_type) or is_audio(document.media_type):
                 reader = media_reader or MediaReader(settings=settings, provider=None)
@@ -169,13 +196,13 @@ def ingest_document(
                     )
             elif document.media_type == PPTX_MEDIA_TYPE:
                 extracted = _extract_presentation(
-                    Path(source_path), document, settings, blobs, store_preview
+                    Path(source_path), document, settings, blobs, preview_sink
                 )
             else:
                 extracted = extract_pdf(
                     source_path,
                     max_pages=settings.max_pdf_pages,
-                    preview_sink=store_preview,
+                    preview_sink=preview_sink,
                 )
     except (UnreadableDocumentError, UnreadablePresentationError) as exc:
         documents.set_status(document, "failed", str(exc))

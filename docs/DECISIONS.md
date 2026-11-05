@@ -404,6 +404,40 @@ only as a fallback and a migration source.
 
 ---
 
+## 26. Google Drive files are read, not copied
+
+**Decision.** A document linked from Google Drive keeps only its search index
+here — text, topics, chunks, embeddings. The bytes are fetched to index,
+dropped, and fetched again when the reader opens the file. No page previews
+are rendered for it.
+
+**Why.** The user asked for Drive so the app would not fill the Mac with
+copies of material that already lives in Drive. The index is what the tutor,
+quizzes and citations need, and it is a few hundred kilobytes per deck; the
+deck itself is tens of megabytes. The cost is honest and stated in the UI:
+opening a Drive file needs the connection and the network, and a PowerPoint
+deck keeps the PDF rendered from it because there is nothing in Drive to
+stream in its place.
+
+---
+
+## 27. OAuth through the backend, with PKCE and no Google SDK
+
+**Decision.** The backend starts the sign-in, receives Google's redirect on
+its own port (desktop) or registered URL (hosted), exchanges the code with a
+PKCE verifier, and stores the tokens encrypted with a key held by the same
+secret store as the provider keys. The frontend never sees a token. The four
+Drive endpoints are called with `httpx`.
+
+**Why.** Google refuses OAuth inside embedded webviews, so the Tauri window
+cannot host the consent screen; the default browser can, and the backend is
+already listening on the loopback. PKCE plus a single-use server-side state
+means an intercepted code is useless. Google's Python client would add a
+dozen packages for a wrapper around four HTTPS calls; the blueprint asks for
+no dependency that does not earn its place.
+
+---
+
 ## 25. Deferred deliberately
 
 | Deferred | Reason |

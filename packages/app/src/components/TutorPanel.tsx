@@ -226,7 +226,14 @@ export function TutorPanel({
             variant="primary"
             icon={<CornerDownLeft size={13} />}
             loading={ask.isPending}
-            disabled={(mode !== 'explain' && draft.trim().length === 0) || (mode === 'assignment' && policy === 'off')}
+            // Until the course list has loaded there is nothing to scope the
+            // question to, and the backend would answer 404. Found by the
+            // end-to-end test, which types faster than the list loads.
+            disabled={
+              (mode !== 'explain' && draft.trim().length === 0) ||
+              (mode === 'assignment' && policy === 'off') ||
+              (!sessionId && !courseId && !documentId)
+            }
             onClick={() => void submit()}
           >
             {mode === 'explain' && draft.trim().length === 0 ? 'Explain this page' : 'Send'}

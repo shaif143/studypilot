@@ -130,6 +130,13 @@ describe('API contract', () => {
     ['deleteAttention', () => client.deleteAttention('d1')],
     ['exportData', () => client.exportData()],
     ['deleteAllData', () => client.deleteAllData()],
+    ['googleDrive', () => client.googleDrive()],
+    ['connectGoogleDrive', () => client.connectGoogleDrive(false)],
+    ['disconnectGoogleDrive', () => client.disconnectGoogleDrive()],
+    ['driveFiles', () => client.driveFiles('root')],
+    ['importFromDrive', () => client.importFromDrive({ course_id: 'c1', folder: 'f1' })],
+    ['syncDriveLink', () => client.syncDriveLink('l1')],
+    ['unlinkDriveFolder', () => client.unlinkDriveFolder('l1')],
   ])('%s calls a route the backend actually exposes', async (_name, invoke) => {
     const { path, method } = await record(invoke);
     expect(

@@ -27,13 +27,16 @@ import {
   Cloud,
   CloudOff,
   Download,
+  ExternalLink,
   Info,
   KeyRound,
   LogOut,
   Trash2,
+  Unlink,
   XCircle,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { ErrorPanel, PageBody, PageHeader } from '../components/AppShell';
 import { useApp } from '../context';
@@ -41,7 +44,10 @@ import { useNeonSignOut } from '../hooks/useNeonAuth';
 import {
   describeError,
   useAuthStatus,
+  useConnectGoogleDrive,
   useDeleteAllData,
+  useDisconnectGoogleDrive,
+  useGoogleDrive,
   useHealth,
   useLogout,
   useDeleteProviderKey,
@@ -221,6 +227,8 @@ export function SettingsScreen() {
             </Card>
 
             <ProviderKeysCard />
+
+            <GoogleDriveCard />
 
             {/* --- Embeddings -------------------------------------------- */}
             <Card>
@@ -451,7 +459,20 @@ const KEY_LABELS: Record<string, { label: string; hint: string; placeholder: str
     hint: 'From aistudio.google.com → Get API key.',
     placeholder: 'AIza…',
   },
+  google_client_id: {
+    label: 'OAuth client ID',
+    hint: 'Ends in .apps.googleusercontent.com.',
+    placeholder: '1234567890-….apps.googleusercontent.com',
+  },
+  google_client_secret: {
+    label: 'OAuth client secret',
+    hint: 'Shown once when the client is created.',
+    placeholder: 'GOCSPX-…',
+  },
 };
+
+/** Keys that belong to an integration, not a model provider. */
+const INTEGRATION_KEYS = new Set(['google_client_id', 'google_client_secret']);
 
 /**
  * Keys for cloud providers, on the desktop only.
@@ -464,9 +485,6 @@ const KEY_LABELS: Record<string, { label: string; hint: string; placeholder: str
  */
 function ProviderKeysCard() {
   const keys = useProviderKeys();
-  const setKey = useSetProviderKey();
-  const removeKey = useDeleteProviderKey();
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
 
   if (!keys.data?.editable) return null;
   const storage =
@@ -482,8 +500,29 @@ function ProviderKeysCard() {
         title="Keys for cloud providers"
         description={`The engine runs on this Mac, so a cloud provider's key has to be here too. It is kept in ${storage}.`}
       />
+      <KeyEditors providers={keys.data.keys.filter((e) => !INTEGRATION_KEYS.has(e.provider))} />
+      <Callout tone="info" className="mt-3" icon={<Info size={14} />}>
+        After saving, the provider shows as available above — choose <em>Use this provider</em>{' '}
+        and turn on <em>Allow cloud AI processing</em> below. The key is only ever sent to that
+        provider, with the text you ask about.
+      </Callout>
+    </Card>
+  );
+}
+
+/** The save/remove form for each secret the desktop keeps. Values never come back. */
+function KeyEditors({
+  providers,
+}: {
+  providers: Array<{ provider: string; configured: boolean; from_environment: boolean }>;
+}) {
+  const setKey = useSetProviderKey();
+  const removeKey = useDeleteProviderKey();
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  return (
+    <>
       <ul className="mt-3 space-y-3">
-        {keys.data.keys.map((entry) => {
+        {providers.map((entry) => {
           const copy = KEY_LABELS[entry.provider] ?? {
             label: `${entry.provider} API key`,
             hint: '',
@@ -509,7 +548,7 @@ function ProviderKeysCard() {
               </div>
               {entry.from_environment ? (
                 <p className="mt-1 text-[0.75rem] text-[var(--text-secondary)]">
-                  This key was set outside the app, so it cannot be changed here.
+                  This value was set outside the app, so it cannot be changed here.
                 </p>
               ) : (
                 <form
@@ -526,7 +565,7 @@ function ProviderKeysCard() {
                     );
                   }}
                 >
-                  <Field label={entry.configured ? 'Replace the key' : 'Paste the key'} hint={copy.hint} className="min-w-[16rem] flex-1">
+                  <Field label={entry.configured ? 'Replace' : 'Paste it here'} hint={copy.hint} className="min-w-[16rem] flex-1">
                     <Input
                       type="password"
                       autoComplete="off"
@@ -574,11 +613,185 @@ function ProviderKeysCard() {
           {describeError(removeKey.error)}
         </Callout>
       ) : null}
-      <Callout tone="info" className="mt-3" icon={<Info size={14} />}>
-        After saving, the provider shows as available above — choose <em>Use this provider</em>{' '}
-        and turn on <em>Allow cloud AI processing</em> below. The key is only ever sent to that
-        provider, with the text you ask about.
-      </Callout>
+    </>
+  );
+}
+
+/**
+ * Google Drive: a read-only connection that keeps the files where they are.
+ *
+ * On the desktop the OAuth client is typed in once (into the Keychain, like
+ * the provider keys) and the consent page opens in the default browser; the
+ * backend listens on its own port for Google's redirect. On a hosted site
+ * the operator supplies the client and the browser is sent to Google and
+ * back. Either way the card polls while a sign-in is out, so the moment the
+ * callback lands it says "connected" without a reload.
+ */
+function GoogleDriveCard() {
+  const { platform } = useApp();
+  const [params, setParams] = useSearchParams();
+  const [waiting, setWaiting] = useState(false);
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
+  const drive = useGoogleDrive({ refetchInterval: waiting ? 2000 : false });
+  const connect = useConnectGoogleDrive();
+  const disconnect = useDisconnectGoogleDrive();
+  const keys = useProviderKeys();
+
+  const outcome = params.get('drive');
+  useEffect(() => {
+    if (!outcome) return;
+    // The hosted callback lands here; show the result once, then clear it.
+    const next = new URLSearchParams(params);
+    next.delete('drive');
+    setParams(next, { replace: true });
+  }, [outcome, params, setParams]);
+
+  // "Waiting" ends the moment the status says connected; no effect needed.
+  const pending = waiting && !drive.data?.connected;
+
+  useEffect(() => {
+    if (!pending) return;
+    const timer = window.setTimeout(() => setWaiting(false), 3 * 60_000);
+    return () => window.clearTimeout(timer);
+  }, [pending]);
+
+  const status = drive.data;
+  const clientEntries = (keys.data?.keys ?? []).filter((e) => INTEGRATION_KEYS.has(e.provider));
+
+  const begin = async () => {
+    const desktop = platform.kind === 'desktop';
+    try {
+      const started = await connect.mutateAsync(desktop);
+      setAuthUrl(started.auth_url);
+      setWaiting(true);
+      if (!desktop) window.location.assign(started.auth_url);
+    } catch {
+      // connect.error is rendered below.
+    }
+  };
+
+  return (
+    <Card>
+      <SectionHeading
+        title="Google Drive"
+        description="Link a Drive folder to a course. Files stay in Drive: StudyPilot reads each one to build its search index, and opens it from Drive when you read it. Read-only access; nothing is written to your Drive."
+        action={
+          status?.connected ? (
+            <Button
+              size="sm"
+              icon={<Unlink size={14} />}
+              loading={disconnect.isPending}
+              onClick={() => {
+                setWaiting(false);
+                setAuthUrl(null);
+                disconnect.mutate();
+              }}
+            >
+              Disconnect
+            </Button>
+          ) : undefined
+        }
+      />
+
+      {outcome === 'cancelled' || outcome === 'failed' ? (
+        <Callout tone="caution" className="mt-3" icon={<AlertTriangle size={14} />}>
+          Google Drive was not connected. Try again, and allow access when Google asks.
+        </Callout>
+      ) : null}
+
+      {drive.isPending ? (
+        <Skeleton className="mt-3 h-12" />
+      ) : !status ? (
+        <ErrorPanel message={describeError(drive.error)} onRetry={() => void drive.refetch()} />
+      ) : status.connected ? (
+        <div className="mt-3 space-y-2">
+          <p className="text-[0.8125rem] text-[var(--text-secondary)]">
+            Connected as{' '}
+            <span className="font-medium text-[var(--text-primary)]">{status.account_email}</span>
+            {status.links.length > 0
+              ? ` · ${status.links.length} linked folder${status.links.length === 1 ? '' : 's'}`
+              : ''}
+            . Import and sync from the Lecture Library.
+          </p>
+          <p className="text-[0.75rem] text-[var(--text-muted)]">
+            The sign-in token is kept encrypted
+            {platform.kind === 'desktop' ? ', with its key in the macOS Keychain' : ''}. Disconnect
+            revokes it at Google; documents already indexed stay.
+          </p>
+        </div>
+      ) : (
+        <div className="mt-3 space-y-3">
+          {status.editable ? (
+            <>
+              <details className="rounded-[var(--radius-control)] border border-[var(--border-subtle)] px-3 py-2 text-[0.8125rem]">
+                <summary className="cursor-pointer font-medium text-[var(--text-primary)]">
+                  One-time setup: a Google OAuth client{status.configured ? ' (done)' : ''}
+                </summary>
+                <ol className="mt-2 list-decimal space-y-1 pl-5 text-[var(--text-secondary)]">
+                  <li>
+                    Go to console.cloud.google.com → create a project → <em>APIs &amp; Services</em>.
+                  </li>
+                  <li>
+                    <em>Library</em>: enable the <strong>Google Drive API</strong>.
+                  </li>
+                  <li>
+                    <em>OAuth consent screen</em>: External, add yourself under <em>Test users</em>.
+                  </li>
+                  <li>
+                    <em>Credentials</em> → <em>Create credentials</em> → <em>OAuth client ID</em> →
+                    type <strong>Desktop app</strong>. Copy the client ID and secret below.
+                  </li>
+                </ol>
+              </details>
+              <KeyEditors providers={clientEntries} />
+            </>
+          ) : !status.configured ? (
+            <Callout tone="info" icon={<Info size={14} />}>
+              Google Drive is not set up on this site. Its operator has to provide a Google OAuth
+              client.
+            </Callout>
+          ) : null}
+
+          {status.configured ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="primary"
+                icon={<Cloud size={14} />}
+                loading={connect.isPending}
+                disabled={pending}
+                onClick={() => void begin()}
+              >
+                {pending ? 'Waiting for Google…' : 'Connect Google Drive'}
+              </Button>
+              {pending && authUrl ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<ExternalLink size={13} />}
+                  onClick={() => void platform.openExternal(authUrl)}
+                >
+                  Browser did not open? Open it
+                </Button>
+              ) : null}
+              {pending ? (
+                <span className="text-[0.75rem] text-[var(--text-muted)]">
+                  Finish in the browser; this page updates by itself.
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+          {connect.error ? (
+            <Callout tone="danger" icon={<AlertTriangle size={14} />}>
+              {describeError(connect.error)}
+            </Callout>
+          ) : null}
+        </div>
+      )}
+      {disconnect.error ? (
+        <Callout tone="danger" className="mt-3" icon={<AlertTriangle size={14} />}>
+          {describeError(disconnect.error)}
+        </Callout>
+      ) : null}
     </Card>
   );
 }

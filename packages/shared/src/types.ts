@@ -98,6 +98,9 @@ export interface ExtractionMeta {
   pages_with_figures?: number;
   pages_with_tables?: number;
   extractor?: string;
+  /** Folder path below the linked Drive folder, for a document read from Drive. */
+  drive_path?: string;
+  drive_mime_type?: string;
 }
 
 export interface DocumentSummary {
@@ -113,6 +116,10 @@ export interface DocumentSummary {
   kind: string;
   embedding_model: string;
   extraction_meta: ExtractionMeta;
+  /** "upload", or "google_drive" when only the index is kept here and the file is read from Drive. */
+  source: 'upload' | 'google_drive';
+  /** The file's id at its source; empty for an upload. */
+  source_ref: string;
   created_at: string;
 }
 
@@ -616,4 +623,89 @@ export interface ProviderKeys {
   keys: ProviderKeyStatus[];
   /** Where a key entered in the app is kept: "keychain" on macOS, or "file" as a fallback. */
   storage: string;
+}
+
+// --- Google Drive --------------------------------------------------------------
+
+export interface DriveLink {
+  id: string;
+  course_id: string;
+  folder_id: string;
+  folder_name: string;
+  recursive: boolean;
+  last_synced_at: string | null;
+  /** Counts from the last sync, keyed by outcome status. */
+  last_summary: Record<string, number>;
+}
+
+export interface GoogleDriveStatus {
+  /** An OAuth client is set up on this installation. */
+  configured: boolean;
+  /** Where that client came from. */
+  client_source: 'settings' | 'environment' | 'none';
+  /** The desktop lets the user enter the client; a hosted site does not. */
+  editable: boolean;
+  connected: boolean;
+  account_email: string;
+  links: DriveLink[];
+  /** What is kept here for a Drive file: only ever the search index. */
+  keeps: 'index_only';
+}
+
+export interface DriveConnectResult {
+  auth_url: string;
+  redirect_uri: string;
+}
+
+export interface DriveFile {
+  id: string;
+  name: string;
+  mime_type: string;
+  modified_time: string;
+  size: number;
+  is_folder: boolean;
+  importable: boolean;
+  why_skipped: string;
+  path: string;
+}
+
+export interface DriveListing {
+  folder: DriveFile;
+  parent_id: string;
+  files: DriveFile[];
+}
+
+export interface DriveImportRequest {
+  course_id: string;
+  /** A folder id or link; empty means "just these files". */
+  folder?: string;
+  file_ids?: string[];
+  recursive?: boolean;
+  /** Keep the folder linked to the course for later syncs. */
+  link?: boolean;
+}
+
+export type DriveImportStatus =
+  | 'indexed'
+  | 'partial'
+  | 'failed'
+  | 'skipped'
+  | 'unchanged'
+  | 'removed';
+
+export interface DriveImportOutcome {
+  file_id: string;
+  name: string;
+  path: string;
+  status: DriveImportStatus;
+  detail: string;
+  document_id: string | null;
+}
+
+export interface DriveImportResult {
+  course_id: string;
+  outcomes: DriveImportOutcome[];
+  counts: Partial<Record<DriveImportStatus, number>>;
+  link: DriveLink | null;
+  duration_ms: number;
 }

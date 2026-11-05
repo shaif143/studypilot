@@ -159,6 +159,13 @@ class Document(Base, TimestampMixin):
     kind: Mapped[str] = mapped_column(String(32), default="lecture")
     embedding_model: Mapped[str] = mapped_column(String(128), default="")
     extraction_meta: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    #: Where the bytes live: "upload" (the blob store) or "google_drive" (only
+    #: the index is kept here; the file is read from Drive when opened).
+    source: Mapped[str] = mapped_column(String(32), default="upload")
+    #: The file's id at the source, empty for an upload.
+    source_ref: Mapped[str] = mapped_column(String(256), default="")
+    #: The source's modification stamp when it was indexed; a sync compares it.
+    source_version: Mapped[str] = mapped_column(String(64), default="")
 
     course: Mapped[Course] = relationship(back_populates="documents")
     pages: Mapped[list[Page]] = relationship(
@@ -616,3 +623,58 @@ class AttentionSample(Base):
 
 
 ALL_TABLES = Base.metadata
+
+
+class DriveConnection(Base, TimestampMixin):
+    """One Google account linked by a user, tokens encrypted at rest.
+
+    The ciphertext is a Fernet token over the access and refresh tokens; the
+    key is held by `app.secrets` (Keychain on a Mac, environment when hosted)
+    and never stored next to this row.
+    """
+
+    __tablename__ = "drive_connections"
+
+    user_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    account_email: Mapped[str] = mapped_column(String(320), default="")
+    scope: Mapped[str] = mapped_column(String(512), default="")
+    token_ciphertext: Mapped[str] = mapped_column(Text, default="")
+
+
+class DriveLink(Base, TimestampMixin):
+    """A Drive folder kept linked to a course, re-checked on "Sync now"."""
+
+    __tablename__ = "drive_links"
+    __table_args__ = (
+        UniqueConstraint("course_id", "folder_id", name="uq_drive_links_course_folder"),
+        Index("ix_drive_links_user", "user_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"))
+    course_id: Mapped[str] = mapped_column(String(32), ForeignKey("courses.id", ondelete="CASCADE"))
+    folder_id: Mapped[str] = mapped_column(String(256))
+    folder_name: Mapped[str] = mapped_column(String(512), default="")
+    recursive: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    #: Counts from the last sync, for the Library to show.
+    last_summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class OAuthFlow(Base):
+    """An authorisation in progress: the state the browser must bring back.
+
+    Rows live for minutes. The verifier never leaves this process, which is
+    what makes the authorisation code useless to anyone who intercepts it.
+    """
+
+    __tablename__ = "oauth_flows"
+
+    state: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"))
+    provider: Mapped[str] = mapped_column(String(32), default="google")
+    verifier: Mapped[str] = mapped_column(String(256))
+    redirect_uri: Mapped[str] = mapped_column(String(512))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

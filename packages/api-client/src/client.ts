@@ -1,6 +1,11 @@
 import type {
   AttemptReview,
   ConceptMap,
+  DriveConnectResult,
+  DriveImportRequest,
+  DriveImportResult,
+  DriveListing,
+  GoogleDriveStatus,
   Account,
   AnswerResponse,
   Assessment,
@@ -321,6 +326,34 @@ export class StudyPilotClient {
     this.request<ProviderKeys>(`/api/keys/${provider}`, { method: 'POST', body: { key } });
   deleteProviderKey = (provider: string) =>
     this.request<ProviderKeys>(`/api/keys/${provider}`, { method: 'DELETE' });
+
+  // --- Google Drive -----------------------------------------------------
+  googleDrive = () => this.request<GoogleDriveStatus>('/api/integrations/google');
+  connectGoogleDrive = (openBrowser: boolean) =>
+    this.request<DriveConnectResult>('/api/integrations/google/connect', {
+      method: 'POST',
+      body: { open_browser: openBrowser },
+    });
+  disconnectGoogleDrive = () =>
+    this.request<GoogleDriveStatus>('/api/integrations/google', { method: 'DELETE' });
+  driveFiles = (folder: string, signal?: AbortSignal) =>
+    this.request<DriveListing>('/api/integrations/google/files', {
+      query: { folder },
+      signal,
+    });
+  importFromDrive = (body: DriveImportRequest) =>
+    this.request<DriveImportResult>('/api/integrations/google/import', {
+      method: 'POST',
+      body,
+    });
+  syncDriveLink = (linkId: string) =>
+    this.request<DriveImportResult>(`/api/integrations/google/links/${linkId}/sync`, {
+      method: 'POST',
+    });
+  unlinkDriveFolder = (linkId: string) =>
+    this.request<GoogleDriveStatus>(`/api/integrations/google/links/${linkId}`, {
+      method: 'DELETE',
+    });
 
   // --- assignment guides ----------------------------------------------
   assignments = (courseId: string) =>

@@ -131,6 +131,9 @@ class DocumentOut(BaseModel):
     kind: str
     embedding_model: str
     extraction_meta: dict[str, Any]
+    #: "upload", or "google_drive" when only the index is kept here.
+    source: str = "upload"
+    source_ref: str = ""
     created_at: datetime
 
 
@@ -681,3 +684,88 @@ class ProviderKeysOut(BaseModel):
 
 class ProviderKeyIn(BaseModel):
     key: str = Field(min_length=8, max_length=512)
+
+
+# --- Google Drive ----------------------------------------------------------------
+class DriveLinkOut(BaseModel):
+    model_config = ORM
+
+    id: str
+    course_id: str
+    folder_id: str
+    folder_name: str
+    recursive: bool
+    last_synced_at: datetime | None
+    last_summary: dict[str, Any]
+
+
+class GoogleDriveStatusOut(BaseModel):
+    #: An OAuth client is set up on this installation.
+    configured: bool
+    #: Where that client comes from: "settings" (typed into the desktop app),
+    #: "environment" (the operator's), or "none".
+    client_source: Literal["settings", "environment", "none"]
+    #: The desktop app lets the user enter the client; a hosted site does not.
+    editable: bool
+    connected: bool
+    account_email: str = ""
+    links: list[DriveLinkOut] = Field(default_factory=list)
+    #: What the app keeps for a Drive file. Always the index alone.
+    keeps: Literal["index_only"] = "index_only"
+
+
+class DriveConnectRequest(BaseModel):
+    #: On the desktop the backend opens the consent page itself; a test or a
+    #: caller that opens it another way says no.
+    open_browser: bool = True
+
+
+class DriveConnectOut(BaseModel):
+    auth_url: str
+    redirect_uri: str
+
+
+class DriveFileOut(BaseModel):
+    id: str
+    name: str
+    mime_type: str
+    modified_time: str
+    size: int
+    is_folder: bool
+    importable: bool
+    why_skipped: str
+    path: str = ""
+
+
+class DriveListingOut(BaseModel):
+    folder: DriveFileOut
+    parent_id: str
+    files: list[DriveFileOut]
+
+
+class DriveImportRequest(BaseModel):
+    course_id: str
+    #: A folder id or link. Empty means "just these files".
+    folder: str = ""
+    file_ids: list[str] = Field(default_factory=list, max_length=200)
+    recursive: bool = True
+    #: Keep the folder linked to the course so it can be synced later.
+    link: bool = False
+
+
+class DriveImportOutcomeOut(BaseModel):
+    file_id: str
+    name: str
+    path: str = ""
+    #: indexed | partial | failed | skipped | unchanged | removed
+    status: str
+    detail: str = ""
+    document_id: str | None = None
+
+
+class DriveImportOut(BaseModel):
+    course_id: str
+    outcomes: list[DriveImportOutcomeOut]
+    counts: dict[str, int]
+    link: DriveLinkOut | None = None
+    duration_ms: int = 0

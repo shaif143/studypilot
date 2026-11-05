@@ -29,12 +29,12 @@ Nothing in the suite needs the network, a model download, or a running server.
 
 | Suite | Tests | Status |
 | --- | --- | --- |
-| Backend (`services/api/tests`) | 204 | ✅ all passing (191 + 13 PostgreSQL integration) |
-| Frontend (`tests/frontend`) | 85 | ✅ all passing |
+| Backend (`services/api/tests`) | 324 | ✅ all passing (311 + 13 PostgreSQL integration) |
+| Frontend (`tests/frontend`) | 104 | ✅ all passing |
 | ESLint | — | ✅ clean |
 | TypeScript | — | ✅ clean |
 | Ruff lint + format | — | ✅ clean |
-| Playwright end-to-end | 0 | ❌ **not written** — see gaps below |
+| Playwright end-to-end | 3 | ✅ the MVP loop, the PPTX → map → coach loop, and folder upload + Drive setup, in a real browser |
 
 ---
 
@@ -90,6 +90,7 @@ simulate quitting and relaunching.
 | `test_postgres_integration.py` | The hosted data path against **real PostgreSQL**: `tsvector` ranking and scoping, tsquery syntax in a student's question, pgvector similarity and allow-list filtering, dimension-change rebuilds, the full upload-to-quiz workflow, and account isolation. Skipped unless `STUDYPILOT_TEST_DATABASE_URL` is set |
 | `test_supervision.py` | The parent-process watchdog, including an end-to-end test that a watched grandchild exits by itself when its parent is killed — the behaviour the packaged app depends on |
 | `test_openapi_contract.py` | The committed OpenAPI snapshot still matches the live app; `AnswerResponse` keeps its honesty fields; `QuestionOut` never exposes the answer key |
+| `test_google_drive.py` | Against a fake Google: the consent request is PKCE-bound, read-only and on the loopback; no client → a message saying what to enter; a callback for a sign-in this process did not start is refused and the code never exchanged; a state is single-use; tokens are stored encrypted, the key in the secret store, and never reported; a listing marks what can be imported and why not; **importing a folder leaves no bytes on disk** (no blob, no previews) while pages, search, citations and the reader all work; sync re-reads changed files, adds new ones and removes gone ones; an expired access token is refreshed without a second refresh; disconnect revokes, forgets links, keeps documents and makes the reader say the connection is gone; folder links and ids are both accepted; the PKCE challenge matches RFC 7636; hosted mode derives the token key from the operator secret and uses the public URLs |
 | `test_security.py` | Auth required on every route, token file permissions, repository-level ownership, 404-not-403 for another user's rows, **path traversal** on previews, disguised uploads, size limits, the two-part consent gate, provider egress declarations, privacy defaults all off, prompt-injection containment, **fabricated citation markers being stripped**, ungrounded LLM questions rejected, export and delete-everything, webcam attention refused, log redaction |
 
 ### What the frontend suite covers
@@ -99,6 +100,7 @@ simulate quitting and relaunching.
 | `api-client.test.ts` | Token attachment and single resolution, no token in the web host, cache reset after 401, query serialisation, consent and validation error translation, network vs abort distinction, 204 handling, multipart upload shape. Also the sign-in gate's inputs: a missing auth route is "no accounts here" on the desktop and an error on the web, and a Neon bearer is re-fetched for every request rather than cached |
 | `grounded-answer.test.tsx` | A resolved `[n]` renders as a clickable citation; an **unresolved one renders as plain text, not a dead link**; multiple markers; markdown links keep `noopener`; KaTeX renders; a marker inside a code block is left alone |
 | `formatting.test.ts` | Byte, duration and relative-time formatting including unparseable input; provenance, mastery and action labels |
+| `uploads.test.ts` | A folder selection: supported files taken, hidden files dropped, `.docx`/`.ppt`/empty files listed with a reason, duplicates removed, same name in two folders kept, a file with no declared type judged by name |
 | `api-contract.test.ts` | Drives the real client against a stub transport and asserts **every URL it produces exists in the backend's committed OpenAPI document** — so a renamed route fails here rather than at runtime |
 
 ---

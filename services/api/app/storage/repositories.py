@@ -24,12 +24,15 @@ from app.storage.models import (
     Citation,
     Course,
     Document,
+    DriveConnection,
+    DriveLink,
     Flashcard,
     FlashcardReview,
     LearningSession,
     MasteryEstimate,
     Message,
     Note,
+    OAuthFlow,
     Page,
     Question,
     QuestionResponse,
@@ -790,3 +793,115 @@ class AssignmentPlanRepository:
         )
         self.session.flush()
         return plan
+
+
+class DriveRepository:
+    """Google Drive connections, linked folders and sign-ins in progress."""
+
+    #: A sign-in the browser has not brought back within this is abandoned.
+    FLOW_TTL = timedelta(minutes=15)
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    # --- the connection ------------------------------------------------------
+    def connection(self, user_id: str) -> DriveConnection | None:
+        return self.session.get(DriveConnection, user_id)
+
+    def save_connection(
+        self, user_id: str, *, account_email: str, scope: str, token_ciphertext: str
+    ) -> DriveConnection:
+        row = self.connection(user_id)
+        if row is None:
+            row = DriveConnection(user_id=user_id)
+            self.session.add(row)
+        row.account_email = account_email
+        row.scope = scope
+        row.token_ciphertext = token_ciphertext
+        self.session.flush()
+        return row
+
+    def delete_connection(self, user_id: str) -> None:
+        row = self.connection(user_id)
+        if row is not None:
+            self.session.delete(row)
+        self.session.execute(delete(DriveLink).where(DriveLink.user_id == user_id))
+        self.session.flush()
+
+    # --- linked folders ------------------------------------------------------
+    def links(self, user_id: str, course_id: str | None = None) -> list[DriveLink]:
+        stmt = select(DriveLink).where(DriveLink.user_id == user_id)
+        if course_id:
+            stmt = stmt.where(DriveLink.course_id == course_id)
+        return list(self.session.scalars(stmt.order_by(DriveLink.created_at)))
+
+    def link(self, user_id: str, link_id: str) -> DriveLink:
+        row = self.session.scalar(
+            select(DriveLink).where(DriveLink.id == link_id, DriveLink.user_id == user_id)
+        )
+        if row is None:
+            raise NotFoundError(link_id)
+        return row
+
+    def link_folder(
+        self, user_id: str, course_id: str, *, folder_id: str, folder_name: str, recursive: bool
+    ) -> DriveLink:
+        row = self.session.scalar(
+            select(DriveLink).where(
+                DriveLink.user_id == user_id,
+                DriveLink.course_id == course_id,
+                DriveLink.folder_id == folder_id,
+            )
+        )
+        if row is None:
+            row = DriveLink(user_id=user_id, course_id=course_id, folder_id=folder_id)
+            self.session.add(row)
+        row.folder_name = folder_name
+        row.recursive = recursive
+        self.session.flush()
+        return row
+
+    def record_sync(self, row: DriveLink, summary: dict[str, object]) -> DriveLink:
+        row.last_synced_at = datetime.now(UTC)
+        row.last_summary = dict(summary)
+        self.session.flush()
+        return row
+
+    def unlink(self, user_id: str, link_id: str) -> None:
+        row = self.link(user_id, link_id)
+        self.session.delete(row)
+        self.session.flush()
+
+    # --- sign-ins in progress ----------------------------------------------------
+    def start_flow(self, *, state: str, user_id: str, verifier: str, redirect_uri: str) -> None:
+        cutoff = datetime.now(UTC) - self.FLOW_TTL
+        self.session.execute(delete(OAuthFlow).where(OAuthFlow.created_at < cutoff))
+        self.session.add(
+            OAuthFlow(state=state, user_id=user_id, verifier=verifier, redirect_uri=redirect_uri)
+        )
+        self.session.flush()
+
+    def take_flow(self, state: str) -> OAuthFlow | None:
+        """The flow for a state, removed so it can be used once; None if unknown or stale."""
+        row = self.session.get(OAuthFlow, state)
+        if row is None:
+            return None
+        self.session.delete(row)
+        self.session.flush()
+        created = row.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=UTC)
+        if created < datetime.now(UTC) - self.FLOW_TTL:
+            return None
+        return row
+
+    # --- documents that came from Drive -------------------------------------------
+    def documents_from_drive(self, user_id: str, course_id: str) -> dict[str, Document]:
+        rows = self.session.scalars(
+            select(Document).where(
+                Document.user_id == user_id,
+                Document.course_id == course_id,
+                Document.source == "google_drive",
+            )
+        )
+        return {row.source_ref: row for row in rows}

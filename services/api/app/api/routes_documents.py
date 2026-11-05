@@ -21,6 +21,7 @@ from app.api.deps import (
     ContextDep,
     CoursesDep,
     DocumentsDep,
+    DriveDep,
     SessionDep,
     TopicsDep,
     UserDep,
@@ -36,6 +37,7 @@ from app.api.schemas import (
 )
 from app.ingestion.media import MediaReader, is_audio, is_image
 from app.ingestion.pipeline import UnsupportedFileError, ingest_document, validate_upload
+from app.ingestion.removal import remove_document
 from app.storage.files import BlobNotFoundError
 
 log = logging.getLogger(__name__)
@@ -217,13 +219,19 @@ def page_preview(
 
 @router.get("/documents/{document_id}/file")
 def document_file(
-    document_id: str, context: ContextDep, user: UserDep, documents: DocumentsDep
+    document_id: str,
+    context: ContextDep,
+    user: UserDep,
+    documents: DocumentsDep,
+    drive: DriveDep,
 ) -> Response:
     """Serve the PDF the reader renders client-side.
 
     For a PDF upload that is the original. For a PowerPoint deck it is the PDF
     the importer rendered from it, whose asset key the pipeline recorded in
-    ``extraction_meta["rendered_pdf"]``.
+    ``extraction_meta["rendered_pdf"]``. For a document read from Google
+    Drive nothing is stored here: the bytes are fetched from Drive now and
+    passed straight through, so the reader needs the connection to be live.
     """
     document = documents.get(user.id, document_id)
     rendered = (document.extraction_meta or {}).get("rendered_pdf", "")
@@ -232,6 +240,14 @@ def document_file(
         if rendered:
             data = context.blobs.read_asset(rendered)
             filename = f"{Path(filename).stem}.pdf"
+        elif document.source == "google_drive":
+            from app.integrations.drive_import import fetch_from_drive
+            from app.integrations.google_drive import DriveError
+
+            try:
+                data = fetch_from_drive(context, drive, user.id, document)
+            except DriveError as exc:
+                raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
         else:
             data = context.blobs.read(document.content_hash)
     except BlobNotFoundError as exc:
@@ -260,23 +276,6 @@ def delete_document(
 ) -> None:
     """Remove a document and every index entry derived from it."""
     document = documents.get(user.id, document_id)
-    content_hash = document.content_hash
-
-    chunk_ids = chunks.delete_for_document(document_id)
-    context.vector_store.delete(chunk_ids)
-    context.sparse_index.delete_for_document(session, document_id)
-    documents.delete(user.id, document_id)
-
-    # Remove previews and, if no other document shares the bytes, the blob.
-    context.blobs.delete_asset_prefix(document_id)
-
-    from sqlalchemy import func, select
-
-    from app.storage.models import Document
-
-    remaining = session.scalar(
-        select(func.count(Document.id)).where(Document.content_hash == content_hash)
+    remove_document(
+        context=context, session=session, documents=documents, chunks=chunks, document=document
     )
-    if not remaining:
-        context.blobs.delete(content_hash)
-    log.info("document_deleted", extra={"document_id": document_id, "chunks": len(chunk_ids)})

@@ -11,6 +11,10 @@ import type {
   Assignment,
   AttemptReview,
   ConceptMap,
+  DriveImportRequest,
+  DriveImportResult,
+  DriveListing,
+  GoogleDriveStatus,
   ProviderKeys,
   AssignmentPlan,
   AuthStatus,
@@ -77,6 +81,8 @@ export const keys = {
   recommendations: (courseId?: string) => ['recommendations', courseId ?? 'all'] as const,
   attention: (documentId: string) => ['attention', documentId] as const,
   providerKeys: ['providerKeys'] as const,
+  googleDrive: ['googleDrive'] as const,
+  driveFiles: (folder: string) => ['googleDrive', 'files', folder] as const,
   assignments: (courseId: string) => ['assignments', courseId] as const,
   assignmentPlan: (documentId: string) => ['assignments', 'plan', documentId] as const,
 };
@@ -732,5 +738,85 @@ export function useDeleteProviderKey() {
       queryClient.setQueryData(keys.providerKeys, result);
       void queryClient.invalidateQueries({ queryKey: keys.providers });
     },
+  });
+}
+
+
+// --- Google Drive --------------------------------------------------------------
+export function useGoogleDrive(options: { refetchInterval?: number | false } = {}) {
+  const client = useClient();
+  return useQuery<GoogleDriveStatus>({
+    queryKey: keys.googleDrive,
+    queryFn: () => client.googleDrive(),
+    refetchInterval: options.refetchInterval ?? false,
+  });
+}
+
+export function useConnectGoogleDrive() {
+  const client = useClient();
+  return useMutation({
+    mutationFn: (openBrowser: boolean) => client.connectGoogleDrive(openBrowser),
+  });
+}
+
+export function useDisconnectGoogleDrive() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => client.disconnectGoogleDrive(),
+    onSuccess: (status) => {
+      queryClient.setQueryData(keys.googleDrive, status);
+      void queryClient.invalidateQueries({ queryKey: ['googleDrive', 'files'] });
+    },
+  });
+}
+
+export function useDriveFiles(folder: string, enabled: boolean) {
+  const client = useClient();
+  return useQuery<DriveListing>({
+    queryKey: keys.driveFiles(folder),
+    queryFn: ({ signal }) => client.driveFiles(folder, signal),
+    enabled,
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+/** After an import or sync: everything a new document touches, plus the links. */
+function afterDriveImport(queryClient: QueryClient, result: DriveImportResult) {
+  void queryClient.invalidateQueries({ queryKey: keys.googleDrive });
+  void queryClient.invalidateQueries({ queryKey: keys.documents(result.course_id) });
+  void queryClient.invalidateQueries({ queryKey: keys.documents(undefined) });
+  void queryClient.invalidateQueries({ queryKey: keys.assignments(result.course_id) });
+  void queryClient.invalidateQueries({ queryKey: keys.conceptMap(result.course_id) });
+  void queryClient.invalidateQueries({ queryKey: keys.courseTopics(result.course_id) });
+  void queryClient.invalidateQueries({ queryKey: keys.courses });
+  void queryClient.invalidateQueries({ queryKey: keys.dashboard });
+}
+
+export function useImportFromDrive() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation<DriveImportResult, Error, DriveImportRequest>({
+    mutationFn: (body) => client.importFromDrive(body),
+    onSuccess: (result) => afterDriveImport(queryClient, result),
+  });
+}
+
+export function useSyncDriveLink() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation<DriveImportResult, Error, string>({
+    mutationFn: (linkId) => client.syncDriveLink(linkId),
+    onSuccess: (result) => afterDriveImport(queryClient, result),
+  });
+}
+
+export function useUnlinkDriveFolder() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (linkId: string) => client.unlinkDriveFolder(linkId),
+    onSuccess: (status) => queryClient.setQueryData(keys.googleDrive, status),
   });
 }

@@ -48,7 +48,16 @@ SERVICE = "StudyPilot"
 ENV_FOR_PROVIDER: dict[str, str] = {
     "anthropic": "ANTHROPIC_API_KEY",
     "gemini": "GEMINI_API_KEY",
+    # The Google Cloud OAuth client the desktop identifies itself with when
+    # connecting Google Drive. Not a model provider, but the same shape: a
+    # value typed once in Settings, kept in the Keychain, read from the
+    # environment by the code that needs it.
+    "google_client_id": "GOOGLE_OAUTH_CLIENT_ID",
+    "google_client_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
 }
+#: Entries of `ENV_FOR_PROVIDER` that are credentials for an integration
+#: rather than a model provider; the UI groups them separately.
+INTEGRATION_KEYS = frozenset({"google_client_id", "google_client_secret"})
 
 
 # --- the secure store ------------------------------------------------------
@@ -257,3 +266,24 @@ def _forget_cached_providers() -> None:
     from app.models.llm import cached_llm
 
     cached_llm.cache_clear()
+
+
+# --- opaque secrets that are not provider keys ---------------------------------
+def get_secret(settings: Settings, name: str) -> str | None:
+    """A stored value that is not a provider key (e.g. an encryption key)."""
+    return _stored(settings, name)
+
+
+def set_secret(settings: Settings, name: str, value: str) -> None:
+    if not store.set(name, value):
+        keys = _read_file(settings)
+        keys[name] = value
+        _write_file(settings, keys)
+
+
+def delete_secret(settings: Settings, name: str) -> None:
+    store.delete(name)
+    keys = _read_file(settings)
+    if name in keys:
+        del keys[name]
+        _write_file(settings, keys)

@@ -163,6 +163,18 @@ class Settings(BaseSettings):
 
     # --- Upload limits ---------------------------------------------------
     max_upload_bytes: int = 80 * 1024 * 1024
+    #: Where this API is reachable from a browser, for OAuth redirects on a
+    #: hosted deployment ("https://api.example.com"). Derived from the request
+    #: when empty, which is right behind Render's proxy and wrong behind one
+    #: that does not forward the original host.
+    public_api_url: str = ""
+    #: The website's origin, where a hosted OAuth callback sends the browser
+    #: back. Defaults to the first CORS origin, then to the API's own origin.
+    web_origin: str = ""
+    #: Hosted only: encrypts stored integration tokens (Google Drive). The
+    #: JWT secret is used when this is empty. The desktop generates its own
+    #: key into the Keychain.
+    token_encryption_key: str = ""
     max_pdf_pages: int = 2000
 
     # --- Model providers -------------------------------------------------

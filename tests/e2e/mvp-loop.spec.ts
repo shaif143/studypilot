@@ -11,7 +11,9 @@
  * real API and nothing is a mock-up.
  */
 import { expect, test } from '@playwright/test';
-import { dirname, resolve } from 'node:path';
+import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -29,8 +31,8 @@ test('a student can go from upload to a marked quiz and back', async ({ page }) 
 
   // --- upload and index ---------------------------------------------------
   await page.goto('/library');
-  await page.getByRole('button', { name: 'Upload PDF' }).click();
-  await page.locator('input[type="file"]').setInputFiles(LECTURE);
+  await page.getByRole('button', { name: 'Upload', exact: true }).click();
+  await page.locator('input[type="file"]').first().setInputFiles(LECTURE);
   await page.getByRole('button', { name: 'Upload and index' }).click();
   const openReader = page.getByRole('link', { name: 'Open reader' }).first();
   await expect(openReader).toBeVisible({ timeout: 60_000 });
@@ -95,8 +97,8 @@ test('a PowerPoint deck, the concept map and the assignment coach are all wired'
 }) => {
   // --- a .pptx is imported and read like a PDF ----------------------------
   await page.goto('/library');
-  await page.getByRole('button', { name: 'Upload PDF' }).click();
-  await page.locator('input[type="file"]').setInputFiles(DECK);
+  await page.getByRole('button', { name: 'Upload', exact: true }).click();
+  await page.locator('input[type="file"]').first().setInputFiles(DECK);
   await page.getByRole('button', { name: 'Upload and index' }).click();
   const deckRow = page.getByText('sample-lecture-cnn', { exact: true }).first();
   await expect(deckRow).toBeVisible({ timeout: 60_000 });
@@ -137,4 +139,53 @@ test('a PowerPoint deck, the concept map and the assignment coach are all wired'
   await expect(page.getByText('Keys for cloud providers')).toBeVisible();
   await expect(page.getByText('Claude (Anthropic) API key')).toBeVisible();
   await expect(page.getByPlaceholder('sk-ant-…')).toHaveAttribute('type', 'password');
+});
+
+test('a whole folder is uploaded at once and Google Drive is offered, not faked', async ({
+  page,
+}) => {
+  // --- a folder: two lectures taken, a stray text file reported ----------------
+  const folder = mkdtempSync(join(tmpdir(), 'studypilot-folder-'));
+  const week1 = join(folder, 'week-1.pdf');
+  const week2 = join(folder, 'week-2.pdf');
+  copyFileSync(LECTURE, week1);
+  copyFileSync(LECTURE, week2);
+  writeFileSync(join(folder, 'notes.txt'), 'not a lecture');
+
+  // A course of its own, so the spec also runs on an empty installation.
+  await page.goto('/courses');
+  await page.getByRole('button', { name: 'New course' }).click();
+  await page.getByLabel('Course title').fill('Folder course');
+  await page.getByRole('button', { name: 'Create course' }).click();
+  await expect(page.getByText('Folder course').first()).toBeVisible();
+
+  await page.goto('/library');
+  await page.getByRole('button', { name: 'Upload', exact: true }).click();
+  await page.getByLabel('Choose a folder').setInputFiles(folder);
+  await expect(page.getByText('2 files,')).toBeVisible();
+  await expect(page.getByText('notes.txt')).toBeVisible();
+  await expect(page.getByText('Not a supported type.')).toBeVisible();
+  // Both go into the new course; only the chooser needs telling when there
+  // is more than one course.
+  const courseSelect = page.getByLabel('Course', { exact: true });
+  if (await courseSelect.count()) await courseSelect.selectOption({ label: 'Folder course' });
+  await page.getByRole('button', { name: 'Upload and index 2 files' }).click();
+  // The second copy is the same bytes: the app says so rather than duplicating.
+  await expect(page.getByText(/of 2 files indexed, 1 not taken/)).toBeVisible({
+    timeout: 90_000,
+  });
+  await expect(page.getByText('already here').first()).toBeVisible();
+
+  // --- Drive: the app offers the connection and says what is missing -----------
+  await page.getByRole('button', { name: 'Google Drive' }).click();
+  await expect(page.getByText('Connect Google Drive first')).toBeVisible();
+  await expect(page.getByText('not set up on this installation')).toBeVisible();
+  await page.getByRole('button', { name: 'Close' }).click();
+
+  await page.goto('/settings');
+  const card = page.locator('section, div').filter({ hasText: 'Google Drive' }).last();
+  await expect(card.getByText('One-time setup')).toBeVisible();
+  await expect(page.getByText('OAuth client ID', { exact: true }).last()).toBeVisible();
+  // No client, no Connect button: nothing claims to work that cannot.
+  await expect(page.getByRole('button', { name: 'Connect Google Drive' })).toHaveCount(0);
 });

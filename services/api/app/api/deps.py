@@ -31,6 +31,7 @@ from app.storage.repositories import (
     ChunkRepository,
     CourseRepository,
     DocumentRepository,
+    DriveRepository,
     FlashcardRepository,
     MasteryRepository,
     NoteRepository,
@@ -268,6 +269,13 @@ def attempts(session: SessionDep) -> AssignmentAttemptRepository:
 
 
 AttemptsDep = Annotated[AssignmentAttemptRepository, Depends(attempts)]
+
+
+def drive(session: SessionDep) -> DriveRepository:
+    return DriveRepository(session)
+
+
+DriveDep = Annotated[DriveRepository, Depends(drive)]
 
 
 PlansDep = Annotated[AssignmentPlanRepository, Depends(plans)]
