@@ -20,6 +20,7 @@ import type {
   DriveImportResult,
   DriveImportStatus,
   DriveLink,
+  LocalFolderLink,
   UploadResult,
 } from '@studypilot/shared';
 import {
@@ -47,6 +48,7 @@ import {
   FileText,
   Folder,
   FolderOpen,
+  HardDrive,
   RefreshCw,
   Trash2,
   Unlink,
@@ -57,6 +59,7 @@ import { useCallback, useId, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { ErrorPanel, PageBody, PageHeader } from '../components/AppShell';
+import { useApp } from '../context';
 import {
   describeError,
   useCourses,
@@ -65,8 +68,12 @@ import {
   useDriveFiles,
   useGoogleDrive,
   useImportFromDrive,
+  useLinkLocalFolder,
+  useLocalFolders,
   useProviders,
+  useRescanLocalFolder,
   useSettings,
+  useUnlinkLocalFolder,
   useSyncDriveLink,
   useUnlinkDriveFolder,
   useUploadArchive,
@@ -126,13 +133,16 @@ export function LibraryScreen() {
   const [params, setParams] = useSearchParams();
   const courseFilter = params.get('course') ?? undefined;
 
+  const { platform } = useApp();
   const courses = useCourses();
   const documents = useDocuments(courseFilter);
   const deleteDocument = useDeleteDocument();
   const drive = useGoogleDrive();
+  const localFolders = useLocalFolders();
 
   const [uploadFor, setUploadFor] = useState<string | null>(null);
   const [driveFor, setDriveFor] = useState<string | null>(null);
+  const [folderFor, setFolderFor] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; title: string } | null>(null);
   const [lastBatch, setLastBatch] = useState<UploadBatch | null>(null);
   const [lastImport, setLastImport] = useState<DriveImportResult | null>(null);
@@ -142,12 +152,20 @@ export function LibraryScreen() {
   const links = (drive.data?.links ?? []).filter(
     (link) => !courseFilter || link.course_id === courseFilter,
   );
+  const canLinkFolders = platform.kind === 'desktop' && localFolders.data?.available !== false;
+  const folderLinks = (localFolders.data?.links ?? []).filter(
+    (link) => !courseFilter || link.course_id === courseFilter,
+  );
 
   return (
     <>
       <PageHeader
         title="Lecture Library"
-        description="PDF lectures, past papers and assignment briefs. Uploads stay on this device; a linked Google Drive folder is read from Drive and only its index is kept here."
+        description={
+          canLinkFolders
+            ? 'Link a folder on this Mac and it is indexed where it is — nothing copied. Uploads and Google Drive folders work too.'
+            : 'PDF lectures, past papers and assignment briefs. Uploads stay on this device; a linked Google Drive folder is read from Drive and only its index is kept here.'
+        }
         actions={
           <>
             {hasCourses ? (
@@ -168,6 +186,17 @@ export function LibraryScreen() {
                 ))}
               </Select>
             ) : null}
+            {canLinkFolders ? (
+              <Button
+                variant="primary"
+                icon={<HardDrive size={15} />}
+                disabled={!hasCourses}
+                title={hasCourses ? undefined : 'Create a course first'}
+                onClick={() => setFolderFor(defaultCourse)}
+              >
+                Link a folder
+              </Button>
+            ) : null}
             <Button
               icon={<Cloud size={15} />}
               disabled={!hasCourses}
@@ -177,7 +206,7 @@ export function LibraryScreen() {
               Google Drive
             </Button>
             <Button
-              variant="primary"
+              variant={canLinkFolders ? 'secondary' : 'primary'}
               icon={<Upload size={15} />}
               disabled={!hasCourses}
               title={hasCourses ? undefined : 'Create a course first'}
@@ -195,6 +224,10 @@ export function LibraryScreen() {
           ) : null}
           {lastImport ? (
             <ImportSummary result={lastImport} onDismiss={() => setLastImport(null)} />
+          ) : null}
+
+          {folderLinks.length > 0 ? (
+            <LinkedLocalFolders links={folderLinks} courses={courses.data ?? []} />
           ) : null}
 
           {links.length > 0 ? (
@@ -236,7 +269,19 @@ export function LibraryScreen() {
               description="Upload lecture files or a whole folder, or link a Google Drive folder. StudyPilot extracts the text, equations and figures, detects topics, and indexes everything for search."
               action={
                 <div className="flex flex-wrap justify-center gap-2">
-                  <Button variant="primary" onClick={() => setUploadFor(defaultCourse)}>
+                  {canLinkFolders ? (
+                    <Button
+                      variant="primary"
+                      icon={<HardDrive size={14} />}
+                      onClick={() => setFolderFor(defaultCourse)}
+                    >
+                      Link a folder on this Mac
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant={canLinkFolders ? 'secondary' : 'primary'}
+                    onClick={() => setUploadFor(defaultCourse)}
+                  >
                     Upload files or a folder
                   </Button>
                   <Button icon={<Cloud size={14} />} onClick={() => setDriveFor(defaultCourse)}>
@@ -250,13 +295,17 @@ export function LibraryScreen() {
               {documents.data?.map((document) => {
                 const course = courses.data?.find((item) => item.id === document.course_id);
                 const fromDrive = document.source === 'google_drive';
-                const drivePath = document.extraction_meta.drive_path;
+                const fromFolder = document.source === 'local_folder';
+                const drivePath =
+                  document.extraction_meta.drive_path ?? document.extraction_meta.folder_path;
                 return (
                   <li key={document.id}>
                     <Card className="flex flex-wrap items-center gap-4" padded={false}>
                       <div className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-4">
                         {fromDrive ? (
                           <Cloud size={18} className="shrink-0 text-[var(--text-muted)]" />
+                        ) : fromFolder ? (
+                          <HardDrive size={18} className="shrink-0 text-[var(--text-muted)]" />
                         ) : (
                           <FileText size={18} className="shrink-0 text-[var(--text-muted)]" />
                         )}
@@ -286,12 +335,22 @@ export function LibraryScreen() {
                                 Google Drive
                               </Badge>
                             ) : null}
+                            {fromFolder ? (
+                              <Badge
+                                tone="info"
+                                icon={<HardDrive size={11} />}
+                                title={`Indexed in place from ${document.source_ref}; nothing copied.`}
+                              >
+                                On this Mac
+                              </Badge>
+                            ) : null}
                           </div>
                           <p className="mt-0.5 truncate text-[0.75rem] text-[var(--text-secondary)]">
                             {course ? `${course.title} · ` : ''}
                             {drivePath ? `${drivePath} · ` : ''}
                             {document.page_count} pages · {formatBytes(document.byte_size)}
-                            {fromDrive ? ' in Drive' : ''} · {formatRelativeTime(document.created_at)}
+                            {fromDrive ? ' in Drive' : fromFolder ? ' in place' : ''} ·{' '}
+                            {formatRelativeTime(document.created_at)}
                           </p>
                           {document.status_detail ? (
                             <p className="mt-0.5 line-clamp-2 text-[0.75rem] text-[var(--signal-caution)]">
@@ -335,6 +394,13 @@ export function LibraryScreen() {
           }}
         />
 
+        <LinkFolderDialog
+          open={folderFor !== null}
+          courseId={folderFor}
+          courses={courses.data ?? []}
+          onClose={() => setFolderFor(null)}
+        />
+
         <DriveImportDialog
           open={driveFor !== null}
           courseId={driveFor}
@@ -351,7 +417,7 @@ export function LibraryScreen() {
           open={confirmDelete !== null}
           onClose={() => setConfirmDelete(null)}
           title={`Delete ${confirmDelete?.title ?? 'document'}?`}
-          description="The file, its page previews and every index entry built from it are removed from this device. Quizzes already generated from it are kept. A file in Google Drive is not touched."
+          description="The file, its page previews and every index entry built from it are removed from this device. Quizzes already generated from it are kept. A file in Google Drive or in a linked folder is not touched."
           footer={
             <>
               <Button onClick={() => setConfirmDelete(null)}>Cancel</Button>
@@ -1212,6 +1278,235 @@ function DriveImportDialog({
             ) : null}
           </>
         )}
+      </div>
+    </Dialog>
+  );
+}
+
+// --- folders on this Mac -----------------------------------------------------------
+function scanSentence(link: LocalFolderLink): string {
+  const scan = link.scan;
+  if (scan && (scan.state === 'queued' || scan.state === 'running')) {
+    return scan.total
+      ? `Indexing ${Math.min(scan.done + 1, scan.total)} of ${scan.total}${scan.current ? `: ${scan.current}` : ''}`
+      : 'Reading the folder…';
+  }
+  if (scan?.state === 'failed') return `The last scan failed: ${scan.error}`;
+  if (link.last_scanned_at) {
+    return `scanned ${formatRelativeTime(link.last_scanned_at)}: ${countsSentence(link.last_summary)}`;
+  }
+  return 'not scanned yet';
+}
+
+function LinkedLocalFolders({
+  links,
+  courses,
+}: {
+  links: LocalFolderLink[];
+  courses: Array<{ id: string; title: string }>;
+}) {
+  const rescan = useRescanLocalFolder();
+  const unlink = useUnlinkLocalFolder();
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center gap-2">
+        <HardDrive size={15} className="text-[var(--text-muted)]" />
+        <span className="text-[0.8125rem] font-medium text-[var(--text-primary)]">
+          Folders on this Mac
+        </span>
+        <span className="text-[0.75rem] text-[var(--text-muted)]">
+          Indexed where they are, nothing copied. Rescan picks up what changed.
+        </span>
+      </div>
+      <ul className="mt-2 divide-y divide-[var(--border-subtle)]">
+        {links.map((link) => {
+          const course = courses.find((item) => item.id === link.course_id);
+          const running =
+            link.scan !== null && (link.scan.state === 'queued' || link.scan.state === 'running');
+          return (
+            <li key={link.id} className="py-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <Folder size={14} className="shrink-0 text-[var(--text-muted)]" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[0.8125rem] text-[var(--text-primary)]" title={link.path}>
+                    {link.path.split('/').filter(Boolean).slice(-2).join('/')}
+                    {link.recursive ? '' : ' (this folder only)'}
+                  </p>
+                  <p className="text-[0.75rem] text-[var(--text-secondary)]">
+                    {course ? `${course.title} · ` : ''}
+                    {scanSentence(link)}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  icon={<RefreshCw size={13} />}
+                  loading={running || (rescan.isPending && rescan.variables === link.id)}
+                  onClick={() => rescan.mutate(link.id)}
+                >
+                  Rescan
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<Unlink size={13} />}
+                  disabled={running}
+                  loading={unlink.isPending && unlink.variables === link.id}
+                  onClick={() => unlink.mutate(link.id)}
+                  title="Stop indexing this folder. Its documents leave the library; the files are untouched."
+                >
+                  Unlink
+                </Button>
+              </div>
+              {running && link.scan?.total ? (
+                <ProgressBar className="mt-2" value={link.scan.done / link.scan.total} />
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+      {rescan.error ? (
+        <Callout tone="danger" className="mt-2" icon={<AlertTriangle size={14} />}>
+          {describeError(rescan.error)}
+        </Callout>
+      ) : null}
+    </Card>
+  );
+}
+
+function LinkFolderDialog({
+  open,
+  courseId,
+  courses,
+  onClose,
+}: {
+  open: boolean;
+  courseId: string | null;
+  courses: Array<{ id: string; title: string }>;
+  onClose: () => void;
+}) {
+  const { platform } = useApp();
+  const link = useLinkLocalFolder();
+  const settings = useSettings();
+  const providers = useProviders();
+  const [path, setPath] = useState('');
+  const [selectedCourse, setSelectedCourse] = useState(courseId ?? '');
+  const [recursive, setRecursive] = useState(true);
+  const [readMedia, setReadMedia] = useState<boolean | null>(null);
+
+  const effectiveCourse = selectedCourse || courseId || courses[0]?.id || '';
+  const cloudAllowed = Boolean(settings.data?.allow_cloud_processing);
+  const activeProvider = providers.data?.llm.find((p) => p.key === providers.data?.active_llm);
+  const canReadImages = Boolean(activeProvider?.accepts_images);
+  const readMediaValue = readMedia ?? cloudAllowed;
+
+  const reset = () => {
+    setPath('');
+    setRecursive(true);
+    setReadMedia(null);
+    link.reset();
+  };
+
+  const choose = async () => {
+    if (!platform.pickFolder) return;
+    const chosen = await platform.pickFolder();
+    if (chosen) setPath(chosen);
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={() => {
+        reset();
+        onClose();
+      }}
+      title="Link a folder on this Mac"
+      description="The folder is indexed where it is: nothing is copied, and the reader opens the original files. Rescan later and new, changed or deleted files are followed."
+      footer={
+        <>
+          <Button
+            onClick={() => {
+              reset();
+              onClose();
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            icon={<HardDrive size={14} />}
+            loading={link.isPending}
+            disabled={!path.trim() || !effectiveCourse}
+            onClick={() => {
+              link.mutate(
+                {
+                  course_id: effectiveCourse,
+                  path: path.trim(),
+                  recursive,
+                  read_media: readMediaValue,
+                },
+                {
+                  onSuccess: () => {
+                    reset();
+                    onClose();
+                  },
+                },
+              );
+            }}
+          >
+            Link and index
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {link.error ? <ErrorPanel title="Could not link" message={describeError(link.error)} /> : null}
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label="Folder" hint="PDF, PowerPoint, images and recordings inside it; archives are left where they are." className="min-w-[16rem] flex-1">
+            <Input
+              value={path}
+              placeholder="/Users/you/University/EEEM030"
+              spellCheck={false}
+              onChange={(event) => setPath(event.target.value)}
+            />
+          </Field>
+          {platform.pickFolder ? (
+            <Button icon={<FolderOpen size={14} />} onClick={() => void choose()}>
+              Choose…
+            </Button>
+          ) : null}
+        </div>
+        {courses.length > 1 ? (
+          <Field label="Course">
+            <Select value={effectiveCourse} onChange={(event) => setSelectedCourse(event.target.value)}>
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.title}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
+        <div className="divide-y divide-[var(--border-subtle)] rounded-[var(--radius-control)] border border-[var(--border-subtle)] px-3">
+          <Toggle
+            checked={recursive}
+            onChange={setRecursive}
+            label="Include subfolders"
+            description="Everything below the folder, up to 500 files per scan."
+          />
+          <Toggle
+            checked={readMediaValue}
+            disabled={!cloudAllowed}
+            onChange={setReadMedia}
+            label="Let a cloud model read the images and recordings"
+            description={
+              !cloudAllowed
+                ? 'Turn on "Allow cloud AI processing" in Settings to include images; recordings are transcribed on this Mac either way when the local speech model is installed.'
+                : canReadImages
+                  ? `${activeProvider?.label ?? 'The active provider'} reads the images; recordings are transcribed on this Mac. Off, images are skipped.`
+                  : 'The active provider cannot read images. Choose Claude or Gemini in Settings, or images are skipped.'
+            }
+          />
+        </div>
       </div>
     </Dialog>
   );

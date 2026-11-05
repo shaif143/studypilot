@@ -32,6 +32,7 @@ Nothing leaves the device until a cloud provider is both enabled in Settings
 | API token | `…/StudyPilot/api_token` (mode `0600`) |
 | Cloud provider API keys entered in Settings | The **macOS Keychain** (service `StudyPilot`), encrypted and unlocked with your login — never a plain file. Only sent to that provider, with the text you ask about. If no keychain is usable, a `0600` file in the data directory, and Settings says so. |
 | Google Drive sign-in | The refresh token is in the database **encrypted**; the key that unlocks it is in the Keychain. Read-only scope. Disconnect revokes it at Google. |
+| Documents from a **linked folder on this Mac** | **Not copied.** Only their index is stored; the file is read from its own path when opened, and only while the folder stays linked |
 | Documents linked from Google Drive | **Not stored.** Only their text index (pages, topics, chunks, vectors) is here; the file is read from Drive when you open it. |
 
 The data directory is created `rwx------`. On the web, the same data lives
@@ -103,6 +104,7 @@ diagnosed without exposing material.
 | Delete one course | My Courses | Cascades to its documents, topics and indexes |
 | Disconnect Google Drive | Settings → Google Drive | Revokes the token at Google, forgets it and every linked folder. Indexed documents stay until you delete them |
 | Unlink a Drive folder | Lecture Library | Stops syncing; documents stay |
+| Unlink a folder on this Mac | Lecture Library | Drops the index built from it; the files are untouched |
 | Per-feature consent | Settings → Privacy | Each off by default |
 
 Deletion is immediate and not reversible. The export exists so you can take a

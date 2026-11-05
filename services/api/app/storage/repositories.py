@@ -29,6 +29,7 @@ from app.storage.models import (
     Flashcard,
     FlashcardReview,
     LearningSession,
+    LocalFolderLink,
     MasteryEstimate,
     Message,
     Note,
@@ -905,3 +906,75 @@ class DriveRepository:
             )
         )
         return {row.source_ref: row for row in rows}
+
+
+class LocalFolderRepository:
+    """Folders on this machine linked to courses."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def links(self, user_id: str, course_id: str | None = None) -> list[LocalFolderLink]:
+        stmt = select(LocalFolderLink).where(LocalFolderLink.user_id == user_id)
+        if course_id:
+            stmt = stmt.where(LocalFolderLink.course_id == course_id)
+        return list(self.session.scalars(stmt.order_by(LocalFolderLink.created_at)))
+
+    def link(self, user_id: str, link_id: str) -> LocalFolderLink:
+        row = self.session.scalar(
+            select(LocalFolderLink).where(
+                LocalFolderLink.id == link_id, LocalFolderLink.user_id == user_id
+            )
+        )
+        if row is None:
+            raise NotFoundError(link_id)
+        return row
+
+    def link_folder(
+        self, user_id: str, course_id: str, *, path: str, recursive: bool, read_media: bool
+    ) -> LocalFolderLink:
+        row = self.session.scalar(
+            select(LocalFolderLink).where(
+                LocalFolderLink.user_id == user_id,
+                LocalFolderLink.course_id == course_id,
+                LocalFolderLink.path == path,
+            )
+        )
+        if row is None:
+            row = LocalFolderLink(user_id=user_id, course_id=course_id, path=path)
+            self.session.add(row)
+        row.recursive = recursive
+        row.read_media = read_media
+        self.session.flush()
+        return row
+
+    def record_scan(self, row: LocalFolderLink, summary: dict[str, object]) -> LocalFolderLink:
+        row.last_scanned_at = datetime.now(UTC)
+        row.last_summary = dict(summary)
+        self.session.flush()
+        return row
+
+    def unlink(self, user_id: str, link_id: str) -> None:
+        self.session.delete(self.link(user_id, link_id))
+        self.session.flush()
+
+    def documents_from_folder(self, user_id: str, course_id: str) -> dict[str, Document]:
+        rows = self.session.scalars(
+            select(Document).where(
+                Document.user_id == user_id,
+                Document.course_id == course_id,
+                Document.source == "local_folder",
+            )
+        )
+        return {row.source_ref: row for row in rows}
+
+    def owns_path(self, user_id: str, path: str) -> bool:
+        """Whether the path lies inside a folder this user linked."""
+        from pathlib import Path
+
+        target = Path(path)
+        for link in self.links(user_id):
+            root = Path(link.path)
+            if target == root or root in target.parents:
+                return True
+        return False

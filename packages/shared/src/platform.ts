@@ -83,6 +83,12 @@ export interface Platform {
   openExternal(url: string): Promise<void>;
   /** True when the host can store secrets in an OS keychain. */
   readonly hasSecureStorage: boolean;
+  /**
+   * A native folder picker, on hosts that have the file system at hand.
+   * Returns the absolute path, or null when the user cancels. The web host
+   * has no file system and omits it.
+   */
+  pickFolder?(): Promise<string | null>;
 }
 
 export const webPlatformDefaults = {

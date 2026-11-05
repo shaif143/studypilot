@@ -16,6 +16,9 @@ import type {
   DriveImportResult,
   DriveListing,
   GoogleDriveStatus,
+  LocalFolderLink,
+  LocalFolderLinkInput,
+  LocalFolders,
   ProviderKeys,
   AssignmentPlan,
   AuthStatus,
@@ -83,6 +86,7 @@ export const keys = {
   attention: (documentId: string) => ['attention', documentId] as const,
   providerKeys: ['providerKeys'] as const,
   googleDrive: ['googleDrive'] as const,
+  localFolders: ['localFolders'] as const,
   driveFiles: (folder: string) => ['googleDrive', 'files', folder] as const,
   assignments: (courseId: string) => ['assignments', courseId] as const,
   assignmentPlan: (documentId: string) => ['assignments', 'plan', documentId] as const,
@@ -841,5 +845,69 @@ export function useUnlinkDriveFolder() {
   return useMutation({
     mutationFn: (linkId: string) => client.unlinkDriveFolder(linkId),
     onSuccess: (status) => queryClient.setQueryData(keys.googleDrive, status),
+  });
+}
+
+
+// --- folders on this Mac ------------------------------------------------------------
+/** Everything a finished scan changes: documents, topics, maps, the counts. */
+function afterFolderScan(queryClient: QueryClient) {
+  void queryClient.invalidateQueries({ queryKey: ['documents'] });
+  void queryClient.invalidateQueries({ queryKey: ['assignments'] });
+  void queryClient.invalidateQueries({ queryKey: ['courses'] });
+  void queryClient.invalidateQueries({ queryKey: keys.dashboard });
+}
+
+export function useLocalFolders() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useQuery<LocalFolders>({
+    queryKey: keys.localFolders,
+    queryFn: async () => {
+      const result = await client.localFolders();
+      const previous = queryClient.getQueryData<LocalFolders>(keys.localFolders);
+      // A scan that just finished changed the library; re-read it once.
+      const finishedNow = result.links.some((link) => {
+        const was = previous?.links.find((p) => p.id === link.id)?.scan?.state;
+        return link.scan?.state === 'done' && was !== undefined && was !== 'done';
+      });
+      if (finishedNow) afterFolderScan(queryClient);
+      return result;
+    },
+    // Poll while any scan is running; otherwise sit still.
+    refetchInterval: (query) =>
+      query.state.data?.links.some((l) => l.scan && ['queued', 'running'].includes(l.scan.state))
+        ? 1500
+        : false,
+  });
+}
+
+export function useLinkLocalFolder() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation<LocalFolderLink, Error, LocalFolderLinkInput>({
+    mutationFn: (body) => client.linkLocalFolder(body),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: keys.localFolders }),
+  });
+}
+
+export function useRescanLocalFolder() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation<LocalFolderLink, Error, string>({
+    mutationFn: (linkId) => client.rescanLocalFolder(linkId),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: keys.localFolders }),
+  });
+}
+
+export function useUnlinkLocalFolder() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation<LocalFolders, Error, string>({
+    mutationFn: (linkId) => client.unlinkLocalFolder(linkId),
+    onSuccess: (result) => {
+      queryClient.setQueryData(keys.localFolders, result);
+      afterFolderScan(queryClient);
+    },
   });
 }

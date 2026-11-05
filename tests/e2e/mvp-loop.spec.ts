@@ -118,8 +118,13 @@ test('a PowerPoint deck, the concept map and the assignment coach are all wired'
   // --- an assignment brief gets a guide, and the coach asks for a model ---------
   await page.goto('/courses');
   await page.getByRole('link', { name: 'Assignments' }).first().click();
+  // Let the screen finish its first load: choosing a file into an input the
+  // next render replaces is how this step was flaky.
+  await expect(page.getByText('No assignment briefs yet')).toBeVisible();
   await page.locator('input[type="file"]').setInputFiles(BRIEF);
-  await page.getByRole('button', { name: /Upload/ }).first().click();
+  const uploadBrief = page.getByRole('button', { name: 'Upload brief' });
+  await expect(uploadBrief).toBeEnabled();
+  await uploadBrief.click();
   await expect(page.getByRole('button', { name: 'Draft the guide' })).toBeEnabled({
     timeout: 60_000,
   });

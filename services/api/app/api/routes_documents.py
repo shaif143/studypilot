@@ -22,6 +22,7 @@ from app.api.deps import (
     CoursesDep,
     DocumentsDep,
     DriveDep,
+    LocalFoldersDep,
     SessionDep,
     TopicsDep,
     UserDep,
@@ -377,6 +378,7 @@ def document_file(
     user: UserDep,
     documents: DocumentsDep,
     drive: DriveDep,
+    folders: LocalFoldersDep,
 ) -> Response:
     """Serve the PDF the reader renders client-side.
 
@@ -401,6 +403,13 @@ def document_file(
                 data = fetch_from_drive(context, drive, user.id, document)
             except DriveError as exc:
                 raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+        elif document.source == "local_folder":
+            from app.ingestion.local_folders import FolderError, read_in_place
+
+            try:
+                data = read_in_place(folders, user.id, document.source_ref)
+            except FolderError as exc:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         else:
             data = context.blobs.read(document.content_hash)
     except BlobNotFoundError as exc:

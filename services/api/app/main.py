@@ -30,6 +30,7 @@ from app.api import (
     routes_flashcards,
     routes_health,
     routes_integrations,
+    routes_local_folders,
     routes_notes,
     routes_privacy,
     routes_settings,
@@ -165,6 +166,7 @@ def create_app(
     app.include_router(routes_privacy.router)
     app.include_router(routes_integrations.public_router)
     app.include_router(routes_integrations.router)
+    app.include_router(routes_local_folders.router)
 
     return app
 

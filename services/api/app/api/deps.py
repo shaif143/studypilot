@@ -33,6 +33,7 @@ from app.storage.repositories import (
     DocumentRepository,
     DriveRepository,
     FlashcardRepository,
+    LocalFolderRepository,
     MasteryRepository,
     NoteRepository,
     SessionRepository,
@@ -276,6 +277,13 @@ def drive(session: SessionDep) -> DriveRepository:
 
 
 DriveDep = Annotated[DriveRepository, Depends(drive)]
+
+
+def local_folders(session: SessionDep) -> LocalFolderRepository:
+    return LocalFolderRepository(session)
+
+
+LocalFoldersDep = Annotated[LocalFolderRepository, Depends(local_folders)]
 
 
 PlansDep = Annotated[AssignmentPlanRepository, Depends(plans)]

@@ -112,6 +112,8 @@ export interface ExtractionMeta {
   /** Folder path below the linked Drive folder, for a document read from Drive. */
   drive_path?: string;
   drive_mime_type?: string;
+  /** Path below the linked folder on this Mac, for a document indexed in place. */
+  folder_path?: string;
 }
 
 export interface DocumentSummary {
@@ -127,8 +129,8 @@ export interface DocumentSummary {
   kind: string;
   embedding_model: string;
   extraction_meta: ExtractionMeta;
-  /** "upload", or "google_drive" when only the index is kept here and the file is read from Drive. */
-  source: 'upload' | 'google_drive';
+  /** "upload"; "google_drive" or "local_folder" when only the index is kept here. */
+  source: 'upload' | 'google_drive' | 'local_folder';
   /** The file's id at its source; empty for an upload. */
   source_ref: string;
   created_at: string;
@@ -732,4 +734,41 @@ export interface DriveImportResult {
   counts: Partial<Record<DriveImportStatus, number>>;
   link: DriveLink | null;
   duration_ms: number;
+}
+
+// --- folders on this Mac ----------------------------------------------------
+
+export interface LocalFolderScan {
+  state: 'queued' | 'running' | 'done' | 'failed';
+  done: number;
+  total: number;
+  current: string;
+  counts: Record<string, number>;
+  error: string;
+}
+
+export interface LocalFolderLink {
+  id: string;
+  course_id: string;
+  path: string;
+  recursive: boolean;
+  /** Images and recordings go to the consent-gated model on each scan. */
+  read_media: boolean;
+  last_scanned_at: string | null;
+  last_summary: Record<string, number>;
+  /** Present while a scan runs, and for a few minutes after. */
+  scan: LocalFolderScan | null;
+}
+
+export interface LocalFolders {
+  /** False on a hosted deployment, which has no file system of the user's. */
+  available: boolean;
+  links: LocalFolderLink[];
+}
+
+export interface LocalFolderLinkInput {
+  course_id: string;
+  path: string;
+  recursive?: boolean;
+  read_media?: boolean;
 }

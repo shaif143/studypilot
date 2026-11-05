@@ -138,6 +138,10 @@ describe('API contract', () => {
     ['importFromDrive', () => client.importFromDrive({ course_id: 'c1', folder: 'f1' })],
     ['syncDriveLink', () => client.syncDriveLink('l1')],
     ['unlinkDriveFolder', () => client.unlinkDriveFolder('l1')],
+    ['localFolders', () => client.localFolders()],
+    ['linkLocalFolder', () => client.linkLocalFolder({ course_id: 'c1', path: '/x' })],
+    ['rescanLocalFolder', () => client.rescanLocalFolder('l1')],
+    ['unlinkLocalFolder', () => client.unlinkLocalFolder('l1')],
   ])('%s calls a route the backend actually exposes', async (_name, invoke) => {
     const { path, method } = await record(invoke);
     expect(

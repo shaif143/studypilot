@@ -454,6 +454,22 @@ so they are reported slide by slide instead of silently dropped.
 
 ---
 
+## 29. The Mac app links folders instead of uploading them
+
+**Decision.** On the desktop a course folder is linked and indexed where it
+is; uploads remain for single files, archives and the web.
+
+**Why.** The user watched a 22-file upload crawl and asked why the app does
+not simply use the folder on the Mac, as Claude Code does. Uploading copies
+the bytes into the app's data directory — doubling the disk a lecturer's
+decks take — and freezes a dialog for as long as transcription runs. A link
+costs only the index, runs in the background with a visible count, and
+stays in step with the folder on rescan. The reader opens the original
+file, so a file that moves or is deleted is refused with a message rather
+than shown stale.
+
+---
+
 ## 25. Deferred deliberately
 
 | Deferred | Reason |

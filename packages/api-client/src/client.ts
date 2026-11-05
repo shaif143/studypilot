@@ -7,6 +7,9 @@ import type {
   DriveImportResult,
   DriveListing,
   GoogleDriveStatus,
+  LocalFolderLink,
+  LocalFolderLinkInput,
+  LocalFolders,
   Account,
   AnswerResponse,
   Assessment,
@@ -371,6 +374,15 @@ export class StudyPilotClient {
     this.request<GoogleDriveStatus>(`/api/integrations/google/links/${linkId}`, {
       method: 'DELETE',
     });
+
+  // --- folders on this Mac ---------------------------------------------
+  localFolders = () => this.request<LocalFolders>('/api/local-folders');
+  linkLocalFolder = (body: LocalFolderLinkInput) =>
+    this.request<LocalFolderLink>('/api/local-folders', { method: 'POST', body });
+  rescanLocalFolder = (linkId: string) =>
+    this.request<LocalFolderLink>(`/api/local-folders/${linkId}/scan`, { method: 'POST' });
+  unlinkLocalFolder = (linkId: string) =>
+    this.request<LocalFolders>(`/api/local-folders/${linkId}`, { method: 'DELETE' });
 
   // --- assignment guides ----------------------------------------------
   assignments = (courseId: string) =>

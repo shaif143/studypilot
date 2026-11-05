@@ -172,7 +172,7 @@ class DocumentOut(BaseModel):
     kind: str
     embedding_model: str
     extraction_meta: dict[str, Any]
-    #: "upload", or "google_drive" when only the index is kept here.
+    #: "upload"; "google_drive" or "local_folder" when only the index is kept here.
     source: str = "upload"
     source_ref: str = ""
     created_at: datetime
@@ -824,3 +824,44 @@ class DriveImportOut(BaseModel):
     counts: dict[str, int]
     link: DriveLinkOut | None = None
     duration_ms: int = 0
+
+
+# --- folders on this machine ----------------------------------------------------------
+class LocalFolderScanOut(BaseModel):
+    #: queued | running | done | failed
+    state: str
+    done: int = 0
+    total: int = 0
+    current: str = ""
+    counts: dict[str, int] = Field(default_factory=dict)
+    error: str = ""
+
+
+class LocalFolderLinkOut(BaseModel):
+    model_config = ORM
+
+    id: str
+    course_id: str
+    path: str
+    recursive: bool
+    read_media: bool
+    last_scanned_at: datetime | None
+    last_summary: dict[str, Any]
+    #: Present while a scan is in progress or just finished.
+    scan: LocalFolderScanOut | None = None
+
+
+class LocalFolderLinkIn(BaseModel):
+    course_id: str
+    path: str = Field(min_length=1, max_length=1024)
+    recursive: bool = True
+    #: Consent for the cloud model to read images and recordings in it.
+    read_media: bool = False
+    #: Run the first scan before answering (tests); otherwise in the background.
+    wait: bool = False
+
+
+class LocalFoldersOut(BaseModel):
+    #: False on a hosted deployment, which has no file system of the user's.
+    available: bool
+    links: list[LocalFolderLinkOut] = Field(default_factory=list)

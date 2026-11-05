@@ -174,9 +174,15 @@ def _read_scanned_pages(
 
 @contextmanager
 def _source_file(
-    blobs: BlobStore, document: Document, source_bytes: bytes | None
+    blobs: BlobStore,
+    document: Document,
+    source_bytes: bytes | None,
+    source_path: Path | None = None,
 ) -> Iterator[Path]:
-    """A path to the document's bytes: the stored blob, or a temporary copy."""
+    """A path to the document's bytes: a file in place, the stored blob, or a temporary copy."""
+    if source_path is not None:
+        yield source_path
+        return
     if source_bytes is None:
         with blobs.local_path(document.content_hash) as path:
             yield Path(path)
@@ -233,6 +239,7 @@ def ingest_document(
     topics: TopicRepository,
     media_reader: MediaReader | None = None,
     source_bytes: bytes | None = None,
+    source_path: Path | None = None,
     keep_previews: bool = True,
 ) -> IngestionResult:
     """Extract, chunk, embed and index a document.
@@ -243,9 +250,10 @@ def ingest_document(
     is needed rather than being indexed empty.
 
     Normally the bytes come from the blob store under ``content_hash``. A
-    document that is *not* kept here — one read from Google Drive — passes
-    them as ``source_bytes`` instead; they are written to a temporary file
-    for the extractor and discarded. ``keep_previews=False`` also skips the
+    document that is *not* kept here passes them as ``source_bytes`` (read
+    from Google Drive; written to a temporary file for the extractor and
+    discarded) or names the file in place as ``source_path`` (a linked folder
+    on this machine; nothing is copied at all). ``keep_previews=False`` also skips the
     rendered page images, so such a document costs only its text index.
     """
     started = time.monotonic()
@@ -260,11 +268,11 @@ def ingest_document(
     try:
         # The store yields a real file: PyMuPDF wants a path, and a remote
         # store downloads to a temporary one that is cleaned up on exit.
-        with _source_file(blobs, document, source_bytes) as source_path:
+        with _source_file(blobs, document, source_bytes, source_path) as working_path:
             extracted: ExtractedDocument
             if is_image(document.media_type) or is_audio(document.media_type):
                 reader = media_reader or MediaReader(settings=settings, provider=None)
-                data = Path(source_path).read_bytes()
+                data = Path(working_path).read_bytes()
                 if is_image(document.media_type):
                     extracted = reader.read_image(
                         data, document.media_type, title=document.title, preview_sink=store_preview
@@ -274,21 +282,21 @@ def ingest_document(
                         data,
                         document.media_type,
                         title=document.title,
-                        source_path=Path(source_path),
+                        source_path=Path(working_path),
                     )
             elif document.media_type in (PPTX_MEDIA_TYPE, PPT_MEDIA_TYPE):
                 extracted = _extract_presentation(
-                    Path(source_path), document, settings, blobs, preview_sink
+                    Path(working_path), document, settings, blobs, preview_sink
                 )
             else:
                 extracted = extract_pdf(
-                    source_path,
+                    working_path,
                     max_pages=settings.max_pdf_pages,
                     preview_sink=preview_sink,
                 )
                 if extracted.text_pages == 0 and extracted.page_count > 0:
                     _read_scanned_pages(
-                        extracted, Path(source_path), document, settings, media_reader
+                        extracted, Path(working_path), document, settings, media_reader
                     )
     except (UnreadableDocumentError, UnreadablePresentationError) as exc:
         documents.set_status(document, "failed", str(exc))

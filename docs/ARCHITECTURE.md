@@ -305,6 +305,28 @@ follow from a model being involved:
 - a provider that cannot read the file refuses with a message naming what is
   needed, and the document is marked `failed` rather than indexed empty.
 
+## Folders on this Mac
+
+The desktop app sits next to the student's files, so a course folder is
+linked rather than uploaded. `ingestion/local_folders.py` lists the
+indexable files under it (hidden entries, symlinks and a few well-known
+junk folders skipped, 500 files a scan), and indexes each **in place**: the
+pipeline is handed the file's own path, nothing is written to the blob
+store, no page previews are rendered, and the document row carries
+`source="local_folder"`, the absolute path and `mtime:size` as its version.
+A `.pptx`/`.ppt` keeps the PDF rendered from it, and a GIF/BMP/TIFF is
+indexed from its converted bytes, because those are what the reader and
+the vision model need.
+
+A scan runs in a thread with its own session, one at a time, and publishes
+progress (done/total/current file) that the Library polls every 1.5 s. A
+rescan compares each file's version with the stored one: unchanged files
+are left alone, changed ones are removed and re-read, deleted ones removed.
+`/documents/{id}/file` reads a linked file from disk only while its path
+still lies inside a folder the user has linked; unlinking drops the
+documents, since the app may no longer read those files. Hosted deployments
+answer 404: there is no folder of the user's on a server.
+
 ## Google Drive
 
 A linked Drive folder is the one case where a document's bytes are not here.

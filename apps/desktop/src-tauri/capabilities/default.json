@@ -1,11 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The minimum the StudyPilot webview needs: nothing beyond opening external links. The backend sidecar is spawned by Rust, not by the webview, so no shell execute permission is granted to the frontend.",
+  "description": "The minimum the StudyPilot webview needs: opening external links, and the native folder picker for linking a folder on this Mac. The backend sidecar is spawned by Rust, not by the webview, so no shell execute permission is granted to the frontend.",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
-    "opener:allow-open-url"
+    "opener:allow-open-url",
+    "dialog:allow-open"
   ]
 }

@@ -1,5 +1,6 @@
 import type { Platform } from '@studypilot/shared';
 import { invoke } from '@tauri-apps/api/core';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
 /**
@@ -38,6 +39,10 @@ export const desktopPlatform: Platform = {
   },
   async openExternal(url: string) {
     await openUrl(url);
+  },
+  async pickFolder() {
+    const chosen = await openDialog({ directory: true, multiple: false, title: 'Choose a folder to index' });
+    return typeof chosen === 'string' ? chosen : null;
   },
 };
 

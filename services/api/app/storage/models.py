@@ -682,3 +682,28 @@ class OAuthFlow(Base):
     verifier: Mapped[str] = mapped_column(String(256))
     redirect_uri: Mapped[str] = mapped_column(String(512))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class LocalFolderLink(Base, TimestampMixin):
+    """A folder on this machine kept linked to a course, indexed in place.
+
+    Nothing is copied: a document from here keeps its index and reads its
+    bytes from the file when opened. Desktop only; a hosted deployment has no
+    file system of the user's to read.
+    """
+
+    __tablename__ = "local_folder_links"
+    __table_args__ = (
+        UniqueConstraint("course_id", "path", name="uq_local_folder_links_course_path"),
+        Index("ix_local_folder_links_user", "user_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"))
+    course_id: Mapped[str] = mapped_column(String(32), ForeignKey("courses.id", ondelete="CASCADE"))
+    path: Mapped[str] = mapped_column(String(1024))
+    recursive: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: Images and recordings go to the consent-gated model on each scan.
+    read_media: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    last_summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
