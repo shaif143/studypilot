@@ -315,8 +315,13 @@ export function useUploadDocument() {
 export function useUploadArchive() {
   const client = useClient();
   const queryClient = useQueryClient();
-  return useMutation<ArchiveUploadResult, Error, { courseId: string; file: File; kind?: string }>({
-    mutationFn: ({ courseId, file, kind }) => client.uploadArchive(courseId, file, { kind }),
+  return useMutation<
+    ArchiveUploadResult,
+    Error,
+    { courseId: string; file: File; kind?: string; allowCloud?: boolean }
+  >({
+    mutationFn: ({ courseId, file, kind, allowCloud }) =>
+      client.uploadArchive(courseId, file, { kind, allowCloud }),
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({ queryKey: keys.documents(variables.courseId) });
       void queryClient.invalidateQueries({ queryKey: keys.documents(undefined) });

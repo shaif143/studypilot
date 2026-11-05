@@ -854,6 +854,11 @@
       },
       "Body_upload_archive_api_courses__course_id__documents_archive_post": {
         "properties": {
+          "allow_cloud": {
+            "default": false,
+            "title": "Allow Cloud",
+            "type": "boolean"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -6430,7 +6435,7 @@
     },
     "/api/courses/{course_id}/documents/archive": {
       "post": {
-        "description": "A .zip or .rar: every readable member becomes a document of its own.\n\nEach member's outcome is reported by its path inside the archive, and\nmembers the app cannot read are listed with a reason rather than lost.\nThe archive itself is not kept.",
+        "description": "A .zip or .rar: every readable member becomes a document of its own.\n\nEach member's outcome is reported by its path inside the archive, and\nmembers the app cannot read are listed with a reason rather than lost.\nImages and recordings go to the same consent-gated model as a single\nupload; when none can read them, they are skipped with that reason, in\none line, rather than becoming a row of failed documents. The archive\nitself is not kept.",
         "operationId": "upload_archive_api_courses__course_id__documents_archive_post",
         "parameters": [
           {

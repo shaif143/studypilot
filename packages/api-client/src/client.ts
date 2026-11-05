@@ -290,10 +290,15 @@ export class StudyPilotClient {
   };
 
   /** A .zip or .rar: every readable member becomes its own document. */
-  uploadArchive = (courseId: string, file: File, options: { kind?: string } = {}) => {
+  uploadArchive = (
+    courseId: string,
+    file: File,
+    options: { kind?: string; allowCloud?: boolean } = {},
+  ) => {
     const form = new FormData();
     form.append('file', file);
     if (options.kind) form.append('kind', options.kind);
+    if (options.allowCloud) form.append('allow_cloud', 'true');
     return this.request<ArchiveUploadResult>(`/api/courses/${courseId}/documents/archive`, {
       method: 'POST',
       form,

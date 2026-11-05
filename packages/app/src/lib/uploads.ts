@@ -7,11 +7,12 @@
  * here, from the name and declared type; the backend checks the bytes.
  */
 
-const SUPPORTED = /\.(pdf|pptx?|png|jpe?g|webp|wav|mp3|m4a|zip|rar)$/i;
+const SUPPORTED = /\.(pdf|pptx?|png|jpe?g|webp|gif|bmp|tiff?|wav|mp3|m4a|zip|rar)$/i;
+const NEEDS_MODEL = /\.(png|jpe?g|webp|gif|bmp|tiff?|wav|mp3|m4a|zip|rar)$/i;
 const ARCHIVE = /\.(zip|rar)$/i;
 
 export const SUPPORTED_DESCRIPTION =
-  'PDF, PowerPoint (.pptx and .ppt), PNG/JPEG/WebP images, WAV/MP3/M4A audio, and .zip or .rar archives of those.';
+  'PDF, PowerPoint (.pptx and .ppt), PNG/JPEG/WebP/GIF/BMP/TIFF images, WAV/MP3/M4A audio, and .zip or .rar archives of those.';
 
 export const ACCEPT_ATTRIBUTE = [
   'application/pdf',
@@ -28,10 +29,17 @@ export const ACCEPT_ATTRIBUTE = [
   'image/png',
   'image/jpeg',
   'image/webp',
+  'image/gif',
+  'image/bmp',
+  'image/tiff',
   '.png',
   '.jpg',
   '.jpeg',
   '.webp',
+  '.gif',
+  '.bmp',
+  '.tif',
+  '.tiff',
   'audio/wav',
   'audio/mpeg',
   'audio/mp4',
@@ -86,6 +94,11 @@ export function partitionFiles(candidates: Iterable<File>): Partition {
   }
   accepted.sort((a, b) => relativePathOf(a).localeCompare(relativePathOf(b)));
   return { accepted, rejected };
+}
+
+/** Read by a model (or may contain files that are): the dialog then asks about cloud use. */
+export function mayNeedModel(file: File): boolean {
+  return NEEDS_MODEL.test(file.name);
 }
 
 /** A .zip or .rar: uploaded whole, unpacked and indexed member by member on the backend. */

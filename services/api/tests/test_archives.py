@@ -42,10 +42,13 @@ def test_a_zip_yields_its_readable_members_and_names_the_rest(sample_pdf_bytes: 
     unpacked = archives.unpack(
         build_zip(sample_pdf_bytes), "zip", max_member_bytes=10_000_000, max_total_bytes=50_000_000
     )
-    assert [m.path for m in unpacked.members] == ["Week 1/lecture.pdf", "Week 1/deck.pptx"]
+    assert [m.path for m in unpacked.members] == [
+        "Week 1/lecture.pdf",
+        "Week 1/deck.pptx",
+        "Week 1/figure.png",  # read by a model, decided by the route
+    ]
     assert unpacked.members[0].data == sample_pdf_bytes
     reasons = {s.path: s.reason for s in unpacked.skipped}
-    assert "model" in reasons["Week 1/figure.png"]
     assert "inside an archive" in reasons["Week 1/more.zip"]
     assert reasons["Week 1/readme.txt"] == "Not a supported type."
     assert reasons["../escape.pdf"] == "Unsafe path inside the archive."
@@ -56,7 +59,7 @@ def test_members_over_the_limits_are_skipped_not_read(sample_pdf_bytes: bytes):
     unpacked = archives.unpack(
         build_zip(sample_pdf_bytes), "zip", max_member_bytes=1000, max_total_bytes=50_000_000
     )
-    assert unpacked.members == []
+    assert [m.path for m in unpacked.members] == ["Week 1/figure.png"]  # 15 bytes
     assert all(
         "limit" in s.reason
         for s in unpacked.skipped
@@ -116,3 +119,92 @@ def test_a_real_rar_is_listed_and_unpacked():
     assert unpacked.members or unpacked.skipped
     for member in unpacked.members:
         assert ".." not in member.path and member.data
+
+
+# --- images and recordings inside an archive ---------------------------------------
+#: A 1x1 GIF: a lecturer's figure in a format no vision model takes directly.
+TINY_GIF = (
+    b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff\x21\xf9\x04\x01\x00\x00\x00"
+    b"\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b"
+)
+
+
+def png_bytes() -> bytes:
+    import pymupdf
+
+    return pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 8, 8), False).tobytes("png")
+
+
+def build_media_zip() -> bytes:
+    from test_media_briefs import wav
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("figures/diagram.png", png_bytes())
+        archive.writestr("figures/animation.gif", TINY_GIF)
+        archive.writestr("audio/lecture.wav", wav())
+    return buffer.getvalue()
+
+
+def test_a_gif_becomes_a_png_on_the_way_in():
+    from app.ingestion.media import normalise_image, sniff_media_type
+
+    name, data = normalise_image("animation.gif", TINY_GIF)
+    assert name == "animation.png" and sniff_media_type(data, name) == "image/png"
+    # Anything else is left exactly as it was.
+    assert normalise_image("x.png", png_bytes())[1] == png_bytes()
+
+
+def test_without_a_model_media_members_are_skipped_with_one_clear_reason(
+    client: TestClient, course, monkeypatch
+):
+    from app.ingestion import media
+
+    monkeypatch.setattr(media, "local_transcription_available", lambda: False)
+    response = client.post(
+        f"/api/courses/{course['id']}/documents/archive",
+        files={"file": ("media.zip", build_media_zip(), "application/zip")},
+        data={"allow_cloud": "true"},
+    )
+    assert response.status_code == 201, response.text
+    by_path = {m["path"]: m for m in response.json()["members"]}
+    assert all(m["status"] == "skipped" for m in by_path.values())
+    assert "model that accepts images" in by_path["figures/diagram.png"]["detail"]
+    assert "model that accepts images" in by_path["figures/animation.gif"]["detail"]
+    assert "audio" in by_path["audio/lecture.wav"]["detail"]
+    # Skipped, not failed: nothing was created to clutter the library.
+    assert client.get("/api/documents").json() == []
+
+
+def test_with_a_consented_model_media_members_are_indexed(client: TestClient, course, monkeypatch):
+    from test_media_briefs import FakeVision
+
+    from app.api import routes_documents
+    from app.ingestion import media
+
+    vision = FakeVision(text="A diagram of a convolution over a 5x5 input.")
+    monkeypatch.setattr(routes_documents, "resolve_provider", lambda *a, **k: (vision, []))
+    monkeypatch.setattr(media, "local_transcription_available", lambda: False)
+    monkeypatch.setattr(
+        media,
+        "_transcribe_locally",
+        lambda *a, **k: (_ for _ in ()).throw(media._LocalTranscriptionUnavailable("absent")),
+    )
+    response = client.post(
+        f"/api/courses/{course['id']}/documents/archive",
+        files={"file": ("media.zip", build_media_zip(), "application/zip")},
+        data={"allow_cloud": "true"},
+    )
+    assert response.status_code == 201, response.text
+    by_path = {m["path"]: m for m in response.json()["members"]}
+    assert {m["status"] for m in by_path.values()} == {"indexed"}
+    gif = by_path["figures/animation.gif"]["result"]["document"]
+    assert gif["original_filename"] == "animation.png" and gif["media_type"] == "image/png"
+    assert by_path["audio/lecture.wav"]["result"]["document"]["media_type"] == "audio/wav"
+    # Every image and the recording went to the model: three requests.
+    assert len(vision.requests) == 3
+    assert {d["title"] for d in client.get("/api/documents").json()} == {
+        "diagram",
+        "animation",
+        "lecture",
+    }

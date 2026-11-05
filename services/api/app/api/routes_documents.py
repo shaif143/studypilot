@@ -38,7 +38,7 @@ from app.api.schemas import (
     UploadResponse,
 )
 from app.ingestion.archives import UnreadableArchiveError, archive_kind, unpack
-from app.ingestion.media import MediaReader, is_audio, is_image
+from app.ingestion.media import MediaReader, is_audio, is_image, normalise_image, sniff_media_type
 from app.ingestion.pipeline import UnsupportedFileError, ingest_document, validate_upload
 from app.ingestion.removal import remove_document
 from app.storage.files import BlobNotFoundError
@@ -107,12 +107,17 @@ async def upload_archive(
     users: UsersDep,
     file: UploadFile = File(...),
     kind: str = Form(default="lecture"),
+    #: Consent for a cloud model to read the images and recordings inside.
+    allow_cloud: bool = Form(default=False),
 ) -> ArchiveUploadResponse:
     """A .zip or .rar: every readable member becomes a document of its own.
 
     Each member's outcome is reported by its path inside the archive, and
     members the app cannot read are listed with a reason rather than lost.
-    The archive itself is not kept.
+    Images and recordings go to the same consent-gated model as a single
+    upload; when none can read them, they are skipped with that reason, in
+    one line, rather than becoming a row of failed documents. The archive
+    itself is not kept.
     """
     courses.get(user.id, course_id)
     data = await file.read()
@@ -142,14 +147,26 @@ async def upload_archive(
     del data
 
     results: list[ArchiveMemberOut] = []
+    refusals: dict[str, str] = {}  # media type → why it cannot be read, decided once
     for member in unpacked.members:
+        name, data = normalise_image(Path(member.path).name, member.data)
+        media = sniff_media_type(data, name) or ""
+        if is_image(media) or is_audio(media):
+            if media not in refusals:
+                reader = _media_reader_for(media, allow_cloud, context, user, users)
+                refusals[media] = reader.cannot_read(media)
+            if refusals[media]:
+                results.append(
+                    ArchiveMemberOut(path=member.path, status="skipped", detail=refusals[media])
+                )
+                continue
         try:
             result = _ingest_upload(
-                filename=Path(member.path).name,
-                data=member.data,
+                filename=name,
+                data=data,
                 title=Path(member.path).stem,
                 kind=kind,
-                allow_cloud=False,
+                allow_cloud=allow_cloud,
                 course_id=course_id,
                 context=context,
                 user=user,
@@ -165,6 +182,32 @@ async def upload_archive(
     for skipped in unpacked.skipped:
         results.append(ArchiveMemberOut(path=skipped.path, status="skipped", detail=skipped.reason))
     return ArchiveUploadResponse(archive=archive_name, members=results)
+
+
+def _media_reader_for(
+    media_type: str, allow_cloud: bool, context: ContextDep, user: UserDep, users: UsersDep
+) -> MediaReader:
+    """The consent-gated model that reads an image or a recording.
+
+    The same gate as the tutor: the stored preference and this request's
+    flag both have to say yes before a cloud model sees the file.
+    """
+    settings = context.settings
+    requested = settings.vision_provider or settings.assignment_provider or None
+    if requested is None and settings.llm_provider == "extractive":
+        from app.models.llm import AnthropicProvider, GeminiProvider
+
+        # Audio needs a provider that accepts it; images prefer Anthropic.
+        if is_audio(media_type) and GeminiProvider().info.available:
+            requested = "gemini"
+        elif AnthropicProvider().info.available:
+            requested = "anthropic"
+        elif GeminiProvider().info.available:
+            requested = "gemini"
+    provider, _warnings = resolve_provider(
+        settings, users.settings(user.id), requested=requested, allow_cloud_request=allow_cloud
+    )
+    return MediaReader(settings=settings, provider=provider)
 
 
 def _ingest_upload(
@@ -183,6 +226,7 @@ def _ingest_upload(
     users: UsersDep,
 ) -> UploadResponse:
     """Validate, store, and index one file; shared by the upload and archive routes."""
+    filename, data = normalise_image(filename, data)
     media_type = validate_upload(filename, data, context.settings)
 
     content_hash = context.blobs.hash_bytes(data)
@@ -219,23 +263,7 @@ def _ingest_upload(
 
     media_reader = None
     if is_image(media_type) or is_audio(media_type):
-        # A model reads these, so the same consent gate as the tutor applies.
-        settings = context.settings
-        requested = settings.vision_provider or settings.assignment_provider or None
-        if requested is None and settings.llm_provider == "extractive":
-            from app.models.llm import AnthropicProvider, GeminiProvider
-
-            # Audio needs a provider that accepts it; images prefer Anthropic.
-            if is_audio(media_type) and GeminiProvider().info.available:
-                requested = "gemini"
-            elif AnthropicProvider().info.available:
-                requested = "anthropic"
-            elif GeminiProvider().info.available:
-                requested = "gemini"
-        provider, _warnings = resolve_provider(
-            settings, users.settings(user.id), requested=requested, allow_cloud_request=allow_cloud
-        )
-        media_reader = MediaReader(settings=settings, provider=provider)
+        media_reader = _media_reader_for(media_type, allow_cloud, context, user, users)
 
     result = ingest_document(
         document=document,

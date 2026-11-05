@@ -65,6 +65,8 @@ import {
   useDriveFiles,
   useGoogleDrive,
   useImportFromDrive,
+  useProviders,
+  useSettings,
   useSyncDriveLink,
   useUnlinkDriveFolder,
   useUploadArchive,
@@ -75,6 +77,7 @@ import {
   SUPPORTED_DESCRIPTION,
   filesFromDrop,
   isArchive,
+  mayNeedModel,
   partitionFiles,
   relativePathOf,
   titleFor,
@@ -493,6 +496,8 @@ function UploadDialog({
 }) {
   const upload = useUploadDocument();
   const uploadArchive = useUploadArchive();
+  const settings = useSettings();
+  const providers = useProviders();
   const inputId = useId();
   const filesRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
@@ -504,9 +509,17 @@ function UploadDialog({
   const [selectedCourse, setSelectedCourse] = useState(courseId ?? '');
   const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState<{ done: number; current: string } | null>(null);
+  // Consent for a cloud model to read images and recordings in this batch.
+  // Starts from the Settings switch; the user can decline for one upload.
+  const [allowCloud, setAllowCloud] = useState<boolean | null>(null);
 
   const effectiveCourse = selectedCourse || courseId || courses[0]?.id || '';
   const busy = progress !== null;
+  const cloudAllowedInSettings = Boolean(settings.data?.allow_cloud_processing);
+  const cloudForThisUpload = allowCloud ?? cloudAllowedInSettings;
+  const needsModel = files.some(mayNeedModel);
+  const activeProvider = providers.data?.llm.find((p) => p.key === providers.data?.active_llm);
+  const canReadMedia = Boolean(activeProvider?.accepts_images || activeProvider?.accepts_audio);
 
   const take = useCallback((candidates: Iterable<File>) => {
     const partition = partitionFiles(candidates);
@@ -539,7 +552,12 @@ function UploadDialog({
       try {
         if (isArchive(file)) {
           // The backend unpacks it and answers once per member.
-          const unpacked = await uploadArchive.mutateAsync({ courseId: effectiveCourse, file, kind });
+          const unpacked = await uploadArchive.mutateAsync({
+            courseId: effectiveCourse,
+            file,
+            kind,
+            allowCloud: cloudForThisUpload,
+          });
           for (const member of unpacked.members) {
             entries.push({
               file,
@@ -555,6 +573,7 @@ function UploadDialog({
           file,
           title: files.length === 1 ? title.trim() || undefined : titleFor(file),
           kind,
+          allowCloud: cloudForThisUpload,
         });
         entries.push({ file, label, result });
       } catch (error) {
@@ -704,6 +723,24 @@ function UploadDialog({
               ))}
             </ul>
           </Callout>
+        ) : null}
+
+        {needsModel ? (
+          <div className="rounded-[var(--radius-control)] border border-[var(--border-subtle)] px-3">
+            <Toggle
+              checked={cloudForThisUpload}
+              disabled={busy || !cloudAllowedInSettings}
+              onChange={setAllowCloud}
+              label="Let a cloud model read the images and recordings"
+              description={
+                !cloudAllowedInSettings
+                  ? 'Images and audio are read by a model. Turn on "Allow cloud AI processing" in Settings (and add a Claude or Gemini key) to include them; otherwise they are skipped with a note.'
+                  : canReadMedia
+                    ? `${activeProvider?.label ?? 'The active provider'} will read them; the files are sent to it. Off, they are skipped with a note.`
+                    : 'The active provider cannot read images or audio. Choose Claude or Gemini in Settings, or these files are skipped with a note.'
+              }
+            />
+          </div>
         ) : null}
 
         {courses.length > 1 ? (

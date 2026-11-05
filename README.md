@@ -36,7 +36,7 @@ This is an honest list. Everything marked ✅ was built, run and tested; see
 | Claude / Gemini on the Mac | ✅ Paste the key in Settings; it is kept in the macOS Keychain, never a file, and only sent to that provider. Pick the model per provider (Opus 5.5 by default; Fable 5.1, Sonnet 5.5, Haiku 5.5, or any id) |
 | Folder upload | ✅ Drop or choose a whole folder (subfolders included); every supported file is indexed, each with its own result, and anything the app cannot take is listed by name |
 | Old PowerPoint (.ppt) | ✅ A pure-Python reader of the 1997–2003 binary format (`olefile` + the record walker in `ingestion/ppt.py`): slide order, titles, bullets, inline text, pictures, groups, speaker notes, incremental saves. Windows-metafile drawings are reported, not rendered |
-| .zip / .rar archives | ✅ Uploaded whole; every readable member becomes its own document, named by its path, and the rest are listed with a reason. RAR is read with the `bsdtar` every Mac ships |
+| .zip / .rar archives | ✅ Uploaded whole; every readable member becomes its own document, named by its path, and the rest are listed with a reason. Images (PNG/JPEG/WebP/GIF/BMP/TIFF) and recordings inside go to the same consent-gated model as a single upload — the dialog asks once per batch — or are skipped with one clear reason. RAR is read with the `bsdtar` every Mac ships |
 | Google Drive | ✅ Connect a Google account (read-only, PKCE) and link a Drive folder to a course. **Files are not copied**: each is read once to build its search index, opened from Drive when you read it, and "Sync now" follows the folder. Google Docs and Slides come through Google's PDF export |
 | Privacy controls | ✅ Export, delete-everything, per-feature consent, all off by default |
 | macOS packaging | ✅ ARM64 sidecar + `.app` / `.dmg` |
@@ -126,7 +126,7 @@ credentials are configured.
 npm run check
 ```
 
-Runs the TypeScript typecheck, ESLint, 104 frontend unit tests, Ruff, and 342
+Runs the TypeScript typecheck, ESLint, 104 frontend unit tests, Ruff, and 337
 backend tests. The 11 PostgreSQL integration tests need a database:
 
 ```bash

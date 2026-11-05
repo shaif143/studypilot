@@ -87,6 +87,27 @@ def sniff_media_type(data: bytes, filename: str) -> str | None:
     return _SUFFIX_TYPES.get(Path(filename).suffix.lower()) if not head else None
 
 
+#: Image containers the vision providers do not take but PyMuPDF reads;
+#: converted to PNG on the way in, so a lecturer's GIF figure is a figure.
+_CONVERTIBLE_IMAGE_MAGIC = (b"GIF87a", b"GIF89a", b"BM", b"II*\x00", b"MM\x00*")
+
+
+def normalise_image(filename: str, data: bytes) -> tuple[str, bytes]:
+    """A GIF, BMP or TIFF becomes a PNG with the same stem; anything else is untouched."""
+    if not data.startswith(_CONVERTIBLE_IMAGE_MAGIC):
+        return filename, data
+    try:
+        import pymupdf
+
+        pix = pymupdf.Pixmap(data)
+        if pix.alpha or pix.n not in (1, 3):
+            pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
+        return f"{Path(filename).stem or 'image'}.png", pix.tobytes("png")
+    except Exception as exc:
+        log.warning("image_convert_failed", extra={"file": filename, "detail": str(exc)})
+        return filename, data
+
+
 def is_image(media_type: str) -> bool:
     return media_type in IMAGE_TYPES
 
@@ -127,6 +148,35 @@ class MediaReader:
 
     settings: Settings
     provider: LLMProvider | None = None
+
+    def cannot_read(self, media_type: str) -> str:
+        """Why this reader would refuse the type, or "" if it would try.
+
+        Lets a batch (a folder, an archive) skip a dozen figures with one
+        clear reason instead of creating a dozen failed documents.
+        """
+        if is_image(media_type):
+            try:
+                self._require(accepts="images")
+            except UnreadableDocumentError as exc:
+                return str(exc)
+            return ""
+        if is_audio(media_type):
+            if self.settings.audio_transcriber == "off":
+                return "Audio briefs are switched off on this installation."
+            if self.settings.audio_transcriber in {"auto", "local"}:
+                if local_transcription_available():
+                    return ""
+                if self.settings.audio_transcriber == "local":
+                    return (
+                        "Local transcription is not installed "
+                        "(pip install 'studypilot-api[audio]')."
+                    )
+            try:
+                self._require(accepts="audio")
+            except UnreadableDocumentError as exc:
+                return str(exc)
+        return ""
 
     # -- images ----------------------------------------------------------
     def read_image(
@@ -310,6 +360,15 @@ def _image_geometry_and_preview(data: bytes, media_type: str) -> tuple[float, fl
 
 class _LocalTranscriptionUnavailable(RuntimeError):
     pass
+
+
+def local_transcription_available() -> bool:
+    """Whether faster-whisper is installed; the model itself loads on first use."""
+    try:
+        import faster_whisper  # noqa: F401
+    except ImportError:
+        return False
+    return True
 
 
 def _transcribe_locally(
