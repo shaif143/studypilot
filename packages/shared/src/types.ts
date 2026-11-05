@@ -464,7 +464,9 @@ export interface HealthResponse {
   version: string;
   runtime: {
     vector_backend: string;
-    vector_count: number;
+    /** Null when the database could not be reached; `database_error` says why. */
+    vector_count: number | null;
+    database_error?: string | null;
     sparse_backend: string;
     storage_backend: string;
     database: string;

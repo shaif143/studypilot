@@ -225,8 +225,15 @@ export function SettingsScreen() {
                 <p className="mt-3 text-[0.75rem] text-[var(--text-muted)]">
                   Currently indexing with <code>{health.data.runtime.embedding_model}</code> (
                   {health.data.runtime.embedding_dimensions} dimensions),{' '}
-                  {health.data.runtime.vector_count} passages indexed, keyword search via{' '}
-                  {health.data.runtime.sparse_backend}.
+                  {health.data.runtime.vector_count ?? 'an unknown number of'} passages indexed,
+                  keyword search via {health.data.runtime.sparse_backend}.
+                  {health.data.runtime.database_error ? (
+                    <>
+                      {' '}
+                      The passage count could not be read from the database:{' '}
+                      <code>{health.data.runtime.database_error}</code>
+                    </>
+                  ) : null}
                 </p>
               ) : null}
             </Card>

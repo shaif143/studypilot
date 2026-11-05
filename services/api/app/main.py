@@ -83,6 +83,29 @@ def create_app(
     # no cookies anyway, and refusing them keeps a misconfigured origin from
     # carrying a session — which is also why a cross-origin deployment has to
     # use bearer tokens rather than the built-in cookie sessions.
+    # Catch unhandled errors *inside* the CORS layer.
+    #
+    # Starlette's own 500 handler sits outside every middleware, so the
+    # response it produces carries no CORS headers. A browser then reports a
+    # server crash as "blocked by CORS policy: No Access-Control-Allow-Origin
+    # header", which sends you looking at the allowlist while the real fault
+    # is a failing query. Returning the 500 from here means the CORS
+    # middleware added below — outside this one — decorates it, and the
+    # browser shows the status it actually got.
+    #
+    # The body stays deliberately vague: an exception message can quote a
+    # student's document or a connection string.
+    @app.middleware("http")
+    async def _errors_keep_cors_headers(request: Request, call_next):  # type: ignore[no-untyped-def]
+        try:
+            return await call_next(request)
+        except Exception:
+            log.exception("unhandled_request_error", extra={"path": request.url.path})
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"detail": "StudyPilot hit an unexpected error. Check the server log."},
+            )
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.effective_cors_origins),

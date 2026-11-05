@@ -496,15 +496,19 @@ class PgVectorStore(VectorStore):
             )
 
     def count(self) -> int:
+        """Rows in the vector table.
+
+        This deliberately does not swallow a failure. It used to return 0 on
+        any exception, which meant a health report said "0 passages indexed"
+        when the truth was "I cannot reach the database" — the two look
+        identical on a fresh deployment, and the wrong one is reassuring.
+        The caller decides what to do with the error; the health endpoint
+        reports it rather than guessing.
+        """
         from sqlalchemy import text as sql_text
 
-        try:
-            with self.database.engine.connect() as conn:
-                return int(
-                    conn.execute(sql_text(f"SELECT count(*) FROM {self.TABLE}")).scalar() or 0
-                )
-        except Exception:
-            return 0
+        with self.database.engine.connect() as conn:
+            return int(conn.execute(sql_text(f"SELECT count(*) FROM {self.TABLE}")).scalar() or 0)
 
     def reset(self) -> None:
         from sqlalchemy import text as sql_text

@@ -488,3 +488,42 @@ def test_logging_redacts_sensitive_fields():
     assert payload["question"] == "<redacted>"
     assert payload["api_key"] == "<redacted>"
     assert payload["document_id"] == "abc"
+
+
+def test_an_unhandled_error_keeps_its_cors_headers(tmp_path):
+    """A crash must look like a crash, not like a CORS misconfiguration.
+
+    Starlette's own 500 handler runs outside every middleware, so its
+    response carries no CORS headers and a browser reports a server error as
+    "blocked by CORS policy: No Access-Control-Allow-Origin header". That
+    sent a real debugging session after the allowlist while the actual fault
+    was a database connection — so the 500 is now produced inside the CORS
+    layer.
+    """
+    from fastapi.testclient import TestClient
+
+    from app.config import Settings
+    from app.main import create_app
+
+    # Desktop mode so the origins apply verbatim and no identity is needed;
+    # the middleware ordering under test is the same in both modes.
+    settings = Settings(
+        data_dir=tmp_path,
+        cors_origins=("https://studypilot.example",),
+        auth_disabled=True,
+    )
+    app = create_app(settings)
+
+    @app.get("/api/_boom")
+    def _boom() -> None:
+        raise RuntimeError("a connection string, or a student's essay")
+
+    origin = "https://studypilot.example"
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/api/_boom", headers={"Origin": origin})
+
+    assert response.status_code == 500
+    assert response.headers.get("access-control-allow-origin") == origin
+    # The message must not carry whatever the exception was holding.
+    assert "essay" not in response.text
+    assert "connection string" not in response.text

@@ -106,9 +106,25 @@ class RuntimeContext:
         self.database.dispose()
 
     def health(self) -> dict[str, object]:
+        # The count is the one thing here that needs the database, so it is
+        # also the thing that reveals a broken connection. Reported as null
+        # with the reason rather than as a confident zero: a deployment whose
+        # pooled DSN is wrong still starts, because schema work runs on the
+        # direct connection, and then every query fails while the health
+        # report looks like an empty but healthy instance.
+        vector_count: int | None
+        database_error: str | None = None
+        try:
+            vector_count = self.vector_store.count()
+        except Exception as exc:
+            vector_count = None
+            database_error = f"{type(exc).__name__}: {exc}"[:300]
+            log.warning("health_vector_count_failed", extra={"detail": database_error})
+
         return {
             "vector_backend": self.vector_store.backend,
-            "vector_count": self.vector_store.count(),
+            "vector_count": vector_count,
+            "database_error": database_error,
             "sparse_backend": self.sparse_index.backend,
             "storage_backend": self.blobs.backend,
             "database": self.database.dialect,
