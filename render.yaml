@@ -123,6 +123,25 @@ services:
       - key: STUDYPILOT_DATA_DIR
         value: /tmp/studypilot
 
+      # --- Cloud models (optional) ------------------------------------------
+      # The assignment guide, image briefs and audio transcription need a
+      # cloud model on a hosted instance (there is no local model here). Three
+      # variables, all set by hand in the dashboard — Render only prompts for
+      # `sync: false` values when a blueprint is first created:
+      #
+      #   STUDYPILOT_ALLOW_CLOUD_PROCESSING   the operator's switch, off by
+      #                                        default on a hosted instance;
+      #                                        "true" lets each user's own
+      #                                        Settings toggle take effect
+      #   ANTHROPIC_API_KEY                    drafts guides, reads image briefs
+      #   GEMINI_API_KEY                       second provider; transcribes audio
+      - key: STUDYPILOT_ALLOW_CLOUD_PROCESSING
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+
       # --- Behaviour --------------------------------------------------------
       # Default: no generation. The tutor quotes your own material with
       # citations and says so. Set to anthropic or openai (plus the matching
