@@ -222,8 +222,11 @@ Stated plainly rather than implied by omission.
   tested with scripted providers. The Anthropic and Gemini request bodies are
   asserted by intercepting the HTTP call, so the shapes are pinned, but whether
   the current model returns usable JSON for a real brief has only been checked
-  by hand once keys were available — and local Whisper transcription has not
-  been run at all: the fallback logic is tested, the model is not.
+  by hand once keys were available. Local Whisper transcription was run by
+  hand on this Mac: a 15-second synthesised spoken brief transcribed by
+  `whisper-small` in 4.7 s with correct timestamps, after the first-run model
+  download. That is one clip, one voice, no background noise; nothing
+  automated runs the model.
 - **No test runs the hosted container.** The two worst bugs in the list above
   — EdDSA missing from the image, and the API client failing open on a 404 —
   existed only in the deployed artefact and were found by hand: building the

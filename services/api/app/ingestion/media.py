@@ -340,7 +340,16 @@ def _transcribe_locally(
             target = Path(handle.name)
         cleanup = True
     try:
-        segments, _info = model.transcribe(str(target), beam_size=1, vad_filter=True)
+        # PCM WAV is decoded here rather than by faster-whisper's PyAV path:
+        # recordings from a phone or QuickTime are usually WAV, and the PyAV
+        # dependency has broken across versions more than once. Anything else
+        # still goes through PyAV.
+        source: object = str(target)
+        if media_type == "audio/wav":
+            decoded = _decode_pcm_wav(target)
+            if decoded is not None:
+                source = decoded
+        segments, _info = model.transcribe(source, beam_size=1, vad_filter=True)
         elements: list[PageElement] = []
         lines: list[str] = []
         for index, segment in enumerate(segments):
@@ -358,11 +367,41 @@ def _transcribe_locally(
                 )
             )
     except Exception as exc:
-        raise UnreadableDocumentError(f"Local transcription failed: {exc}") from exc
+        # Decoding (PyAV) and inference failures alike: in "auto" mode the
+        # caller falls through to a cloud provider, in "local" mode it reports
+        # this message. Neither indexes an empty document.
+        raise _LocalTranscriptionUnavailable(f"local transcription failed: {exc}") from exc
     finally:
         if cleanup:
             target.unlink(missing_ok=True)
     return "\n\n".join(lines), elements, f"whisper-{model_size}"
+
+
+def _decode_pcm_wav(path: Path):
+    """16-bit PCM WAV → mono float32 at 16 kHz, or None if it is not plain PCM."""
+    import wave
+
+    try:
+        import numpy as np
+
+        with wave.open(str(path), "rb") as handle:
+            channels = handle.getnchannels()
+            width = handle.getsampwidth()
+            rate = handle.getframerate()
+            frames = handle.readframes(handle.getnframes())
+        if width != 2:
+            return None
+        samples = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+        if channels > 1:
+            samples = samples.reshape(-1, channels).mean(axis=1)
+        if rate != 16000:
+            # Linear resample; adequate for speech going into a 16 kHz model.
+            target_len = int(len(samples) * 16000 / rate)
+            positions = np.linspace(0, len(samples) - 1, num=target_len)
+            samples = np.interp(positions, np.arange(len(samples)), samples).astype(np.float32)
+        return samples
+    except Exception:
+        return None
 
 
 def _mmss(seconds: float) -> str:

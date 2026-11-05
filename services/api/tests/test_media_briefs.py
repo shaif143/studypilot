@@ -368,3 +368,29 @@ def test_the_provider_catalogue_offers_gemini_not_openai():
 
 def test_json_helpers_are_unaffected():
     assert json.loads("{}") == {}
+
+
+# --- local decoding -------------------------------------------------------
+def test_pcm_wav_is_decoded_to_mono_16k_float(tmp_path):
+    """WAV never goes through PyAV, whose API has broken across versions."""
+    import numpy as np
+
+    from app.ingestion.media import _decode_pcm_wav
+
+    path = tmp_path / "a.wav"
+    path.write_bytes(wav(seconds=0.5, rate=8000))
+    samples = _decode_pcm_wav(path)
+    assert samples is not None
+    assert samples.dtype == np.float32
+    assert samples.ndim == 1
+    # 0.5 s at 8 kHz resampled to 16 kHz is about 8000 samples.
+    assert abs(len(samples) - 8000) < 20
+    assert float(abs(samples).max()) <= 1.0
+
+
+def test_non_wav_input_is_left_to_the_library(tmp_path):
+    from app.ingestion.media import _decode_pcm_wav
+
+    path = tmp_path / "a.wav"
+    path.write_bytes(b"not a wav")
+    assert _decode_pcm_wav(path) is None

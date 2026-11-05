@@ -255,8 +255,10 @@ follow from a model being involved:
   response warns the student to check the transcript against the original;
 - images need a provider with `accepts_images`; audio tries a local
   `faster-whisper` model first (optional `[audio]` extra — nothing leaves the
-  machine) and falls back to a provider with `accepts_audio` under the same
-  consent gate as the tutor, controlled by `STUDYPILOT_AUDIO_TRANSCRIBER`;
+  machine; PCM WAV is decoded in-process so the common case does not depend
+  on PyAV, whose API has changed across versions) and falls back to a
+  provider with `accepts_audio` under the same consent gate as the tutor,
+  controlled by `STUDYPILOT_AUDIO_TRANSCRIBER`;
 - a provider that cannot read the file refuses with a message naming what is
   needed, and the document is marked `failed` rather than indexed empty.
 
