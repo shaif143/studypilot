@@ -102,3 +102,21 @@ def test_pgvector_is_refused_on_sqlite(tmp_path):
 def test_normalisation_is_idempotent():
     once = normalise_database_url("postgres://u:p@remote.example/db")
     assert normalise_database_url(once) == once
+
+
+def test_a_quoted_dsn_is_accepted():
+    """`neon env pull` quotes the DSN, and the quotes survive a copy-paste.
+
+    Pasted into a hosting platform's environment form the quotes become part
+    of the value, no scheme matches, and the service fails to start with a
+    message about an unrecognised dialect that mentions nothing about quotes.
+    """
+    bare = normalise_database_url("postgresql://u:p@remote.example/db")
+    for quoted in (
+        '"postgresql://u:p@remote.example/db"',
+        "'postgresql://u:p@remote.example/db'",
+        '  "postgresql://u:p@remote.example/db"  ',
+    ):
+        assert normalise_database_url(quoted) == bare
+    assert bare.startswith("postgresql+psycopg://")
+    assert "sslmode=require" in bare

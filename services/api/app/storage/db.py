@@ -249,15 +249,23 @@ class Database:
 def normalise_database_url(url: str) -> str:
     """Make a provider-supplied DSN usable by SQLAlchemy.
 
-    Two corrections, both of which a managed provider's copy-paste string
+    Three corrections, all of which a managed provider's copy-paste string
     usually needs:
 
+    * Surrounding whitespace and quotes are stripped. ``neon env pull`` writes
+      the DSN quoted, as a `.env` file should, and the quotes come along when
+      the line is copied into a hosting platform's environment form — where
+      they are part of the value. Without this the URL begins with ``"``, no
+      scheme matches, and the service fails to start with a message about an
+      unrecognised dialect that says nothing about quotes.
     * ``postgres://`` is rewritten to the driver-qualified form SQLAlchemy
       expects, since it dropped the bare alias.
     * TLS is required for a *remote* host. It is not forced on a loopback
       connection, because a local development database generally has no
       certificate and would refuse the connection outright.
     """
+    url = url.strip().strip('"').strip("'").strip()
+
     if url.startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://") :]
     if url.startswith("postgresql://"):
