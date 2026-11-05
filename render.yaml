@@ -85,27 +85,38 @@ services:
       - key: STUDYPILOT_VECTOR_STORE
         value: pgvector
 
-      # Uploaded PDFs. `local` writes them to the container's own disk, which
-      # on a free instance is wiped whenever it sleeps or redeploys: the rows
-      # survive in Neon, the files do not, and the reader then cannot open a
-      # document it still lists. The service says so at boot and keeps
-      # running, because that is a reasonable way to try the thing out — but
-      # it is not a way to keep anything.
+      # Uploaded PDFs go to object storage. `local` writes them to the
+      # container's own disk instead, which on a free instance is wiped
+      # whenever it sleeps or redeploys: the rows survive in Postgres, the
+      # files do not, and the reader then cannot open a document it still
+      # lists. The service warns at boot and keeps running, which is a
+      # reasonable way to try the thing out and not a way to keep anything.
       #
-      # For durable storage, change this to `s3` and add the five variables
-      # below in the Render dashboard. They are left out of the blueprint on
-      # purpose, so the import does not ask for five secrets you may not have
-      # yet. Any S3-compatible provider works: Neon Object Storage when your
-      # project is in a region that offers it (not aws-eu-west-2), otherwise
-      # Cloudflare R2, Backblaze B2 or AWS S3.
-      #
-      #   STUDYPILOT_S3_BUCKET      the bucket name
-      #   AWS_ENDPOINT_URL_S3       the bucket endpoint (Neon's own name for it)
-      #   AWS_ACCESS_KEY_ID
-      #   AWS_SECRET_ACCESS_KEY
-      #   AWS_REGION                `auto` for R2; a real region elsewhere
+      # This is a plain value rather than `sync: false` so the blueprint and
+      # the service agree. Setting it in the dashboard alone does not last:
+      # Render's sync overwrites a dashboard value that conflicts with the
+      # YAML, so the next push would quietly revert storage to local and
+      # uploads would start disappearing again.
       - key: STUDYPILOT_STORAGE_BACKEND
-        value: local
+        value: s3
+
+      # The bucket, and the credentials for it. `neon deploy` writes the four
+      # AWS_* values into .env.local once a bucket is declared in neon.ts;
+      # any S3-compatible provider works the same way.
+      #
+      # Note that Render only prompts for `sync: false` values when a
+      # blueprint instance is first created. Added to an existing blueprint
+      # they are ignored, so set these in the dashboard by hand.
+      - key: STUDYPILOT_S3_BUCKET
+        sync: false
+      - key: AWS_ENDPOINT_URL_S3
+        sync: false
+      - key: AWS_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
 
       # Scratch space for temporary downloads during ingestion. Nothing here
       # needs to survive a restart.
