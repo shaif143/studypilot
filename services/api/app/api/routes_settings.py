@@ -40,12 +40,15 @@ def providers(context: ContextDep, user: UserDep, users: UsersDep) -> ProvidersR
         ProviderInfoOut(**info.__dict__) for info in available_embedding_providers(settings)
     ]
     # The user's own choice wins over the installation default.
-    chosen = users.settings(user.id).preferred_llm_provider or settings.llm_provider
+    user_settings = users.settings(user.id)
+    chosen = user_settings.preferred_llm_provider or settings.llm_provider
     active = next((info for info in llm if info.key == chosen), None)
+    picked = (user_settings.preferred_llm_models or {}).get(chosen, "")
     return ProvidersResponse(
         llm=llm,
         embedding=embedding,
         active_llm=chosen,
+        active_model=str(picked or (active.model if active else "")),
         active_embedding=context.embedder.model_id,
         active_is_generative=bool(active and active.generative and active.available),
     )

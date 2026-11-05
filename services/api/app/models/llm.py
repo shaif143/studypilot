@@ -285,10 +285,29 @@ class OllamaProvider:
         )
 
 
+#: What the Settings screen offers per provider. The first entry is the
+#: default. A model not listed can still be typed in; these are the ones
+#: known to work with the request shapes below.
+MODEL_CHOICES: dict[str, list[dict[str, str]]] = {
+    "anthropic": [
+        {"id": "claude-opus-5-5", "label": "Claude Opus 5.5 — strongest for complex work"},
+        {"id": "claude-fable-5-1", "label": "Claude Fable 5.1 — Mythos-class, most capable"},
+        {"id": "claude-sonnet-5-5", "label": "Claude Sonnet 5.5 — fast, lower cost"},
+        {"id": "claude-haiku-5-5", "label": "Claude Haiku 5.5 — fastest, cheapest"},
+    ],
+    "gemini": [
+        {"id": "gemini-3.6-flash", "label": "Gemini 3.6 Flash — default"},
+        {"id": "gemini-3.5-flash-lite", "label": "Gemini 3.5 Flash-Lite — cheapest"},
+    ],
+}
+
+
 class AnthropicProvider:
     """Hosted Claude models. Sends content off-device."""
 
-    DEFAULT_MODEL = "claude-sonnet-5-5"
+    #: Opus: the user does technical, complex work and asked for the strongest
+    #: generally available tier by default; Fable is one click away.
+    DEFAULT_MODEL = "claude-opus-5-5"
 
     def __init__(self, model: str = "", api_key: str | None = None) -> None:
         self.model = model or self.DEFAULT_MODEL
@@ -312,6 +331,7 @@ class AnthropicProvider:
             model=self.model,
             accepts_images=True,
             accepts_audio=False,
+            models=MODEL_CHOICES["anthropic"],
         )
 
     def generate(self, request: GenerationRequest) -> GenerationResult:
@@ -496,6 +516,7 @@ class GeminiProvider:
             model=self.model,
             accepts_images=True,
             accepts_audio=True,
+            models=MODEL_CHOICES["gemini"],
         )
 
     def generate(self, request: GenerationRequest) -> GenerationResult:

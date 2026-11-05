@@ -43,12 +43,21 @@ export interface ProviderInfo {
   /** Which non-text briefs this provider can read. */
   accepts_images: boolean;
   accepts_audio: boolean;
+  /** Models the user can pick; the first is the default. Empty when fixed. */
+  models: ModelChoice[];
+}
+
+export interface ModelChoice {
+  id: string;
+  label: string;
 }
 
 export interface ProvidersResponse {
   llm: ProviderInfo[];
   embedding: ProviderInfo[];
   active_llm: string;
+  /** The model the active provider will use for this user. */
+  active_model: string;
   active_embedding: string;
   active_is_generative: boolean;
 }
@@ -60,6 +69,8 @@ export interface UserSettings {
   assignment_policy: AssignmentPolicy;
   /** The user's chosen generation provider; empty means the installation default. */
   preferred_llm_provider: string;
+  /** Model id per provider key; a provider absent here uses its default. */
+  preferred_llm_models: Record<string, string>;
   quiz_checkpoint_slides: number;
   allow_cloud_processing: boolean;
   allow_cloud_vision: boolean;

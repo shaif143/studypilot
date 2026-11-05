@@ -51,6 +51,13 @@ def build_retriever(context: RuntimeContext, session: Any) -> HybridRetriever:
     )
 
 
+def chosen_model(settings: Settings, user_settings: UserSettings, requested: str | None) -> str:
+    """The model the user picked for the provider that will answer, or ""."""
+    key = requested or user_settings.preferred_llm_provider or settings.llm_provider
+    choices = user_settings.preferred_llm_models or {}
+    return str(choices.get(key, "") or "")
+
+
 def resolve_provider(
     settings: Settings,
     user_settings: UserSettings,
@@ -69,8 +76,12 @@ def resolve_provider(
     # Precedence: this request's explicit choice, then the user's choice in
     # Settings, then the installation default.
     requested = requested or user_settings.preferred_llm_provider or None
+    model = chosen_model(settings, user_settings, requested)
     try:
-        return get_llm_provider(settings, cloud_consent=consent, requested=requested), warnings
+        return (
+            get_llm_provider(settings, cloud_consent=consent, requested=requested, model=model),
+            warnings,
+        )
     except ConsentRequiredError as exc:
         warnings.append(str(exc))
     except ProviderUnavailableError as exc:

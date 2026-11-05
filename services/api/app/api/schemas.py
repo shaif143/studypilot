@@ -6,10 +6,14 @@ the generated types in ``packages/api-client``.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+#: Model ids are plain tokens: letters, digits, dots, dashes, colons, slashes.
+_MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$")
 
 ORM = ConfigDict(from_attributes=True)
 
@@ -22,6 +26,11 @@ class HealthResponse(BaseModel):
 
 
 # --- providers / settings -------------------------------------------------
+class ModelChoiceOut(BaseModel):
+    id: str
+    label: str
+
+
 class ProviderInfoOut(BaseModel):
     key: str
     label: str
@@ -35,12 +44,16 @@ class ProviderInfoOut(BaseModel):
     #: image or audio upload can be transcribed on this installation.
     accepts_images: bool = False
     accepts_audio: bool = False
+    #: Models the user can pick; the first is the default. Empty when fixed.
+    models: list[ModelChoiceOut] = Field(default_factory=list)
 
 
 class ProvidersResponse(BaseModel):
     llm: list[ProviderInfoOut]
     embedding: list[ProviderInfoOut]
     active_llm: str
+    #: The model the active provider will use for this user.
+    active_model: str = ""
     active_embedding: str
     #: True when the active generation provider actually writes text.
     active_is_generative: bool
@@ -51,7 +64,15 @@ class SettingsOut(BaseModel):
 
     theme: str
     preferred_llm_provider: str = ""
+    #: Model id per provider key; a provider absent here uses its default.
+    preferred_llm_models: dict[str, str] = Field(default_factory=dict)
     learning_style: str
+
+    @field_validator("preferred_llm_models", mode="before")
+    @classmethod
+    def _none_is_empty(cls, value: object) -> object:
+        return {} if value is None else value
+
     explanation_level: str
     assignment_policy: str
     quiz_checkpoint_slides: int
@@ -68,7 +89,27 @@ class SettingsUpdate(BaseModel):
     theme: Literal["system", "light", "dark"] | None = None
     #: "" clears the choice and returns to the installation default.
     preferred_llm_provider: Literal["", "extractive", "ollama", "anthropic", "gemini"] | None = None
+    #: Replaces the whole map. An empty id removes that provider's choice.
+    preferred_llm_models: dict[str, str] | None = None
     learning_style: str | None = None
+
+    @field_validator("preferred_llm_models")
+    @classmethod
+    def _model_ids_are_plain(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        if value is None:
+            return None
+        cleaned: dict[str, str] = {}
+        for provider, raw in value.items():
+            if provider not in {"ollama", "anthropic", "gemini"}:
+                raise ValueError(f"No such provider: {provider}")
+            model = raw.strip()
+            if not model:
+                continue
+            if len(model) > 96 or not _MODEL_ID.match(model):
+                raise ValueError(f"That does not look like a model id: {model[:40]}")
+            cleaned[provider] = model
+        return cleaned
+
     explanation_level: Literal["simple", "intermediate", "advanced"] | None = None
     assignment_policy: Literal["socratic", "explain", "off"] | None = None
     quiz_checkpoint_slides: int | None = Field(default=None, ge=1, le=100)

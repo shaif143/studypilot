@@ -6,7 +6,7 @@
  * off the device. Nothing here claims a capability the installation does not
  * have: an uninstalled local model says so, and says how to install it.
  */
-import type { AssignmentPolicy, ExplanationLevel, Theme } from '@studypilot/shared';
+import type { AssignmentPolicy, ExplanationLevel, ProviderInfo, Theme } from '@studypilot/shared';
 import {
   Badge,
   Button,
@@ -195,6 +195,21 @@ export function SettingsScreen() {
                       <p className="mt-1 text-[0.75rem] leading-relaxed text-[var(--text-secondary)]">
                         {provider.detail}
                       </p>
+                      {provider.available && provider.generative ? (
+                        <ModelPicker
+                          provider={provider}
+                          chosen={value.preferred_llm_models?.[provider.key] ?? ''}
+                          busy={update.isPending}
+                          onChange={(model) =>
+                            update.mutate({
+                              preferred_llm_models: {
+                                ...(value.preferred_llm_models ?? {}),
+                                [provider.key]: model,
+                              },
+                            })
+                          }
+                        />
+                      ) : null}
                       {provider.available && !active ? (
                         <Button
                           size="sm"
@@ -793,5 +808,83 @@ function GoogleDriveCard() {
         </Callout>
       ) : null}
     </Card>
+  );
+}
+
+const CUSTOM = '__custom__';
+
+/**
+ * Which model a provider answers with. The list is what the backend knows
+ * works with its request shape; "Another model id" takes anything, because a
+ * new release should not need an app update to be usable.
+ */
+function ModelPicker({
+  provider,
+  chosen,
+  busy,
+  onChange,
+}: {
+  provider: ProviderInfo;
+  chosen: string;
+  busy: boolean;
+  onChange: (model: string) => void;
+}) {
+  const known = provider.models.some((m) => m.id === chosen);
+  const [custom, setCustom] = useState(!known && chosen !== '');
+  const [draft, setDraft] = useState(chosen);
+  const defaultId = provider.models[0]?.id ?? provider.model;
+  const selected = custom ? CUSTOM : chosen || defaultId;
+
+  return (
+    <div className="mt-2 flex flex-wrap items-end gap-2">
+      <Field label="Model" className="min-w-[14rem] flex-1">
+        <Select
+          value={selected}
+          disabled={busy}
+          onChange={(event) => {
+            const next = event.target.value;
+            if (next === CUSTOM) {
+              setCustom(true);
+              return;
+            }
+            setCustom(false);
+            // The default is stored as "no choice", so a new default applies.
+            onChange(next === defaultId ? '' : next);
+          }}
+        >
+          {provider.models.length > 0 ? (
+            provider.models.map((choice) => (
+              <option key={choice.id} value={choice.id}>
+                {choice.label}
+              </option>
+            ))
+          ) : (
+            <option value={defaultId}>{defaultId}</option>
+          )}
+          <option value={CUSTOM}>Another model id…</option>
+        </Select>
+      </Field>
+      {custom ? (
+        <form
+          className="flex flex-1 items-end gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (draft.trim()) onChange(draft.trim());
+          }}
+        >
+          <Field label="Model id" className="min-w-[12rem] flex-1">
+            <Input
+              value={draft}
+              spellCheck={false}
+              placeholder={defaultId}
+              onChange={(event) => setDraft(event.target.value)}
+            />
+          </Field>
+          <Button type="submit" size="sm" variant="primary" disabled={!draft.trim() || busy}>
+            Use
+          </Button>
+        </form>
+      ) : null}
+    </div>
   );
 }

@@ -2293,6 +2293,24 @@
         "title": "MessageOut",
         "type": "object"
       },
+      "ModelChoiceOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "ModelChoiceOut",
+        "type": "object"
+      },
       "NoteGenerateRequest": {
         "properties": {
           "allow_cloud": {
@@ -2792,6 +2810,13 @@
             "title": "Model",
             "type": "string"
           },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelChoiceOut"
+            },
+            "title": "Models",
+            "type": "array"
+          },
           "requires_api_key": {
             "title": "Requires Api Key",
             "type": "boolean"
@@ -2890,6 +2915,11 @@
           },
           "active_llm": {
             "title": "Active Llm",
+            "type": "string"
+          },
+          "active_model": {
+            "default": "",
+            "title": "Active Model",
             "type": "string"
           },
           "embedding": {
@@ -3337,6 +3367,13 @@
             "title": "Learning Style",
             "type": "string"
           },
+          "preferred_llm_models": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Preferred Llm Models",
+            "type": "object"
+          },
           "preferred_llm_provider": {
             "default": "",
             "title": "Preferred Llm Provider",
@@ -3489,6 +3526,20 @@
               }
             ],
             "title": "Learning Style"
+          },
+          "preferred_llm_models": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preferred Llm Models"
           },
           "preferred_llm_provider": {
             "anyOf": [

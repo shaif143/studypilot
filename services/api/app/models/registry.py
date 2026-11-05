@@ -31,7 +31,11 @@ def get_embedding_provider(settings: Settings) -> EmbeddingProvider:
 
 
 def get_llm_provider(
-    settings: Settings, *, cloud_consent: bool, requested: str | None = None
+    settings: Settings,
+    *,
+    cloud_consent: bool,
+    requested: str | None = None,
+    model: str | None = None,
 ) -> LLMProvider:
     """Return a generation provider, enforcing the cloud-consent gate.
 
@@ -42,7 +46,9 @@ def get_llm_provider(
     """
     key = requested or settings.llm_provider
     try:
-        provider = cached_llm(key, settings.llm_model)
+        # The user's choice of model for this provider wins over the
+        # installation's; both fall through to the provider's own default.
+        provider = cached_llm(key, model or settings.llm_model)
     except ProviderUnavailableError as exc:
         log.warning("llm_provider_unknown", extra={"provider": key, "reason": str(exc)})
         return cached_llm("extractive", "")

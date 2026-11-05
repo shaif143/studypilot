@@ -34,6 +34,9 @@ class ProviderInfo:
     #: be read at all on this installation.
     accepts_images: bool = False
     accepts_audio: bool = False
+    #: Models the user can pick for this provider, as {"id", "label"}; the
+    #: first is the default. Empty when the provider has one fixed model.
+    models: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass

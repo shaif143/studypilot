@@ -105,7 +105,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 )}
                 <span className="truncate" title={providers.data?.active_llm}>
                   {providers.data?.active_is_generative
-                    ? `Model: ${providers.data.active_llm}`
+                    ? `Model: ${providers.data.active_model || providers.data.active_llm}`
                     : 'No AI model configured'}
                 </span>
               </div>

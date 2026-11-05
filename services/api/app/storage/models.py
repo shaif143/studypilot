@@ -96,6 +96,10 @@ class UserSettings(Base, TimestampMixin):
     #: installation's default (STUDYPILOT_LLM_PROVIDER). Needed on the desktop,
     #: where there is no environment to configure the default in.
     preferred_llm_provider: Mapped[str] = mapped_column(String(32), default="")
+    #: Model id per provider key, e.g. {"anthropic": "claude-opus-5-5"}. A
+    #: provider absent here uses its own default. Nullable so an existing
+    #: database gains the column without a rewrite; code reads None as {}.
+    preferred_llm_models: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=dict)
 
     # Privacy / consent. All default to the most private option.
     allow_cloud_processing: Mapped[bool] = mapped_column(Boolean, default=False)

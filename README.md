@@ -33,7 +33,7 @@ This is an honest list. Everything marked ✅ was built, run and tested; see
 | Socratic assignment coaching | ✅ Progressive hints, per-course integrity policy |
 | Assignment guide | ✅ Upload a brief (PDF, image or audio) → step-by-step plan; every step is either grounded in the course's lectures with citations, or held for your approval with a disclosure saying what the slides do not cover |
 | Image and audio briefs | ✅ Read by a vision model (Anthropic or Gemini, with consent) and by a local Whisper model or Gemini for audio — the document records which, and the upload says to check the transcript |
-| Claude / Gemini on the Mac | ✅ Paste the key in Settings; it is kept in the macOS Keychain, never a file, and only sent to that provider |
+| Claude / Gemini on the Mac | ✅ Paste the key in Settings; it is kept in the macOS Keychain, never a file, and only sent to that provider. Pick the model per provider (Opus 5.5 by default; Fable 5.1, Sonnet 5.5, Haiku 5.5, or any id) |
 | Folder upload | ✅ Drop or choose a whole folder (subfolders included); every supported file is indexed, each with its own result, and anything the app cannot take is listed by name |
 | Google Drive | ✅ Connect a Google account (read-only, PKCE) and link a Drive folder to a course. **Files are not copied**: each is read once to build its search index, opened from Drive when you read it, and "Sync now" follows the folder. Google Docs and Slides come through Google's PDF export |
 | Privacy controls | ✅ Export, delete-everything, per-feature consent, all off by default |
@@ -124,7 +124,7 @@ credentials are configured.
 npm run check
 ```
 
-Runs the TypeScript typecheck, ESLint, 104 frontend unit tests, Ruff, and 311
+Runs the TypeScript typecheck, ESLint, 104 frontend unit tests, Ruff, and 319
 backend tests. The 11 PostgreSQL integration tests need a database:
 
 ```bash

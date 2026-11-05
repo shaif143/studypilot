@@ -29,7 +29,7 @@ Nothing in the suite needs the network, a model download, or a running server.
 
 | Suite | Tests | Status |
 | --- | --- | --- |
-| Backend (`services/api/tests`) | 324 | ✅ all passing (311 + 13 PostgreSQL integration) |
+| Backend (`services/api/tests`) | 332 | ✅ all passing (319 + 13 PostgreSQL integration) |
 | Frontend (`tests/frontend`) | 104 | ✅ all passing |
 | ESLint | — | ✅ clean |
 | TypeScript | — | ✅ clean |
@@ -91,6 +91,7 @@ simulate quitting and relaunching.
 | `test_supervision.py` | The parent-process watchdog, including an end-to-end test that a watched grandchild exits by itself when its parent is killed — the behaviour the packaged app depends on |
 | `test_openapi_contract.py` | The committed OpenAPI snapshot still matches the live app; `AnswerResponse` keeps its honesty fields; `QuestionOut` never exposes the answer key |
 | `test_google_drive.py` | Against a fake Google: the consent request is PKCE-bound, read-only and on the loopback; no client → a message saying what to enter; a callback for a sign-in this process did not start is refused and the code never exchanged; a state is single-use; tokens are stored encrypted, the key in the secret store, and never reported; a listing marks what can be imported and why not; **importing a folder leaves no bytes on disk** (no blob, no previews) while pages, search, citations and the reader all work; sync re-reads changed files, adds new ones and removes gone ones; an expired access token is refreshed without a second refresh; disconnect revokes, forgets links, keeps documents and makes the reader say the connection is gone; folder links and ids are both accepted; the PKCE challenge matches RFC 7636; hosted mode derives the token key from the operator secret and uses the public URLs |
+| `test_model_choice.py` | Anthropic defaults to Opus 5.5 and offers the Claude 5 family; the user's model per provider reaches the provider that answers and never leaks to another; a row from an older database reads as no choice; the API stores the choice and reports the active model; an empty id clears it; a model id has to look like one |
 | `test_security.py` | Auth required on every route, token file permissions, repository-level ownership, 404-not-403 for another user's rows, **path traversal** on previews, disguised uploads, size limits, the two-part consent gate, provider egress declarations, privacy defaults all off, prompt-injection containment, **fabricated citation markers being stripped**, ungrounded LLM questions rejected, export and delete-everything, webcam attention refused, log redaction |
 
 ### What the frontend suite covers
