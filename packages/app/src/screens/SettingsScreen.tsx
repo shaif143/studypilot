@@ -28,6 +28,7 @@ import {
   CloudOff,
   Download,
   Info,
+  KeyRound,
   LogOut,
   Trash2,
   XCircle,
@@ -43,7 +44,10 @@ import {
   useDeleteAllData,
   useHealth,
   useLogout,
+  useDeleteProviderKey,
+  useProviderKeys,
   useProviders,
+  useSetProviderKey,
   useSettings,
   useUpdateSettings,
 } from '../hooks/queries';
@@ -211,12 +215,12 @@ export function SettingsScreen() {
                 })}
               </ul>
               <Callout tone="info" className="mt-3" icon={<Info size={14} />}>
-                Pick the provider that answers for you here. Keys for cloud providers are set
-                where the engine runs — on a hosted site, by whoever operates it — and never
-                reach this app. Cloud providers also need <em>Allow cloud AI processing</em>
-                below.
+                Pick the provider that answers for you here. Cloud providers also need{' '}
+                <em>Allow cloud AI processing</em> below.
               </Callout>
             </Card>
+
+            <ProviderKeysCard />
 
             {/* --- Embeddings -------------------------------------------- */}
             <Card>
@@ -433,5 +437,148 @@ export function SettingsScreen() {
         </Dialog>
       </PageBody>
     </>
+  );
+}
+
+const KEY_LABELS: Record<string, { label: string; hint: string; placeholder: string }> = {
+  anthropic: {
+    label: 'Claude (Anthropic) API key',
+    hint: 'From console.anthropic.com → API keys.',
+    placeholder: 'sk-ant-…',
+  },
+  gemini: {
+    label: 'Gemini (Google) API key',
+    hint: 'From aistudio.google.com → Get API key.',
+    placeholder: 'AIza…',
+  },
+};
+
+/**
+ * Keys for cloud providers, on the desktop only.
+ *
+ * The engine runs on this Mac, so a cloud key has to be here too. It goes
+ * into the macOS Keychain — the API reports where — and is never shown back:
+ * the card only says whether one is set. On a hosted site the API answers
+ * `editable: false` and this card does not render; keys there belong to
+ * whoever operates it.
+ */
+function ProviderKeysCard() {
+  const keys = useProviderKeys();
+  const setKey = useSetProviderKey();
+  const removeKey = useDeleteProviderKey();
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  if (!keys.data?.editable) return null;
+  const storage =
+    keys.data.storage === 'keychain'
+      ? 'the macOS Keychain — encrypted, unlocked with your login, never a plain file'
+      : keys.data.storage === 'file'
+        ? 'a file only your account can read (no system keychain was available)'
+        : `your system's secret store (${keys.data.storage})`;
+
+  return (
+    <Card>
+      <SectionHeading
+        title="Keys for cloud providers"
+        description={`The engine runs on this Mac, so a cloud provider's key has to be here too. It is kept in ${storage}.`}
+      />
+      <ul className="mt-3 space-y-3">
+        {keys.data.keys.map((entry) => {
+          const copy = KEY_LABELS[entry.provider] ?? {
+            label: `${entry.provider} API key`,
+            hint: '',
+            placeholder: '',
+          };
+          const draft = drafts[entry.provider] ?? '';
+          return (
+            <li
+              key={entry.provider}
+              className="rounded-[var(--radius-control)] border border-[var(--border-subtle)] px-3 py-2.5"
+            >
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[0.8125rem] font-medium text-[var(--text-primary)]">
+                  {copy.label}
+                </span>
+                {entry.configured ? (
+                  <Badge tone="grounded" icon={<KeyRound size={11} />}>
+                    {entry.from_environment ? 'set by the environment' : 'set'}
+                  </Badge>
+                ) : (
+                  <Badge tone="neutral">not set</Badge>
+                )}
+              </div>
+              {entry.from_environment ? (
+                <p className="mt-1 text-[0.75rem] text-[var(--text-secondary)]">
+                  This key was set outside the app, so it cannot be changed here.
+                </p>
+              ) : (
+                <form
+                  className="mt-2 flex flex-wrap items-end gap-2"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!draft.trim()) return;
+                    setKey.mutate(
+                      { provider: entry.provider, key: draft.trim() },
+                      {
+                        onSuccess: () =>
+                          setDrafts((current) => ({ ...current, [entry.provider]: '' })),
+                      },
+                    );
+                  }}
+                >
+                  <Field label={entry.configured ? 'Replace the key' : 'Paste the key'} hint={copy.hint} className="min-w-[16rem] flex-1">
+                    <Input
+                      type="password"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={draft}
+                      placeholder={copy.placeholder}
+                      onChange={(event) =>
+                        setDrafts((current) => ({ ...current, [entry.provider]: event.target.value }))
+                      }
+                    />
+                  </Field>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="primary"
+                    disabled={!draft.trim()}
+                    loading={setKey.isPending && setKey.variables?.provider === entry.provider}
+                  >
+                    Save
+                  </Button>
+                  {entry.configured ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      loading={removeKey.isPending && removeKey.variables === entry.provider}
+                      onClick={() => removeKey.mutate(entry.provider)}
+                    >
+                      Remove
+                    </Button>
+                  ) : null}
+                </form>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {setKey.error ? (
+        <Callout tone="danger" className="mt-3" icon={<AlertTriangle size={14} />}>
+          {describeError(setKey.error)}
+        </Callout>
+      ) : null}
+      {removeKey.error ? (
+        <Callout tone="danger" className="mt-3" icon={<AlertTriangle size={14} />}>
+          {describeError(removeKey.error)}
+        </Callout>
+      ) : null}
+      <Callout tone="info" className="mt-3" icon={<Info size={14} />}>
+        After saving, the provider shows as available above — choose <em>Use this provider</em>{' '}
+        and turn on <em>Allow cloud AI processing</em> below. The key is only ever sent to that
+        provider, with the text you ask about.
+      </Callout>
+    </Card>
   );
 }

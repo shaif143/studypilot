@@ -29,6 +29,7 @@ for package in (
     "fitz",
     "pymupdf_fonts",  # FiraGO etc., loaded by name when drawing slide text
     "pptx",  # python-pptx ships its default template and XML schemas as data
+    "keyring",  # backends are discovered by entry point at runtime
     "langgraph",
     "langchain_core",
 ):

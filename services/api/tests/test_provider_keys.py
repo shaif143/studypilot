@@ -1,10 +1,12 @@
 """Keys typed into the desktop app, and the user's choice of provider.
 
 The desktop app has no environment to configure, so the key the user enters
-is kept in its data directory. These pin the properties that make that safe:
-the file is private to the account, values never come back out of the API,
-the environment wins when it already holds a key, and a hosted deployment
-refuses the whole feature.
+is kept on the Mac — in the Keychain. These pin the properties that make
+that safe: values never come back out of the API, the environment wins when
+it already holds a key, a legacy plain file is migrated into the store and
+deleted, the file fallback is private when no store exists, and a hosted
+deployment refuses the whole feature. The Keychain itself is replaced by an
+in-memory store here: the subject is the module's behaviour, not macOS.
 """
 
 from __future__ import annotations
@@ -20,20 +22,21 @@ from app.config import Settings
 
 
 @pytest.fixture(autouse=True)
-def _no_ambient_keys(monkeypatch):
+def _memory_keychain(monkeypatch):
     for variable in secrets.ENV_FOR_PROVIDER.values():
         monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setattr(secrets, "store", secrets.MemoryStore())
 
 
-def test_a_stored_key_is_private_and_loads_into_the_environment(tmp_path, monkeypatch):
+def test_a_stored_key_goes_to_the_store_not_a_file_and_loads_at_startup(tmp_path, monkeypatch):
     settings = Settings(data_dir=tmp_path)
     secrets.set_key(settings, "anthropic", "sk-ant-test-value-0000")
 
-    path = tmp_path / secrets.FILENAME
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert not (tmp_path / secrets.FILENAME).exists()
+    assert secrets.store.get("anthropic") == "sk-ant-test-value-0000"
     assert os.environ["ANTHROPIC_API_KEY"] == "sk-ant-test-value-0000"
 
-    # A fresh process: nothing in the environment, the file is the source.
+    # A fresh process: nothing in the environment, the store is the source.
     monkeypatch.delenv("ANTHROPIC_API_KEY")
     assert secrets.load_into_environment(settings) == ["anthropic"]
     assert os.environ["ANTHROPIC_API_KEY"] == "sk-ant-test-value-0000"
@@ -42,9 +45,8 @@ def test_a_stored_key_is_private_and_loads_into_the_environment(tmp_path, monkey
 def test_the_environment_wins_and_is_reported_as_not_removable(tmp_path, monkeypatch):
     settings = Settings(data_dir=tmp_path)
     monkeypatch.setenv("GEMINI_API_KEY", "from-the-shell")
-    secrets.set_key(settings, "anthropic", "sk-ant-file")
+    secrets.set_key(settings, "anthropic", "sk-ant-store")
 
-    # A fresh process: the shell set Gemini, the file holds Anthropic.
     monkeypatch.delenv("ANTHROPIC_API_KEY")
     assert secrets.load_into_environment(settings) == ["anthropic"]
     assert os.environ["GEMINI_API_KEY"] == "from-the-shell"
@@ -58,8 +60,15 @@ def test_deleting_a_key_removes_it_everywhere(tmp_path):
     secrets.set_key(settings, "gemini", "gm-test-value-00000000")
     secrets.delete_key(settings, "gemini")
     assert "GEMINI_API_KEY" not in os.environ
-    assert not (tmp_path / secrets.FILENAME).exists()
+    assert secrets.store.get("gemini") is None
     assert secrets.status(settings)["gemini"]["configured"] is False
+
+
+def test_deleting_never_drops_a_key_the_environment_set(tmp_path, monkeypatch):
+    settings = Settings(data_dir=tmp_path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "from-the-shell")
+    secrets.delete_key(settings, "anthropic")
+    assert os.environ["ANTHROPIC_API_KEY"] == "from-the-shell"
 
 
 def test_a_key_with_whitespace_is_refused(tmp_path):
@@ -67,19 +76,57 @@ def test_a_key_with_whitespace_is_refused(tmp_path):
         secrets.set_key(Settings(data_dir=tmp_path), "anthropic", "sk-ant pasted badly")
 
 
-def test_hosted_mode_never_reads_the_file(tmp_path):
+def test_a_legacy_file_is_migrated_into_the_store_and_deleted(tmp_path):
+    settings = Settings(data_dir=tmp_path)
+    legacy = tmp_path / secrets.FILENAME
+    legacy.write_text('{"anthropic": "sk-ant-from-old-file"}')
+    assert secrets.load_into_environment(settings) == ["anthropic"]
+    assert secrets.store.get("anthropic") == "sk-ant-from-old-file"
+    assert not legacy.exists()
+    assert os.environ["ANTHROPIC_API_KEY"] == "sk-ant-from-old-file"
+
+
+class _NoStore:
+    available = False
+    name = "file"
+
+    def get(self, provider):
+        return None
+
+    def set(self, provider, value):
+        return False
+
+    def delete(self, provider):
+        return None
+
+
+def test_without_a_store_the_file_fallback_is_private(tmp_path, monkeypatch):
+    monkeypatch.setattr(secrets, "store", _NoStore())
+    settings = Settings(data_dir=tmp_path)
+    secrets.set_key(settings, "anthropic", "sk-ant-fallback-000")
+    path = tmp_path / secrets.FILENAME
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert secrets.status(settings)["anthropic"]["configured"] is True
+    assert secrets.storage_name() == "file"
+    secrets.delete_key(settings, "anthropic")
+    assert not path.exists()
+
+
+def test_hosted_mode_never_reads_the_store(tmp_path):
     hosted = Settings(data_dir=tmp_path, deployment_mode="hosted", jwt_secret="x" * 40)
-    (tmp_path / secrets.FILENAME).write_text('{"anthropic": "sk-ant-should-be-ignored"}')
+    secrets.store.set("anthropic", "sk-ant-should-be-ignored")
     assert secrets.load_into_environment(hosted) == []
     assert "ANTHROPIC_API_KEY" not in os.environ
+    assert secrets.status(hosted)["anthropic"]["configured"] is False
 
 
 # --- through the API --------------------------------------------------------
-def test_the_api_reports_status_but_never_the_value(client: TestClient):
+def test_the_api_reports_status_and_storage_but_never_the_value(client: TestClient):
     response = client.post("/api/keys/anthropic", json={"key": "sk-ant-api-test-000000"})
     assert response.status_code == 200
     body = response.json()
     assert body["editable"] is True
+    assert body["storage"] == "memory"
     anthropic = next(k for k in body["keys"] if k["provider"] == "anthropic")
     assert anthropic["configured"] is True
     assert "sk-ant" not in response.text

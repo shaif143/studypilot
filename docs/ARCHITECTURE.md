@@ -153,6 +153,18 @@ provider names.
 | `anthropic` | Yes | **Yes** | Requires consent and `ANTHROPIC_API_KEY`. Reads images. The default for assignment guides when a key is present. No `temperature` is sent — Claude 5.x rejects it. |
 | `gemini` | Yes | **Yes** | Requires consent and `GEMINI_API_KEY`. Reads images and audio through the general model (Google's dedicated transcribe model rejects system instructions and answered a bare request with nothing, so it is not used). Replaced OpenAI. |
 
+**Where a cloud key lives on the desktop.** The desktop engine runs on the
+Mac and never talks to the hosted API, so a cloud provider's key has to be
+on the Mac. `app/secrets.py` keeps it in the macOS Keychain through
+`keyring` (Secret Service on Linux), loads it into the process environment at
+startup so the providers keep reading `os.environ`, and never returns it
+through the API — `/api/keys` reports only which providers have one and
+where keys are stored. The environment wins when it already sets a key. A
+`provider_keys.json` from an earlier build is migrated into the Keychain and
+deleted; where no keychain backend works, a `0600` file is the fallback and
+the UI says so. On a hosted deployment the routes answer 404: keys there
+belong to the operator.
+
 `GenerationRequest` carries optional `attachments` (image or audio bytes). A
 provider that cannot read them raises rather than answering without them —
 answering about a file it did not see would be answering a different

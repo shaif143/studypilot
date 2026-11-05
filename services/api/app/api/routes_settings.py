@@ -56,6 +56,7 @@ def _keys_response(context: ContextDep) -> ProviderKeysOut:
     settings = context.settings
     return ProviderKeysOut(
         editable=not settings.is_hosted,
+        storage=secrets.storage_name(),
         keys=[
             ProviderKeyStatusOut(provider=name, **flags)
             for name, flags in secrets.status(settings).items()

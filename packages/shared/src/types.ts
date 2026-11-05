@@ -614,4 +614,6 @@ export interface ProviderKeys {
   /** False on a hosted deployment, where keys belong to the operator. */
   editable: boolean;
   keys: ProviderKeyStatus[];
+  /** Where a key entered in the app is kept: "keychain" on macOS, or "file" as a fallback. */
+  storage: string;
 }

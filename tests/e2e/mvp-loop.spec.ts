@@ -129,4 +129,12 @@ test('a PowerPoint deck, the concept map and the assignment coach are all wired'
   await page.getByRole('button', { name: 'Check it' }).click();
   // No model is configured in this run: the coach must say so rather than pretend.
   await expect(page.getByText(/needs a language model/)).toBeVisible({ timeout: 30_000 });
+
+  // --- cloud keys are entered on this machine, never shown back -----------------
+  // (Nothing is saved here: that would write to the real Keychain of the
+  // machine running the tests.)
+  await page.goto('/settings');
+  await expect(page.getByText('Keys for cloud providers')).toBeVisible();
+  await expect(page.getByText('Claude (Anthropic) API key')).toBeVisible();
+  await expect(page.getByPlaceholder('sk-ant-…')).toHaveAttribute('type', 'password');
 });

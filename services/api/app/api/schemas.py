@@ -674,6 +674,9 @@ class ProviderKeysOut(BaseModel):
     #: False on a hosted deployment, where keys belong to the operator.
     editable: bool
     keys: list[ProviderKeyStatusOut]
+    #: Where a key entered here is kept: "keychain" on macOS, else the
+    #: platform's secret store, or "file" (mode 0600) when none is usable.
+    storage: str = "file"
 
 
 class ProviderKeyIn(BaseModel):

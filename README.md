@@ -33,6 +33,7 @@ This is an honest list. Everything marked ✅ was built, run and tested; see
 | Socratic assignment coaching | ✅ Progressive hints, per-course integrity policy |
 | Assignment guide | ✅ Upload a brief (PDF, image or audio) → step-by-step plan; every step is either grounded in the course's lectures with citations, or held for your approval with a disclosure saying what the slides do not cover |
 | Image and audio briefs | ✅ Read by a vision model (Anthropic or Gemini, with consent) and by a local Whisper model or Gemini for audio — the document records which, and the upload says to check the transcript |
+| Claude / Gemini on the Mac | ✅ Paste the key in Settings; it is kept in the macOS Keychain, never a file, and only sent to that provider |
 | Privacy controls | ✅ Export, delete-everything, per-feature consent, all off by default |
 | macOS packaging | ✅ ARM64 sidecar + `.app` / `.dmg` |
 | Hosted deployment | ✅ PostgreSQL + pgvector, S3 storage, accounts — see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |

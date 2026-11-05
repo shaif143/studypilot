@@ -388,7 +388,23 @@ survives a restart.
 
 ---
 
-## 24. Deferred deliberately
+## 24. Desktop API keys live in the macOS Keychain
+
+**Decision.** A cloud provider's key typed into the Mac app's Settings is
+stored in the Keychain via `keyring`, loaded into the environment at startup,
+and never returned by the API.
+
+**Why.** The desktop engine runs on the Mac; a key on Render cannot reach it,
+so "keys stay on the server" was never an option for the local app, only a
+reason the user saw no way to use Claude there. The Keychain is what the
+blueprint asked for ("macOS-supported credential storage") and what the user
+already trusts with every other password. The earlier `0600` file was honest
+but weaker — readable by any process running as the user — and now exists
+only as a fallback and a migration source.
+
+---
+
+## 25. Deferred deliberately
 
 | Deferred | Reason |
 | --- | --- |

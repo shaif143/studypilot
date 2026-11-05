@@ -30,6 +30,7 @@ Nothing leaves the device until a cloud provider is both enabled in Settings
 | Rendered page previews | `…/StudyPilot/previews/` |
 | Vector index | `…/StudyPilot/vectors/` |
 | API token | `…/StudyPilot/api_token` (mode `0600`) |
+| Cloud provider API keys entered in Settings | The **macOS Keychain** (service `StudyPilot`), encrypted and unlocked with your login — never a plain file. Only sent to that provider, with the text you ask about. If no keychain is usable, a `0600` file in the data directory, and Settings says so. |
 
 The data directory is created `rwx------`. On the web, the same data lives
 wherever the backend that the site is configured to talk to stores it.
