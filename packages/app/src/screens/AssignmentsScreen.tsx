@@ -10,11 +10,22 @@
 import type {
   Assignment,
   AssignmentPlan,
+  AttemptReview,
   Citation,
   PlanCitation,
   PlanStep,
 } from '@studypilot/shared';
-import { Badge, Button, Callout, Card, EmptyState, SectionHeading, Skeleton } from '@studypilot/ui';
+import {
+  Badge,
+  Button,
+  Callout,
+  Card,
+  EmptyState,
+  SectionHeading,
+  Skeleton,
+  Textarea,
+  type Tone,
+} from '@studypilot/ui';
 import {
   AlertTriangle,
   BookOpenCheck,
@@ -23,6 +34,9 @@ import {
   FileAudio,
   FileImage,
   FileText,
+  Lightbulb,
+  MessageSquareText,
+  Presentation,
   Sparkles,
   Upload,
   X,
@@ -35,6 +49,8 @@ import { GroundedAnswer } from '../components/GroundedAnswer';
 import {
   describeError,
   useAssignments,
+  useAttemptReviews,
+  useCheckAttempt,
   useCourse,
   useDraftAssignmentPlan,
   useSetStepApproval,
@@ -45,6 +61,8 @@ import {
 const ACCEPT = [
   'application/pdf',
   '.pdf',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.pptx',
   'image/png',
   'image/jpeg',
   'image/webp',
@@ -149,6 +167,7 @@ export function AssignmentsScreen() {
 }
 
 function BriefIcon({ mediaType }: { mediaType: string }) {
+  if (mediaType.includes('presentationml')) return <Presentation size={14} className="shrink-0" />;
   if (mediaType.startsWith('image/')) return <FileImage size={14} className="shrink-0" />;
   if (mediaType.startsWith('audio/')) return <FileAudio size={14} className="shrink-0" />;
   return <FileText size={14} className="shrink-0" />;
@@ -301,6 +320,7 @@ function AssignmentDetail({ courseId, assignment }: { courseId: string; assignme
 }
 
 function PlanView({ courseId, plan }: { courseId: string; plan: AssignmentPlan }) {
+  const reviews = useAttemptReviews(plan.id);
   const pending = plan.steps.filter((s) => s.approval === 'pending');
   const grounded = plan.steps.filter((s) => s.grounding === 'slides').length;
 
@@ -361,14 +381,30 @@ function PlanView({ courseId, plan }: { courseId: string; plan: AssignmentPlan }
 
       <ol className="space-y-3">
         {plan.steps.map((step) => (
-          <StepCard key={step.index} courseId={courseId} plan={plan} step={step} />
+          <StepCard
+            key={step.index}
+            courseId={courseId}
+            plan={plan}
+            step={step}
+            reviews={(reviews.data ?? []).filter((r) => r.step_index === step.index)}
+          />
         ))}
       </ol>
     </>
   );
 }
 
-function StepCard({ courseId, plan, step }: { courseId: string; plan: AssignmentPlan; step: PlanStep }) {
+function StepCard({
+  courseId,
+  plan,
+  step,
+  reviews,
+}: {
+  courseId: string;
+  plan: AssignmentPlan;
+  step: PlanStep;
+  reviews: AttemptReview[];
+}) {
   const approve = useSetStepApproval(courseId);
   const navigate = useNavigate();
   const beyond = step.grounding === 'beyond';
@@ -475,10 +511,198 @@ function StepCard({ courseId, plan, step }: { courseId: string; plan: Assignment
                 {describeError(approve.error)}
               </p>
             ) : null}
+
+            {!declined ? <AttemptChecker plan={plan} step={step} reviews={reviews} /> : null}
           </div>
         </div>
       </Card>
     </li>
+  );
+}
+
+const VERDICT_TONE: Record<AttemptReview['verdict'], Tone> = {
+  on_track: 'grounded',
+  needs_work: 'caution',
+  off_track: 'danger',
+};
+
+const VERDICT_TEXT: Record<AttemptReview['verdict'], string> = {
+  on_track: 'on track',
+  needs_work: 'needs work',
+  off_track: 'off track',
+};
+
+const HINT_LEVEL_TEXT = [
+  '',
+  'the concept to think about',
+  'the rule or formula to look at',
+  'an outline of the approach',
+  'a similar worked example',
+  'your logic, line by line',
+];
+
+/**
+ * "Check my attempt": the student pastes what they have done; the coach says
+ * what is wrong and why, cites the slide, and gives one hint. Each ask about
+ * the same step raises the hint one level — decided by the server, shown here.
+ */
+function AttemptChecker({
+  plan,
+  step,
+  reviews,
+}: {
+  plan: AssignmentPlan;
+  step: PlanStep;
+  reviews: AttemptReview[];
+}) {
+  const settings = useSettings();
+  const allowCloud = Boolean(settings.data?.allow_cloud_processing);
+  const check = useCheckAttempt(plan.id);
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(reviews.length > 0);
+  const [text, setText] = useState('');
+  const textareaId = useId();
+  const nextLevel = Math.min(5, reviews.length + 1);
+  const openReader = (c: Citation) => navigate(`/read/${c.document_id}?page=${c.page_number}`);
+
+  if (!open) {
+    return (
+      <div className="mt-3">
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={<MessageSquareText size={14} />}
+          onClick={() => setOpen(true)}
+        >
+          Check my attempt
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[0.8125rem] font-medium text-[var(--text-primary)]">
+          Check my attempt
+          <span className="ml-2 font-normal text-[var(--text-muted)]">
+            next hint: {HINT_LEVEL_TEXT[nextLevel]}
+          </span>
+        </p>
+        <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+          Hide
+        </Button>
+      </div>
+      <p className="mt-1 text-[0.75rem] text-[var(--text-muted)]">
+        Paste what you have done for this step. You get what is wrong and why, with the slide
+        that shows it, and one hint — never the answer. Your attempt stays in your own data.
+      </p>
+
+      {reviews.length > 0 ? (
+        <ol className="mt-3 space-y-3">
+          {reviews.map((review) => (
+            <li
+              key={review.id}
+              className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-base)] p-3"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone={VERDICT_TONE[review.verdict]}>{VERDICT_TEXT[review.verdict]}</Badge>
+                <Badge tone="neutral">hint level {review.hint_level}</Badge>
+                <span className="text-[0.6875rem] text-[var(--text-muted)]">
+                  {new Date(review.created_at).toLocaleString()} · {review.provider}
+                </span>
+              </div>
+              <details className="mt-2">
+                <summary className="cursor-pointer text-[0.75rem] text-[var(--text-secondary)]">
+                  Your attempt ({review.attempt_text.length} characters)
+                </summary>
+                <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-[var(--surface-sunken)] p-2 text-[0.75rem]">
+                  {review.attempt_text}
+                </pre>
+              </details>
+              {review.summary ? (
+                <GroundedAnswer
+                  className="mt-2 text-[0.8125rem]"
+                  markdown={review.summary}
+                  citations={asCitations(review.citations)}
+                  onCitationClick={openReader}
+                />
+              ) : null}
+              {review.issues.length > 0 ? (
+                <ul className="mt-2 space-y-1.5">
+                  {review.issues.map((issue, i) => (
+                    <li key={i} className="text-[0.8125rem]">
+                      <GroundedAnswer
+                        markdown={`**${issue.what}** — ${issue.why}`}
+                        citations={asCitations(review.citations)}
+                        onCitationClick={openReader}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {review.next_hint ? (
+                <Callout tone="info" className="mt-2" icon={<Lightbulb size={14} />}>
+                  <GroundedAnswer
+                    markdown={review.next_hint}
+                    citations={asCitations(review.citations)}
+                    onCitationClick={openReader}
+                  />
+                </Callout>
+              ) : null}
+              {review.warnings.length > 0 ? (
+                <ul className="mt-2 space-y-0.5 text-[0.6875rem] text-[var(--text-muted)]">
+                  {review.warnings.map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+
+      <form
+        className="mt-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!text.trim()) return;
+          check.mutate({ stepIndex: step.index, text, allowCloud }, { onSuccess: () => setText('') });
+        }}
+      >
+        <label htmlFor={textareaId} className="sr-only">
+          Your attempt at step {step.index}
+        </label>
+        <Textarea
+          id={textareaId}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          rows={5}
+          placeholder="What have you tried for this step? Paste your reasoning, code or working."
+        />
+        <div className="mt-2 flex items-center gap-2">
+          <Button
+            type="submit"
+            size="sm"
+            variant="primary"
+            loading={check.isPending}
+            disabled={!text.trim()}
+          >
+            {reviews.length > 0 ? 'Check again' : 'Check it'}
+          </Button>
+          {check.isPending ? (
+            <span className="text-[0.75rem] text-[var(--text-muted)]">
+              Reading your attempt against the lecture material…
+            </span>
+          ) : null}
+        </div>
+        {check.error ? (
+          <Callout tone="danger" className="mt-2" icon={<AlertTriangle size={14} />}>
+            {describeError(check.error)}
+          </Callout>
+        ) : null}
+      </form>
+    </div>
   );
 }
 

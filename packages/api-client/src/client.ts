@@ -1,4 +1,6 @@
 import type {
+  AttemptReview,
+  ConceptMap,
   Account,
   AnswerResponse,
   Assessment,
@@ -255,6 +257,8 @@ export class StudyPilotClient {
   deleteCourse = (id: string) =>
     this.request<void>(`/api/courses/${id}`, { method: 'DELETE' });
   courseTopics = (id: string) => this.request<Topic[]>(`/api/courses/${id}/topics`);
+  conceptMap = (courseId: string) =>
+    this.request<ConceptMap>(`/api/courses/${courseId}/concept-map`);
 
   // --- documents -------------------------------------------------------
   documents = (courseId?: string) =>
@@ -337,6 +341,17 @@ export class StudyPilotClient {
     this.request<AssignmentPlan>(`/api/assignments/plans/${planId}/steps/${stepIndex}/approval`, {
       method: 'POST',
       body: { approval },
+    });
+  attemptReviews = (planId: string) =>
+    this.request<AttemptReview[]>(`/api/assignments/plans/${planId}/attempts`);
+  checkAttempt = (
+    planId: string,
+    stepIndex: number,
+    body: { text: string; allowCloud: boolean; provider?: string | null },
+  ) =>
+    this.request<AttemptReview>(`/api/assignments/plans/${planId}/steps/${stepIndex}/attempts`, {
+      method: 'POST',
+      body: { text: body.text, allow_cloud: body.allowCloud, provider: body.provider ?? null },
     });
 
   // --- tutor -----------------------------------------------------------

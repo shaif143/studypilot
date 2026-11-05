@@ -37,7 +37,10 @@ This is an honest list. Everything marked ✅ was built, run and tested; see
 | macOS packaging | ✅ ARM64 sidecar + `.app` / `.dmg` |
 | Hosted deployment | ✅ PostgreSQL + pgvector, S3 storage, accounts — see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |
 | Account authentication | ✅ Argon2id, session cookies, per-account isolation |
-| PPTX import | ❌ Declined with a clear message; export as PDF |
+| PPTX import | ✅ python-pptx reads the deck, PyMuPDF lays each slide out as a PDF page at the shapes' real positions (text, tables, pictures, speaker notes); the reader, highlights and topics then work exactly as for a PDF |
+| Concept map | ✅ Per course: topics as a graph (stated prerequisites + lecture order), coloured by your quiz results, with "start here" — built by code, drawn with Mermaid in strict mode |
+| Check my attempt | ✅ Paste your work on a plan step; the coach names the error, cites the slide, gives one hint — level rises each time you ask, decided by code — and never writes the answer |
+| Diagrams in answers | ✅ The tutor may add a short Mermaid flowchart; rendered as a picture, never executed |
 | Camera-based attention tracking | ❌ Interface and simulated data only — see [`docs/PRIVACY.md`](docs/PRIVACY.md) |
 | Federated learning | ❌ Design only — see [`research/federated_learning/`](research/federated_learning/) |
 | Knowledge graph / Graph RAG | ❌ Schema supports prerequisites; no graph store |
@@ -118,11 +121,22 @@ credentials are configured.
 npm run check
 ```
 
-Runs the TypeScript typecheck, ESLint, 85 frontend unit tests, Ruff, and 166
+Runs the TypeScript typecheck, ESLint, 93 frontend unit tests, Ruff, and 287
 backend tests. The 11 PostgreSQL integration tests need a database:
 
 ```bash
 npm run pg:up && npm run api:test:pg
+```
+
+The browser tests drive the real website against the real API in Chromium
+(both are started for you, with a throw-away data directory and no model):
+
+```bash
+npx playwright install chromium
+```
+
+```bash
+npm run test:e2e
 ```
 
 Individually:

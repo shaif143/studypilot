@@ -450,6 +450,34 @@ class NoteUpdate(BaseModel):
 
 
 # --- analytics ------------------------------------------------------------
+class ConceptMapNodeOut(BaseModel):
+    id: str
+    topic_id: str
+    slug: str
+    name: str
+    document_id: str | None
+    first_page: int
+    mastery_label: Literal["weak", "developing", "strong", "unknown"]
+    mastery_probability: float | None = None
+    observations: int = 0
+
+
+class ConceptMapEdgeOut(BaseModel):
+    source: str
+    target: str
+    kind: Literal["prerequisite", "next"]
+
+
+class ConceptMapOut(BaseModel):
+    """A course's topics as a graph, with a Mermaid rendering built by code."""
+
+    nodes: list[ConceptMapNodeOut]
+    edges: list[ConceptMapEdgeOut]
+    mermaid: str
+    #: Slugs of weak topics with no weak predecessor: where to start revising.
+    revisit_first: list[str] = Field(default_factory=list)
+
+
 class MasteryOut(BaseModel):
     model_config = ORM
 
@@ -591,6 +619,40 @@ class PlanRequest(BaseModel):
 
 class StepApprovalRequest(BaseModel):
     approval: Literal["approved", "declined"]
+
+
+class AttemptRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=20_000)
+    allow_cloud: bool = False
+    provider: str | None = None
+
+
+class AttemptIssueOut(BaseModel):
+    what: str
+    why: str = ""
+    citations: list[int] = Field(default_factory=list)
+
+
+class AttemptReviewOut(BaseModel):
+    """A review of the student's attempt at one step: what is wrong, why, next hint."""
+
+    model_config = ORM
+
+    id: str
+    plan_id: str
+    step_index: int
+    attempt_text: str
+    verdict: Literal["on_track", "needs_work", "off_track"]
+    summary: str
+    issues: list[AttemptIssueOut]
+    next_hint: str
+    #: 1 (concept) to 5 (line-by-line), set by code from how often this step was asked about.
+    hint_level: int
+    citations: list[PlanCitationOut]
+    provider: str
+    model: str
+    warnings: list[str] = Field(default_factory=list)
+    created_at: datetime
 
 
 class AssignmentOut(BaseModel):

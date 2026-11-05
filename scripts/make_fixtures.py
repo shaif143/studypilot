@@ -165,6 +165,78 @@ def build() -> Path:
     return TARGET
 
 
+PPTX_TARGET = TARGET.with_suffix(".pptx")
+
+
+def build_pptx() -> Path:
+    """The same lecture as a PowerPoint deck, for the .pptx import tests.
+
+    Slide 1 is a title slide, the rest are title-and-content with bullets; one
+    slide carries a table and one a picture, so every importer code path is
+    exercised by a file small enough to commit.
+    """
+    import pymupdf
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
+
+    deck = Presentation()
+    deck.slide_width, deck.slide_height = Inches(13.333), Inches(7.5)
+    title_layout, content_layout = deck.slide_layouts[0], deck.slide_layouts[1]
+
+    first = deck.slides.add_slide(title_layout)
+    first.shapes.title.text = SLIDES[0][0]
+    first.placeholders[1].text = "Lecture 7 — StudyPilot fixtures"
+    first.notes_slide.notes_text_frame.text = (
+        "This deck mirrors the PDF fixture so tests can compare the two imports."
+    )
+
+    for index, (heading, body, equation) in enumerate(SLIDES[1:], start=2):
+        slide = deck.slides.add_slide(content_layout)
+        slide.shapes.title.text = heading
+        frame = slide.placeholders[1].text_frame
+        frame.text = body[0]
+        for line in body[1:]:
+            frame.add_paragraph().text = line
+        if equation:
+            paragraph = frame.add_paragraph()
+            paragraph.text = equation
+            paragraph.runs[0].font.size = Pt(16)
+        if index == 3:
+            rows, cols = 3, 3
+            table = slide.shapes.add_table(
+                rows, cols, Inches(7.5), Inches(4.2), Inches(5), Inches(1.6)
+            ).table
+            cells = [
+                ["Layer", "Kernel", "Output"],
+                ["conv1", "3x3", "32x32x16"],
+                ["pool1", "2x2", "16x16x16"],
+            ]
+            for r in range(rows):
+                for c in range(cols):
+                    table.cell(r, c).text = cells[r][c]
+        if index == 4:
+            # A small picture: a filter grid drawn with PyMuPDF, rendered to PNG.
+            scratch = pymupdf.open()
+            page = scratch.new_page(width=200, height=120)
+            for i in range(3):
+                for j in range(3):
+                    page.draw_rect(
+                        pymupdf.Rect(20 + i * 50, 15 + j * 30, 60 + i * 50, 35 + j * 30),
+                        color=(0.2, 0.3, 0.7),
+                        fill=(0.8, 0.85, 1.0),
+                    )
+            png = page.get_pixmap(dpi=96).tobytes("png")
+            scratch.close()
+            import io
+
+            slide.shapes.add_picture(io.BytesIO(png), Inches(8), Inches(4), width=Inches(4))
+
+    deck.save(str(PPTX_TARGET))
+    return PPTX_TARGET
+
+
 if __name__ == "__main__":
     path = build()
     print(f"wrote {path} ({path.stat().st_size} bytes, {len(SLIDES)} pages)")
+    pptx_path = build_pptx()
+    print(f"wrote {pptx_path} ({pptx_path.stat().st_size} bytes, {len(SLIDES)} slides)")

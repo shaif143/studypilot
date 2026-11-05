@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 
 from app.agents.prompts import build_user_prompt, system_prompt_for
 from app.config import Settings
@@ -11,6 +12,7 @@ from app.main import create_app
 from app.models.base import ConsentRequiredError, EvidenceSnippet
 from app.models.llm import ExtractiveProvider, extract_json_object
 from app.models.registry import get_llm_provider
+from app.storage.models import User
 from app.storage.repositories import (
     ChunkRepository,
     CourseRepository,
@@ -116,7 +118,8 @@ def test_rejects_a_disguised_non_pdf(client: TestClient, course):
     assert "does not look like any of those" in response.json()["detail"]
 
 
-def test_pptx_is_declined_honestly_not_silently(client: TestClient, course):
+def test_a_fake_pptx_is_declined_honestly_not_silently(client: TestClient, course):
+    """A file that only claims to be a deck is refused by its contents, not accepted blind."""
     response = client.post(
         f"/api/courses/{course['id']}/documents",
         files={
@@ -128,7 +131,7 @@ def test_pptx_is_declined_honestly_not_silently(client: TestClient, course):
         },
     )
     assert response.status_code == 400
-    assert "not implemented yet" in response.json()["detail"]
+    assert "does not look like" in response.json()["detail"]
 
 
 def test_upload_size_limit_is_enforced(client: TestClient, course, context):
@@ -561,3 +564,36 @@ def test_an_unhandled_error_keeps_its_cors_headers(tmp_path):
     # The message must not carry whatever the exception was holding.
     assert "essay" not in response.text
     assert "connection string" not in response.text
+
+
+def test_two_first_requests_racing_to_create_the_local_profile_both_succeed(context):
+    """The app shell's first two requests arrive together on a fresh install.
+
+    Each finds no profile and inserts; the second insert hits the unique
+    handle. Simulated deterministically: the second repository is made to see
+    nothing on its first look, exactly as a request that read before the
+    other's commit would.
+    """
+    from sqlalchemy.orm import Session
+
+    from app.storage.repositories import UserRepository
+
+    with Session(context.database.engine) as first:
+        made_id = UserRepository(first).ensure_local_profile().id
+        first.commit()
+
+    with Session(context.database.engine) as second:
+        repo = UserRepository(second)
+        real_lookup = repo.get_by_handle
+        calls = {"n": 0}
+
+        def stale_then_real(handle: str):
+            calls["n"] += 1
+            return None if calls["n"] == 1 else real_lookup(handle)
+
+        repo.get_by_handle = stale_then_real  # type: ignore[method-assign]
+        found = repo.ensure_local_profile()
+        second.commit()
+        assert found.id == made_id
+        assert calls["n"] == 2
+        assert second.scalar(select(func.count()).select_from(User)) == 1

@@ -12,6 +12,10 @@ dependencies = [
   "httpx>=0.27",
   "sqlalchemy>=2.0",
   "pymupdf>=1.24",
+  # PowerPoint decks. Pure Python; the slides are laid out as a PDF with PyMuPDF.
+  "python-pptx>=1.0",
+  # FiraGO and friends for drawing slide text: Base-14 fonts cannot draw Greek letters.
+  "pymupdf-fonts>=1.0",
   "qdrant-client>=1.12",
   "langgraph>=0.2",
   "numpy>=1.26",

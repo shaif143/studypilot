@@ -11,11 +11,13 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.storage.models import (
     Assessment,
     AssessmentAttempt,
+    AssignmentAttempt,
     AssignmentPlan,
     AttentionSample,
     Chunk,
@@ -59,16 +61,32 @@ class UserRepository:
         return self.session.scalar(select(User).where(User.handle == handle))
 
     def ensure_local_profile(self, handle: str = "local", display_name: str = "Me") -> User:
-        """Return the desktop's single local profile, creating it if absent."""
+        """Return the desktop's single local profile, creating it if absent.
+
+        The first two requests of a fresh installation arrive together (the
+        app shell asks for the dashboard and the course list at once), and
+        each finds no profile. Both try to insert; the unique handle makes the
+        second fail. That is the expected outcome, not an error: roll back to
+        the savepoint and read the row the other request committed.
+        """
         user = self.get_by_handle(handle)
         if user is not None:
             return user
-        user = User(handle=handle, display_name=display_name, is_local_profile=True)
-        self.session.add(user)
-        self.session.flush()
-        self.session.add(UserSettings(user_id=user.id))
-        self.session.flush()
-        return user
+        savepoint = self.session.begin_nested()
+        try:
+            user = User(handle=handle, display_name=display_name, is_local_profile=True)
+            self.session.add(user)
+            self.session.flush()
+            self.session.add(UserSettings(user_id=user.id))
+            self.session.flush()
+            savepoint.commit()
+            return user
+        except IntegrityError:
+            savepoint.rollback()
+            existing = self.get_by_handle(handle)
+            if existing is None:  # pragma: no cover - the other writer rolled back too
+                raise
+            return existing
 
     def settings(self, user_id: str) -> UserSettings:
         row = self.session.get(UserSettings, user_id)
@@ -684,6 +702,31 @@ class AttentionRepository:
         )
         self.session.flush()
         return int(result.rowcount or 0)
+
+
+class AssignmentAttemptRepository:
+    """Reviews of a student's attempts, per plan step, oldest first."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def list_for_plan(self, user_id: str, plan_id: str) -> list[AssignmentAttempt]:
+        return list(
+            self.session.scalars(
+                select(AssignmentAttempt)
+                .where(AssignmentAttempt.user_id == user_id, AssignmentAttempt.plan_id == plan_id)
+                .order_by(AssignmentAttempt.created_at.asc(), AssignmentAttempt.id.asc())
+            )
+        )
+
+    def list_for_step(self, user_id: str, plan_id: str, step_index: int) -> list[AssignmentAttempt]:
+        return [a for a in self.list_for_plan(user_id, plan_id) if a.step_index == step_index]
+
+    def create(self, user_id: str, **values: object) -> AssignmentAttempt:
+        row = AssignmentAttempt(user_id=user_id, **values)  # type: ignore[arg-type]
+        self.session.add(row)
+        self.session.flush()
+        return row
 
 
 class AssignmentPlanRepository:

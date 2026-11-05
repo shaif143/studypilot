@@ -11,7 +11,7 @@ import {
   Skeleton,
   Textarea,
 } from '@studypilot/ui';
-import { ClipboardList, GraduationCap, Plus, Trash2 } from 'lucide-react';
+import { ClipboardList, GraduationCap, Plus, Trash2, Waypoints } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -122,6 +122,11 @@ export function CoursesScreen() {
                   <Link to={`/courses/${course.id}/assignments`}>
                     <Button size="sm" variant="ghost" icon={<ClipboardList size={14} />}>
                       Assignments
+                    </Button>
+                  </Link>
+                  <Link to={`/courses/${course.id}/map`}>
+                    <Button size="sm" variant="ghost" icon={<Waypoints size={14} />}>
+                      Map
                     </Button>
                   </Link>
                   <Button size="sm" variant="ghost" onClick={() => setEditing(course)}>

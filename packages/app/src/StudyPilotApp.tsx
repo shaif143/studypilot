@@ -18,6 +18,7 @@ import { describeError, useAuthStatus } from './hooks/queries';
 import { AnalyticsScreen } from './screens/AnalyticsScreen';
 import { AssessmentScreen } from './screens/AssessmentScreen';
 import { AssignmentsScreen } from './screens/AssignmentsScreen';
+import { ConceptMapScreen } from './screens/ConceptMapScreen';
 import { CoursesScreen } from './screens/CoursesScreen';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { FlashcardsScreen } from './screens/FlashcardsScreen';
@@ -66,6 +67,7 @@ export function StudyPilotApp({ platform }: StudyPilotAppProps) {
               <Route path="/" element={<DashboardScreen />} />
               <Route path="/courses" element={<CoursesScreen />} />
               <Route path="/courses/:courseId/assignments" element={<AssignmentsScreen />} />
+              <Route path="/courses/:courseId/map" element={<ConceptMapScreen />} />
               <Route path="/library" element={<LibraryScreen />} />
               <Route path="/read/:documentId" element={<ReaderScreen />} />
               <Route path="/tutor" element={<TutorScreen />} />

@@ -16,6 +16,8 @@ import rehypeKatex from 'rehype-katex';
 import remarkMath from 'remark-math';
 import { visit } from 'unist-util-visit';
 
+import { MermaidDiagram } from './MermaidDiagram';
+
 const CITATION_PATTERN = /\[(\d{1,2})\]/g;
 const CITE_PREFIX = '#sp-cite-';
 
@@ -82,6 +84,19 @@ export const GroundedAnswer = memo(function GroundedAnswer({
         remarkPlugins={[remarkMath, remarkCitations]}
         rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
         components={{
+          code({ className: codeClass, children, ...rest }) {
+            // A ```mermaid fence becomes a drawn diagram; every other code
+            // block is left as code. Mermaid runs in strict mode (see the
+            // component), so the model's text can only ever produce a picture.
+            if (codeClass === 'language-mermaid') {
+              return <MermaidDiagram code={String(children).trim()} title="Diagram" />;
+            }
+            return (
+              <code className={codeClass} {...rest}>
+                {children}
+              </code>
+            );
+          },
           a({ href, children, ...rest }) {
             if (typeof href === 'string' && href.startsWith(CITE_PREFIX)) {
               const marker = Number.parseInt(href.slice(CITE_PREFIX.length), 10);

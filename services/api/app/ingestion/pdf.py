@@ -92,6 +92,9 @@ class ExtractedDocument:
     #: image read by a model, "whisper-<size>" or "transcribe:<provider>" for
     #: audio. Recorded on the document so the UI can say so.
     extractor: str = "pymupdf"
+    #: Asset key of a PDF rendered from a non-PDF source (a .pptx deck). The
+    #: reader is served this file instead of the original.
+    rendered_pdf_key: str = ""
 
     @property
     def text_pages(self) -> int:

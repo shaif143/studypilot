@@ -448,6 +448,62 @@
         "title": "AssignmentPlanOut",
         "type": "object"
       },
+      "AttemptIssueOut": {
+        "properties": {
+          "citations": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "what": {
+            "title": "What",
+            "type": "string"
+          },
+          "why": {
+            "default": "",
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "what"
+        ],
+        "title": "AttemptIssueOut",
+        "type": "object"
+      },
+      "AttemptRequest": {
+        "properties": {
+          "allow_cloud": {
+            "default": false,
+            "title": "Allow Cloud",
+            "type": "boolean"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "text": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "AttemptRequest",
+        "type": "object"
+      },
       "AttemptResultOut": {
         "properties": {
           "assessment_id": {
@@ -512,6 +568,99 @@
           "responses"
         ],
         "title": "AttemptResultOut",
+        "type": "object"
+      },
+      "AttemptReviewOut": {
+        "description": "A review of the student's attempt at one step: what is wrong, why, next hint.",
+        "properties": {
+          "attempt_text": {
+            "title": "Attempt Text",
+            "type": "string"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/PlanCitationOut"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "hint_level": {
+            "title": "Hint Level",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/AttemptIssueOut"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "next_hint": {
+            "title": "Next Hint",
+            "type": "string"
+          },
+          "plan_id": {
+            "title": "Plan Id",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "step_index": {
+            "title": "Step Index",
+            "type": "integer"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "on_track",
+              "needs_work",
+              "off_track"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "plan_id",
+          "step_index",
+          "attempt_text",
+          "verdict",
+          "summary",
+          "issues",
+          "next_hint",
+          "hint_level",
+          "citations",
+          "provider",
+          "model",
+          "created_at"
+        ],
+        "title": "AttemptReviewOut",
         "type": "object"
       },
       "AttentionBatchIn": {
@@ -743,6 +892,142 @@
           "page_number"
         ],
         "title": "CitationOut",
+        "type": "object"
+      },
+      "ConceptMapEdgeOut": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "prerequisite",
+              "next"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "target",
+          "kind"
+        ],
+        "title": "ConceptMapEdgeOut",
+        "type": "object"
+      },
+      "ConceptMapNodeOut": {
+        "properties": {
+          "document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "first_page": {
+            "title": "First Page",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "mastery_label": {
+            "enum": [
+              "weak",
+              "developing",
+              "strong",
+              "unknown"
+            ],
+            "title": "Mastery Label",
+            "type": "string"
+          },
+          "mastery_probability": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mastery Probability"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "observations": {
+            "default": 0,
+            "title": "Observations",
+            "type": "integer"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "topic_id": {
+            "title": "Topic Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "topic_id",
+          "slug",
+          "name",
+          "document_id",
+          "first_page",
+          "mastery_label"
+        ],
+        "title": "ConceptMapNodeOut",
+        "type": "object"
+      },
+      "ConceptMapOut": {
+        "description": "A course's topics as a graph, with a Mermaid rendering built by code.",
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/ConceptMapEdgeOut"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "mermaid": {
+            "title": "Mermaid",
+            "type": "string"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/ConceptMapNodeOut"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "revisit_first": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Revisit First",
+            "type": "array"
+          }
+        },
+        "required": [
+          "nodes",
+          "edges",
+          "mermaid"
+        ],
+        "title": "ConceptMapOut",
         "type": "object"
       },
       "CourseCreate": {
@@ -3880,6 +4165,100 @@
         ]
       }
     },
+    "/api/assignments/plans/{plan_id}/attempts": {
+      "get": {
+        "operationId": "list_attempts_api_assignments_plans__plan_id__attempts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-studypilot-token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Studypilot-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AttemptReviewOut"
+                  },
+                  "title": "Response List Attempts Api Assignments Plans  Plan Id  Attempts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Attempts",
+        "tags": [
+          "assignments"
+        ]
+      }
+    },
     "/api/assignments/plans/{plan_id}/steps/{step_index}/approval": {
       "post": {
         "operationId": "set_step_approval_api_assignments_plans__plan_id__steps__step_index__approval_post",
@@ -3984,6 +4363,116 @@
           }
         },
         "summary": "Set Step Approval",
+        "tags": [
+          "assignments"
+        ]
+      }
+    },
+    "/api/assignments/plans/{plan_id}/steps/{step_index}/attempts": {
+      "post": {
+        "description": "Review the student's attempt at one step without doing it for them.\n\nThe hint level is decided here, by code, from how many reviews this step\nalready has; the model is told which level to give and no more.",
+        "operationId": "check_attempt_api_assignments_plans__plan_id__steps__step_index__attempts_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "step_index",
+            "required": true,
+            "schema": {
+              "title": "Step Index",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-studypilot-token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Studypilot-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttemptRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttemptReviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Attempt",
         "tags": [
           "assignments"
         ]
@@ -5275,6 +5764,97 @@
         ]
       }
     },
+    "/api/courses/{course_id}/concept-map": {
+      "get": {
+        "description": "The course's topics as a graph, coloured by the student's mastery.\n\nDeterministic: built from stored topics and mastery rows, never a model.",
+        "operationId": "course_concept_map_api_courses__course_id__concept_map_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "course_id",
+            "required": true,
+            "schema": {
+              "title": "Course Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-studypilot-token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Studypilot-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConceptMapOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Course Concept Map",
+        "tags": [
+          "analytics"
+        ]
+      }
+    },
     "/api/courses/{course_id}/documents": {
       "post": {
         "operationId": "upload_document_api_courses__course_id__documents_post",
@@ -5827,7 +6407,7 @@
     },
     "/api/documents/{document_id}/file": {
       "get": {
-        "description": "Serve the original PDF so the reader can render it client-side.",
+        "description": "Serve the PDF the reader renders client-side.\n\nFor a PDF upload that is the original. For a PowerPoint deck it is the PDF\nthe importer rendered from it, whose asset key the pipeline recorded in\n``extraction_meta[\"rendered_pdf\"]``.",
         "operationId": "document_file_api_documents__document_id__file_get",
         "parameters": [
           {

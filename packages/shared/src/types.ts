@@ -171,6 +171,32 @@ export interface Topic {
   last_page: number;
 }
 
+export interface ConceptMapNode {
+  id: string;
+  topic_id: string;
+  slug: string;
+  name: string;
+  document_id: string | null;
+  first_page: number;
+  mastery_label: 'weak' | 'developing' | 'strong' | 'unknown';
+  mastery_probability: number | null;
+  observations: number;
+}
+
+export interface ConceptMapEdge {
+  source: string;
+  target: string;
+  kind: 'prerequisite' | 'next';
+}
+
+/** A course's topics as a graph, with a Mermaid rendering built server-side by code. */
+export interface ConceptMap {
+  nodes: ConceptMapNode[];
+  edges: ConceptMapEdge[];
+  mermaid: string;
+  revisit_first: string[];
+}
+
 export interface Citation {
   marker: number;
   chunk_id: string;
@@ -515,6 +541,34 @@ export interface PlanStep {
   coverage: number;
   model_flagged_beyond: boolean;
   beyond_reason: string;
+}
+
+export type AttemptVerdict = 'on_track' | 'needs_work' | 'off_track';
+
+export interface AttemptIssue {
+  what: string;
+  why: string;
+  /** Markers into the review's citations. */
+  citations: number[];
+}
+
+/** A review of the student's attempt at one plan step: what is wrong, why, and one hint. */
+export interface AttemptReview {
+  id: string;
+  plan_id: string;
+  step_index: number;
+  attempt_text: string;
+  verdict: AttemptVerdict;
+  summary: string;
+  issues: AttemptIssue[];
+  next_hint: string;
+  /** 1 (the concept) to 5 (line by line); set by code from how often the step was asked about. */
+  hint_level: number;
+  citations: PlanCitation[];
+  provider: string;
+  model: string;
+  warnings: string[];
+  created_at: string;
 }
 
 export interface Requirement {

@@ -216,6 +216,40 @@ class AssignmentPlan(Base, TimestampMixin):
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class AssignmentAttempt(Base, TimestampMixin):
+    """One review of the student's attempt at one step of a plan.
+
+    Kept whole — the attempt text and the review — so the next review of the
+    same step can see what was already said and raise the hint level, and so
+    the student can look back at how their reasoning changed. Private to the
+    account, deleted with the plan.
+    """
+
+    __tablename__ = "assignment_attempts"
+    __table_args__ = (Index("ix_assignment_attempts_plan", "plan_id", "step_index"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"))
+    plan_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("assignment_plans.id", ondelete="CASCADE")
+    )
+    step_index: Mapped[int] = mapped_column(Integer)
+    attempt_text: Mapped[str] = mapped_column(Text)
+    #: "on_track" | "needs_work" | "off_track"
+    verdict: Mapped[str] = mapped_column(String(16), default="needs_work")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    #: [{"what", "why", "citations": [n]}]
+    issues: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    next_hint: Mapped[str] = mapped_column(Text, default="")
+    hint_level: Mapped[int] = mapped_column(Integer, default=1)
+    citations: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    provider: Mapped[str] = mapped_column(String(32), default="")
+    model: Mapped[str] = mapped_column(String(128), default="")
+    warnings: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class Page(Base):
     """One page (PDF) or slide (PPTX) with its extracted elements."""
 

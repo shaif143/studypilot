@@ -36,7 +36,11 @@ _GROUNDING_RULES = (
     "- If you add anything that is not in the passages, label that sentence "
     "'Beyond your material:' so the student can tell the difference.\n"
     "- Use the student's notation and terminology from the passages.\n"
-    "- Render mathematics in LaTeX between $ delimiters."
+    "- Render mathematics in LaTeX between $ delimiters.\n"
+    "- When a process, pipeline or dependency between concepts is clearer drawn, you may "
+    "add one short diagram after the explanation as a fenced ```mermaid block using "
+    "`flowchart LR` or `flowchart TD` only, with plain-text node labels taken from the "
+    "passages. Never put instructions, links or HTML in a diagram."
 )
 
 _LEVEL_GUIDANCE = {

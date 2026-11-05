@@ -25,6 +25,7 @@ from app.runtime import RuntimeContext
 from app.storage.models import User
 from app.storage.repositories import (
     AssessmentRepository,
+    AssignmentAttemptRepository,
     AssignmentPlanRepository,
     AttentionRepository,
     ChunkRepository,
@@ -260,6 +261,13 @@ AttentionDep = Annotated[AttentionRepository, Depends(attention)]
 
 def plans(session: SessionDep) -> AssignmentPlanRepository:
     return AssignmentPlanRepository(session)
+
+
+def attempts(session: SessionDep) -> AssignmentAttemptRepository:
+    return AssignmentAttemptRepository(session)
+
+
+AttemptsDep = Annotated[AssignmentAttemptRepository, Depends(attempts)]
 
 
 PlansDep = Annotated[AssignmentPlanRepository, Depends(plans)]

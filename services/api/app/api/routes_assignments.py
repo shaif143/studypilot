@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.agents.service import build_retriever, resolve_provider
 from app.api.deps import (
+    AttemptsDep,
     ContextDep,
     CoursesDep,
     DocumentsDep,
@@ -26,11 +27,14 @@ from app.api.deps import (
 from app.api.schemas import (
     AssignmentOut,
     AssignmentPlanOut,
+    AttemptRequest,
+    AttemptReviewOut,
     DocumentOut,
     PlanRequest,
     StepApprovalRequest,
 )
 from app.assignments.planner import build_plan
+from app.assignments.review import ReviewNeedsModelError, review_attempt
 from app.storage.models import Document
 
 log = logging.getLogger(__name__)
@@ -209,3 +213,105 @@ def set_step_approval(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return AssignmentPlanOut.model_validate(plan)
+
+
+# --- checking an attempt ------------------------------------------------------
+def _lecture_ids(documents: DocumentsDep, user_id: str, course_id: str) -> list[str]:
+    return [
+        d.id
+        for d in documents.list(user_id, course_id)
+        if d.kind in LECTURE_KINDS and d.status in {"indexed", "partial"}
+    ]
+
+
+@router.get("/assignments/plans/{plan_id}/attempts", response_model=list[AttemptReviewOut])
+def list_attempts(plan_id: str, user: UserDep, plans: PlansDep, attempts: AttemptsDep):
+    plans.get(user.id, plan_id)
+    return [AttemptReviewOut.model_validate(a) for a in attempts.list_for_plan(user.id, plan_id)]
+
+
+@router.post(
+    "/assignments/plans/{plan_id}/steps/{step_index}/attempts",
+    response_model=AttemptReviewOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def check_attempt(
+    plan_id: str,
+    step_index: int,
+    body: AttemptRequest,
+    context: ContextDep,
+    db_session: SessionDep,
+    user: UserDep,
+    courses: CoursesDep,
+    documents: DocumentsDep,
+    plans: PlansDep,
+    attempts: AttemptsDep,
+    users: UsersDep,
+) -> AttemptReviewOut:
+    """Review the student's attempt at one step without doing it for them.
+
+    The hint level is decided here, by code, from how many reviews this step
+    already has; the model is told which level to give and no more.
+    """
+    plan = plans.get(user.id, plan_id)
+    step = next((s for s in plan.steps if int(s.get("index", -1)) == step_index), None)
+    if step is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such step.")
+    if step.get("approval") == "declined":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You declined this step; approve it first if you want it reviewed.",
+        )
+    course = courses.get(user.id, plan.course_id)
+    brief = documents.get(user.id, plan.document_id)
+    user_settings = users.settings(user.id)
+    settings = context.settings
+    requested = (
+        body.provider
+        or settings.assignment_provider
+        or user_settings.preferred_llm_provider
+        or None
+    )
+    provider, provider_warnings = resolve_provider(
+        settings, user_settings, requested=requested, allow_cloud_request=body.allow_cloud
+    )
+    previous = attempts.list_for_step(user.id, plan.id, step_index)
+    try:
+        # Release the read transaction before the model call; see build_plan.
+        db_session.commit()
+        review = review_attempt(
+            settings=settings,
+            llm=provider,
+            retriever=build_retriever(context, db_session),
+            user_id=user.id,
+            course_id=plan.course_id,
+            lecture_document_ids=_lecture_ids(documents, user.id, plan.course_id),
+            brief_title=brief.title,
+            step=step,
+            attempt_text=body.text,
+            previous_reviews=[
+                {"verdict": a.verdict, "next_hint": a.next_hint, "hint_level": a.hint_level}
+                for a in previous
+            ],
+            integrity_policy=course.integrity_policy,
+        )
+    except ReviewNeedsModelError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    record = review.to_record()
+    record["warnings"] = provider_warnings + record["warnings"]
+    row = attempts.create(
+        user.id, plan_id=plan.id, step_index=step_index, attempt_text=body.text, **record
+    )
+    log.info(
+        "assignment_attempt_reviewed",
+        extra={
+            "plan_id": plan.id,
+            "step_index": step_index,
+            "verdict": row.verdict,
+            "hint_level": row.hint_level,
+            "provider": row.provider,
+        },
+    )
+    return AttemptReviewOut.model_validate(row)

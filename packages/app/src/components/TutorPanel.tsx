@@ -20,6 +20,13 @@ import { describeError, useAsk, useMessages, useProviders, useSettings } from '.
 
 export interface TutorPanelProps {
   sessionId: string | undefined;
+  /**
+   * Called with the id of the session the first answer created when the panel
+   * was opened without one. Without this the parent keeps `sessionId`
+   * undefined, `useMessages` stays disabled, and the answer — saved on the
+   * server — never appears. Found by the end-to-end test.
+   */
+  onSessionCreated?: (sessionId: string) => void;
   courseId: string | undefined;
   documentId: string | undefined;
   pageNumber?: number;
@@ -37,6 +44,7 @@ const MODE_PLACEHOLDERS: Record<TutorMode, string> = {
 
 export function TutorPanel({
   sessionId,
+  onSessionCreated,
   courseId,
   documentId,
   pageNumber,
@@ -74,7 +82,7 @@ export function TutorPanel({
 
     setDraft('');
     try {
-      await ask.mutateAsync({
+      const answer = await ask.mutateAsync({
         question,
         session_id: sessionId ?? null,
         course_id: courseId ?? null,
@@ -85,6 +93,7 @@ export function TutorPanel({
         explanation_level: level || null,
         allow_cloud: cloudAllowed && needsCloudOptIn,
       });
+      if (!sessionId && answer.session_id) onSessionCreated?.(answer.session_id);
       if (mode === 'assignment') setHintLevel((current) => Math.min(6, current + 1));
     } catch {
       // Rendered below from ask.error; the draft is restored for retry.

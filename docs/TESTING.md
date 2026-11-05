@@ -79,6 +79,9 @@ simulate quitting and relaunching.
 | `test_database_selection.py` | That `STUDYPILOT_DATABASE_URL` is actually honoured, end to end into the runtime context — the regression test for the silent SQLite fallback described below |
 | `test_object_storage.py` | `S3BlobStore` against a simulated S3 (`moto`): content addressing, asset prefixes, multi-batch deletion past the 1000-key API cap, prefix isolation between deployments, and that both store implementations are genuinely substitutable |
 | `test_storage_reachability.py` | That the object store is verified at boot — a missing bucket names the settings to fix, a read-only token is distinguished from an unreachable one, the probe leaves nothing behind, and the boto3 checksum behaviour that Cloudflare R2 requires is actually set |
+| `test_pptx_import.py` | A deck is recognised by its contents, not its name; a zip that is not a deck is refused; old `.ppt` gets its own message; every slide becomes a page of the slide's size with its words in place, pictures as images, tables cell by cell, bullets and dashes as real glyphs; speaker notes render below the slide, not on it; the slide limit is a warning; through the API the deck is indexed and `/file` serves a PDF |
+| `test_concept_map.py` | Document order and stored prerequisites both become edges (prerequisite wins for the same pair); mastery colours nodes and "start here" is a weak topic with no weak predecessor; topic names cannot inject Mermaid syntax; an empty course is an empty map; the route serves the indexed course |
+| `test_assignment_attempts.py` | The hint level climbs one rung per review and stops at five; a review names the error, cites real passages and drops fake markers; earlier reviews raise the level and reach the prompt; prose from the model is kept as the summary; unknown verdicts normalise; no model → refused with advice; through the API reviews persist per step, oldest first, and a missing model is a 409 |
 | `test_assignment_graph.py` | The planner's state machine: two coverage-only `beyond` steps trigger exactly one corrective pass (three model calls, never four); one such step does not; a declined step stays declined and an approved one approved on the next draft, by title match that tolerates small rewording; memory never touches a grounded step or invents a decision; earlier decisions and course-level accepted gaps reach the plan prompt |
 | `test_assignment_planner.py` | The grounding rule: a cited, covered step is grounded; a step the model flags as beyond is never grounded even with citations; an uncited step and a step whose citations do not cover its terms are both `beyond` with a disclosure naming what is missing; fabricated markers are stripped; retrieval is scoped to lecture material; without a model the plan is honest about being a requirements list; the disclosure is written by code |
 | `test_media_briefs.py` | Media type from bytes not names; images and audio accepted by validation; an image becomes one page with the transcript, the image handed to the model as bytes; a text-only provider refuses an image; audio falls back from local to a consented cloud provider, stays local when pinned, is refused when off or oversized; Ollama refuses attachments; Anthropic sends an image as a base64 block; Gemini's request shape and audio routing to the transcription model; no candidates is an error |
@@ -192,12 +195,33 @@ Recorded because they justify the tests existing.
    previews were the only requests in the application still 401ing while
    every other screen worked. Both paths now build their headers in one
    place.
+14. **Two first requests raced to create the local profile.** On a fresh
+    install the app shell asks for the dashboard and the course list at once;
+    each found no profile and inserted, and the second hit the unique handle
+    with a 500. Found by the first end-to-end run, which is the only place the
+    race occurs naturally. `ensure_local_profile` now inserts in a savepoint
+    and, on `IntegrityError`, reads the row the other request made.
+15. **A new conversation's first answer never appeared on the Tutor screen.**
+    The answer created a session server-side, but the screen kept
+    `sessionId` undefined, so the message query stayed disabled and the panel
+    showed its empty state over a saved answer. `TutorPanel` now reports the
+    created session; the reader never hit this because it resumes a session
+    per document before the first question.
+16. **The Tutor panel remounted when the course list loaded.** Its React key
+    included the course id, which is empty until courses arrive; a question
+    typed in that window was wiped. The key is now the session alone.
+17. **An uploaded brief did not appear until a reload.** The upload hook
+    invalidated the document queries but not the assignments list (or the
+    concept map, which the new lecture changes), so the Assignments screen
+    kept showing "No assignment briefs yet" over a successful upload.
 
 ---
 
 ## Fixtures
 
-`fixtures/sample-lecture-cnn.pdf` is a real nine-page PDF about convolutional
+`fixtures/sample-lecture-cnn.pptx` is the same lecture as a PowerPoint deck —
+title slide, bullets, a table, a picture, speaker notes — for the import
+tests. `fixtures/sample-lecture-cnn.pdf` is a real nine-page PDF about convolutional
 neural networks, generated by `scripts/make_fixtures.py` with reportlab. It has
 genuine heading hierarchy, prose, three equations and page footers, so
 extraction, topic detection and question generation are exercised against
@@ -215,10 +239,15 @@ npm run fixtures
 
 Stated plainly rather than implied by omission.
 
-- **No Playwright end-to-end tests.** `@playwright/test` is installed and
-  `npm run test:e2e` is wired, but no specs are written. The browser paths —
-  upload through the real file picker, pdf.js canvas rendering, drag-to-resize,
-  keyboard navigation — were verified by hand, not automatically.
+- **End-to-end coverage is two specs.** `tests/e2e/mvp-loop.spec.ts` drives
+  the real website against the real API in Chromium (both started by
+  `playwright.config.ts` with a throw-away data directory and the offline
+  providers): course → PDF upload → reader → cited answer → citation opens the
+  page → quiz → marked → reload; and PPTX upload → reader → concept map →
+  assignment guide → "Check my attempt" refused honestly without a model.
+  Drag-to-resize, keyboard navigation and the desktop shell are still
+  hand-verified. Run with `npm run test:e2e` (needs `npx playwright install
+  chromium` once).
 - **No automated test calls a real model.** The planner and the readers are
   tested with scripted providers, and the Anthropic and Gemini request
   bodies are pinned by intercepting the HTTP call. The real models were run

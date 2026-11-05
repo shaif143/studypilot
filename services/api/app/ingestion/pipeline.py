@@ -21,6 +21,12 @@ from app.config import Settings
 from app.ingestion.chunking import build_chunks
 from app.ingestion.media import MediaReader, is_audio, is_image, sniff_media_type
 from app.ingestion.pdf import ExtractedDocument, UnreadableDocumentError, extract_pdf
+from app.ingestion.pptx import (
+    PPTX_MEDIA_TYPE,
+    UnreadablePresentationError,
+    looks_like_pptx,
+    render_pptx_to_pdf,
+)
 from app.ingestion.topics import (
     detect_topics,
     section_for_pages,
@@ -71,15 +77,48 @@ def validate_upload(filename: str, data: bytes, settings: Settings) -> str:
     sniffed = sniff_media_type(data, filename)
     if sniffed and (is_image(sniffed) or is_audio(sniffed)):
         return sniffed
+    if looks_like_pptx(data, filename):
+        return PPTX_MEDIA_TYPE
     suffix = Path(filename).suffix.lower()
-    if suffix == ".pptx":
+    if suffix == ".ppt":
         raise UnsupportedFileError(
-            "PowerPoint import is not implemented yet. Export the deck as a PDF and upload that."
+            "This is an old-format .ppt file. Save it as .pptx (or export a PDF) and upload that."
         )
     raise UnsupportedFileError(
-        "Supported files are PDF, PNG, JPEG, WebP images, and WAV, MP3 or M4A audio. "
-        "This file does not look like any of those."
+        "Supported files are PDF, PowerPoint (.pptx), PNG, JPEG, WebP images, and WAV, MP3 "
+        "or M4A audio. This file does not look like any of those."
     )
+
+
+def _extract_presentation(
+    source_path: Path,
+    document: Document,
+    settings: Settings,
+    blobs: BlobStore,
+    preview_sink,
+) -> ExtractedDocument:
+    """Render a .pptx to PDF, keep that PDF as an asset, and extract it like one.
+
+    The rendered PDF is what the reader shows and what citations highlight, so
+    it is stored next to the page previews and its key recorded on the
+    document; ``/documents/{id}/file`` serves it in place of the original.
+    """
+    import tempfile
+
+    deck = render_pptx_to_pdf(source_path, max_slides=settings.max_pdf_pages)
+    rendered_key = blobs.put_asset(f"{document.id}/rendered.pdf", deck.pdf, "application/pdf")
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as handle:
+        handle.write(deck.pdf)
+        handle.flush()
+        extracted = extract_pdf(
+            Path(handle.name), max_pages=settings.max_pdf_pages, preview_sink=preview_sink
+        )
+    extracted.extractor = "python-pptx+pymupdf"
+    extracted.warnings = deck.warnings + extracted.warnings
+    if deck.title and not extracted.title:
+        extracted.title = deck.title
+    extracted.rendered_pdf_key = rendered_key  # carried to `extraction_meta` by the caller
+    return extracted
 
 
 def ingest_document(
@@ -128,13 +167,17 @@ def ingest_document(
                         title=document.title,
                         source_path=Path(source_path),
                     )
+            elif document.media_type == PPTX_MEDIA_TYPE:
+                extracted = _extract_presentation(
+                    Path(source_path), document, settings, blobs, store_preview
+                )
             else:
                 extracted = extract_pdf(
                     source_path,
                     max_pages=settings.max_pdf_pages,
                     preview_sink=store_preview,
                 )
-    except UnreadableDocumentError as exc:
+    except (UnreadableDocumentError, UnreadablePresentationError) as exc:
         documents.set_status(document, "failed", str(exc))
         return IngestionResult(
             document_id=document.id,
@@ -176,6 +219,11 @@ def ingest_document(
         "pages_with_tables": sum(1 for p in extracted.pages if p.has_tables),
         "extractor": extracted.extractor,
     }
+    if extracted.rendered_pdf_key:
+        document.extraction_meta = {
+            **document.extraction_meta,
+            "rendered_pdf": extracted.rendered_pdf_key,
+        }
 
     # --- topics ----------------------------------------------------------
     topic_drafts = detect_topics(extracted.pages, fallback_title=document.title)

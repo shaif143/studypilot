@@ -129,10 +129,17 @@ export function TutorScreen() {
               . Open the reader to see the cited pages alongside the answers.
             </div>
           ) : null}
+          {/* Keyed by the session only. Keying by the course too remounted the
+              panel when the course list finished loading, wiping a question the
+              student had already started typing. Found by the end-to-end test. */}
           <TutorPanel
-            key={sessionId ?? `new-${effectiveCourse}`}
+            key={sessionId ?? 'new'}
             className="flex-1"
             sessionId={sessionId}
+            onSessionCreated={setSessionId}
+            onCitationClick={(citation) =>
+              navigate(`/read/${citation.document_id}?page=${citation.page_number}`)
+            }
             courseId={activeSession?.course_id ?? effectiveCourse}
             documentId={activeSession?.document_id ?? undefined}
             availableModes={['question', 'assignment']}

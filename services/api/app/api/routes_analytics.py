@@ -20,6 +20,7 @@ from app.api.deps import (
 )
 from app.api.routes_tutor import _session_out
 from app.api.schemas import (
+    ConceptMapOut,
     DashboardResponse,
     DocumentOut,
     MasteryOut,
@@ -133,3 +134,22 @@ def dashboard(
         recommendations=[RecommendationOut(**item.__dict__) for item in recommendation_items[:6]],
         recent_attempts=attempts,
     )
+
+
+@router.get("/courses/{course_id}/concept-map", response_model=ConceptMapOut)
+def course_concept_map(course_id: str, session: SessionDep, user: UserDep) -> ConceptMapOut:
+    """The course's topics as a graph, coloured by the student's mastery.
+
+    Deterministic: built from stored topics and mastery rows, never a model.
+    """
+    from app.learning.concept_map import build_concept_map
+    from app.storage.repositories import (
+        CourseRepository,
+        MasteryRepository,
+        TopicRepository,
+    )
+
+    CourseRepository(session).get(user.id, course_id)
+    topics = TopicRepository(session).list(user.id, course_id)
+    mastery = MasteryRepository(session).list(user.id, course_id)
+    return ConceptMapOut.model_validate(build_concept_map(topics, mastery).to_dict())

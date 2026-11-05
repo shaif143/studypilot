@@ -23,7 +23,15 @@ hiddenimports = []
 
 # Packages that load code or data dynamically and therefore cannot be found by
 # static analysis alone.
-for package in ("qdrant_client", "pymupdf", "fitz", "langgraph", "langchain_core"):
+for package in (
+    "qdrant_client",
+    "pymupdf",
+    "fitz",
+    "pymupdf_fonts",  # FiraGO etc., loaded by name when drawing slide text
+    "pptx",  # python-pptx ships its default template and XML schemas as data
+    "langgraph",
+    "langchain_core",
+):
     try:
         package_datas, package_binaries, package_hidden = collect_all(package)
     except Exception:  # pragma: no cover - optional at build time

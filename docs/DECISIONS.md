@@ -340,14 +340,62 @@ would notice (a plan takes a minute).
 
 ---
 
-## 21. Deferred deliberately
+## 21. PowerPoint is rendered to PDF, not parsed into a second pipeline
+
+**Decision.** `app/ingestion/pptx.py` reads a deck with python-pptx and draws
+each slide as a PDF page with PyMuPDF at the shapes' real positions; the PDF
+pipeline, reader, highlights and topics then run unchanged. Speaker notes go in
+a grey strip under the slide so they are searchable without moving anything.
+
+**Why.** A second extractor would have meant a second bounding-box model, a
+second preview path and a reader that cannot show the file. One rendered PDF
+removes all three. What is lost — theme, fonts, SmartArt, animations — is not
+what a citation needs. Docling reads PPTX too but pulls PyTorch, which an 8 GB
+M1 cannot spare; python-pptx is pure Python. FiraGO (`pymupdf-fonts`) draws the
+text because the Base-14 fonts turn bullets and Greek letters into "?".
+
+---
+
+## 22. Diagrams are pictures: Mermaid in strict mode, maps built by code
+
+**Decision.** The concept map is built on the server from stored topics,
+prerequisites and mastery rows — no model — and rendered client-side with
+Mermaid under `securityLevel: 'strict'`. The tutor may add a Mermaid
+flowchart to an answer; it goes through the same renderer, and one that does
+not parse is shown as text.
+
+**Why.** The blueprint's rule was never to execute model-authored JavaScript.
+Mermaid text is data; strict mode disables click handlers and HTML labels, so
+the worst a hostile lecture title can do is look odd — and topic names are
+stripped of Mermaid syntax before they reach a label anyway. Plotly and React
+Flow were not added: Mermaid covers maps and flowcharts, and the heavier
+libraries wait for a feature that needs them.
+
+---
+
+## 23. The attempt reviewer's hint level is decided by code
+
+**Decision.** "Check my attempt" tells the model which rung of the hint
+ladder to give (concept → rule → approach → analogous example → line by line)
+from how many reviews the step already has, and the prompt forbids writing
+the solution.
+
+**Why.** If the model chose the level it would skip to the end on the first
+ask, which is the assignment-solving behaviour the product exists to avoid.
+Counting earlier reviews is deterministic, visible to the student ("next hint:
+the rule or formula to look at"), and the reviews persist so the ladder
+survives a restart.
+
+---
+
+## 24. Deferred deliberately
 
 | Deferred | Reason |
 | --- | --- |
 | Neo4j / Graph RAG | Prerequisites are a list column; a graph store earns nothing yet |
 | Cache-augmented generation | Premature before retrieval quality is settled |
 | Cross-encoder reranking | RRF over two retrievers is enough at this corpus size |
-| Docling | Pulls PyTorch; PyMuPDF covers text, tables, equations and boxes |
+| Docling | Pulls PyTorch; PyMuPDF covers text, tables, equations and boxes, and python-pptx covers decks |
+| Plotly / React Flow | Mermaid covers maps and flowcharts; nothing yet needs plots or an interactive canvas |
 | Federated training | Needs a threat model and measurable controls first |
 | Camera gaze estimation | Interface and simulated data only; see `docs/PRIVACY.md` |
-| PPTX import | Declined with an actionable message rather than parsed badly |

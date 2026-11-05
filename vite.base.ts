@@ -91,7 +91,9 @@ export interface BaseConfigOptions {
 
 export function baseConfig({
   port,
-  apiTarget = 'http://127.0.0.1:8765',
+  // The same variable `scripts/dev-api.sh` honours, so a backend started on
+  // another port (the end-to-end tests do this) is proxied without editing.
+  apiTarget = `http://127.0.0.1:${process.env.STUDYPILOT_PORT ?? '8765'}`,
   outDir = 'dist',
   strictPort = false,
 }: BaseConfigOptions): UserConfig {

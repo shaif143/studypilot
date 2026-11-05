@@ -9,6 +9,8 @@
 import { ApiError } from '@studypilot/api-client';
 import type {
   Assignment,
+  AttemptReview,
+  ConceptMap,
   ProviderKeys,
   AssignmentPlan,
   AuthStatus,
@@ -54,6 +56,8 @@ export const keys = {
   courses: ['courses'] as const,
   course: (id: string) => ['courses', id] as const,
   courseTopics: (id: string) => ['courses', id, 'topics'] as const,
+  conceptMap: (id: string) => ['courses', id, 'concept-map'] as const,
+  attemptReviews: (planId: string) => ['assignments', 'plans', planId, 'attempts'] as const,
   documents: (courseId?: string) => ['documents', courseId ?? 'all'] as const,
   document: (id: string) => ['documents', id] as const,
   pages: (id: string) => ['documents', id, 'pages'] as const,
@@ -290,6 +294,11 @@ export function useUploadDocument() {
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({ queryKey: keys.documents(variables.courseId) });
       void queryClient.invalidateQueries({ queryKey: keys.documents(undefined) });
+      // A brief appears in the assignments list and a lecture in the concept
+      // map; both read from their own queries. Found by the end-to-end test.
+      void queryClient.invalidateQueries({ queryKey: keys.assignments(variables.courseId) });
+      void queryClient.invalidateQueries({ queryKey: keys.conceptMap(variables.courseId) });
+      void queryClient.invalidateQueries({ queryKey: keys.courseTopics(variables.courseId) });
       void queryClient.invalidateQueries({ queryKey: keys.courses });
       void queryClient.invalidateQueries({ queryKey: keys.dashboard });
     },
@@ -334,6 +343,15 @@ export function useDocumentTopics(documentId: string | undefined) {
     queryFn: () => client.documentTopics(documentId as string),
     enabled: Boolean(documentId),
     staleTime: 5 * 60_000,
+  });
+}
+
+export function useConceptMap(courseId: string | undefined) {
+  const client = useClient();
+  return useQuery<ConceptMap>({
+    queryKey: keys.conceptMap(courseId ?? ''),
+    queryFn: () => client.conceptMap(courseId as string),
+    enabled: Boolean(courseId),
   });
 }
 
@@ -630,6 +648,36 @@ export function useDraftAssignmentPlan(courseId: string) {
     onSuccess: (plan) => {
       queryClient.setQueryData(keys.assignmentPlan(plan.document_id), plan);
       void queryClient.invalidateQueries({ queryKey: keys.assignments(courseId) });
+    },
+  });
+}
+
+export function useAttemptReviews(planId: string | undefined) {
+  const client = useClient();
+  return useQuery<AttemptReview[]>({
+    queryKey: keys.attemptReviews(planId ?? ''),
+    queryFn: () => client.attemptReviews(planId as string),
+    enabled: Boolean(planId),
+  });
+}
+
+export function useCheckAttempt(planId: string) {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      stepIndex,
+      text,
+      allowCloud,
+      provider,
+    }: {
+      stepIndex: number;
+      text: string;
+      allowCloud: boolean;
+      provider?: string | null;
+    }) => client.checkAttempt(planId, stepIndex, { text, allowCloud, provider }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.attemptReviews(planId) });
     },
   });
 }

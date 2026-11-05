@@ -42,3 +42,7 @@ apps/desktop/src-tauri/gen/schemas/
 .vercel
 .env*
 .neon
+
+# Playwright
+test-results/
+playwright-report/

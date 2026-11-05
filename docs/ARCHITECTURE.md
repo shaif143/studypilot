@@ -236,6 +236,18 @@ Partial failure is a first-class outcome. A deck where half the slides are
 images still gets indexed, and the document is marked `partial` with the reason
 attached rather than reported as a success.
 
+**PowerPoint.** A `.pptx` is recognised by its contents (an OOXML package with
+a presentation part), read with python-pptx, and drawn slide by slide into a
+PDF with PyMuPDF at the shapes' real positions — text boxes (titles larger,
+so heading detection finds them), tables cell by cell, pictures, charts as
+their text, speaker notes in a grey strip below the slide. The rendered PDF
+is stored as an asset, its key recorded in `extraction_meta["rendered_pdf"]`,
+and `/documents/{id}/file` serves it in place of the original; everything
+after that — extraction, bounding boxes, previews, topics, highlights, the
+pdf.js reader — is the PDF path unchanged. Text is drawn with FiraGO from
+`pymupdf-fonts`, because the Base-14 fonts render bullets, dashes and Greek
+letters as "?".
+
 Every indexed item retains: owner, course, document, version, page number,
 section, element type, bounding box, source text, and the embedding model
 version. The bounding boxes are what make a citation clickable — the reader
@@ -328,6 +340,37 @@ match it, and the plan says in its warnings that no model was used.
 Plans persist as JSON in `assignment_plans`; approving or declining a step is
 a repository operation that refuses to change a grounded step, so the record
 of which steps ever needed a decision stays intact.
+
+### Checking an attempt
+
+`app/assignments/review.py` reviews the student's own attempt at one step:
+verdict (`on_track` / `needs_work` / `off_track`), the specific errors with
+why each is wrong according to the lecture passages, and exactly one hint.
+The hint's level — concept, rule, approach outline, analogous example, line
+by line — is decided by code from how many reviews the step already has, so
+the model cannot skip to the end on the first ask, and the system prompt
+forbids writing the solution or rewriting the attempt. Evidence is retrieved
+from lecture material for the step's subject and for what the attempt talks
+about; markers are verified like the planner's. Reviews persist in
+`assignment_attempts`, oldest first, so the ladder survives a restart and the
+student can see how their reasoning changed. Without a generative provider
+the route answers 409 with what to do, not a hollow review.
+
+## Concept map
+
+`app/learning/concept_map.py` builds the course's topic graph with no model:
+nodes are stored topics; edges are stored prerequisites (solid) and the order
+topics appear in each document (dotted) — lecturers teach in an order for a
+reason, and without those edges a course with no stated prerequisites is a
+map of islands. Each node carries the student's mastery label, and
+`revisit_first` lists weak topics with no weak predecessor: the place to
+start. The route returns the structure and a Mermaid rendering; topic names
+are stripped of Mermaid syntax and quoted before they reach a label.
+
+The frontend's `MermaidDiagram` loads Mermaid on first use with
+`securityLevel: 'strict'` — no click handlers, no HTML labels — and the same
+component renders a ```` ```mermaid ```` fence in a tutor answer. A diagram is
+a picture; one that does not parse is shown as its text with a plain message.
 
 ## Prompt-injection posture
 

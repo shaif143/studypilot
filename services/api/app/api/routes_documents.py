@@ -219,10 +219,21 @@ def page_preview(
 def document_file(
     document_id: str, context: ContextDep, user: UserDep, documents: DocumentsDep
 ) -> Response:
-    """Serve the original PDF so the reader can render it client-side."""
+    """Serve the PDF the reader renders client-side.
+
+    For a PDF upload that is the original. For a PowerPoint deck it is the PDF
+    the importer rendered from it, whose asset key the pipeline recorded in
+    ``extraction_meta["rendered_pdf"]``.
+    """
     document = documents.get(user.id, document_id)
+    rendered = (document.extraction_meta or {}).get("rendered_pdf", "")
+    filename = document.original_filename
     try:
-        data = context.blobs.read(document.content_hash)
+        if rendered:
+            data = context.blobs.read_asset(rendered)
+            filename = f"{Path(filename).stem}.pdf"
+        else:
+            data = context.blobs.read(document.content_hash)
     except BlobNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -233,7 +244,7 @@ def document_file(
         media_type="application/pdf",
         headers={
             "Cache-Control": "private, max-age=3600",
-            "Content-Disposition": f'inline; filename="{document.original_filename}"',
+            "Content-Disposition": f'inline; filename="{filename}"',
         },
     )
 

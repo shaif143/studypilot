@@ -66,10 +66,18 @@ Legend: ✅ implemented and tested · 🧪 experimental or interface-only ·
 - ✅ LangGraph orchestration (deliberately a bounded state machine)
 - ✅ Corrective retrieval
 - ✅ KaTeX mathematics rendering throughout
-- ❌ **Interactive visualisations** — concept maps, flowcharts, plots,
-  algorithm walkthroughs. The safe approach is decided (structured generation
-  into predefined components; never executing model-authored JavaScript) but
-  nothing is built.
+- ✅ **Concept map** per course: topics as a graph from stated prerequisites
+  and lecture order, coloured by mastery, with "start here" (a weak topic whose
+  predecessors are not weak). Built by code on the server, drawn with Mermaid
+  in strict mode. Tutor answers may include a short Mermaid flowchart,
+  rendered as a picture; an unparseable one falls back to its text.
+- ✅ **PPTX import**: python-pptx + PyMuPDF render the deck to a PDF the
+  existing pipeline and reader handle unchanged (speaker notes included).
+- ✅ **Check my attempt** on a plan step: what is wrong, why (cited), one hint;
+  the hint level climbs per ask, set by code, and the answer is never written.
+- ❌ Plots and algorithm walkthroughs (Plotly / React Flow): not started.
+  Mermaid covers maps and flowcharts; the heavier libraries wait for a feature
+  that needs them.
 - ⏸ **Multimodal understanding of diagrams inside lecture PDFs.** Figures are
   detected and their bounding boxes stored, but no vision model is called on
   them. The vision path now exists (it reads image *briefs*); pointing it at
@@ -112,24 +120,19 @@ Legend: ✅ implemented and tested · 🧪 experimental or interface-only ·
 
 ## What I would do next, in order
 
-1. **Playwright end-to-end tests.** The biggest testing gap: the browser paths
-   (real file picker, pdf.js canvas, drag-to-resize, keyboard navigation) were
-   verified by hand. See [`TESTING.md`](TESTING.md#gaps--what-is-not-tested).
-2. **Ship `model2vec` as the default embedder.** The hashed fallback matches
+1. **Ship `model2vec` as the default embedder.** The hashed fallback matches
    wording rather than meaning, and it is the clearest quality ceiling in the
    product today. A ~30 MB download at first run would lift retrieval
    noticeably.
-3. **Background ingestion with progress.** Upload is synchronous. Fine for a
+2. **Background ingestion with progress.** Upload is synchronous. Fine for a
    lecture deck, not for a textbook.
-4. **PPTX import.** Currently declined with an actionable message. `python-pptx`
-   plus the existing chunking would cover it; the only new work is mapping
-   shape geometry to the bounding-box model.
-5. **Interactive visualisations** (Phase 3). The groundwork — structured
-   output validation — already exists in the assessment generator.
-6. **Vision for diagrams.** Slides whose content is a figure currently yield no
+3. **More end-to-end coverage.** Two Playwright specs cover the MVP loop and the
+   new features; drag-to-resize, keyboard navigation and the desktop shell are
+   still hand-verified.
+4. **Vision for diagrams.** Slides whose content is a figure currently yield no
    text, and the reader labels them honestly. This is the largest remaining
    gap in extraction coverage.
-7. **Signing and notarisation**, once credentials exist.
+5. **Signing and notarisation**, once credentials exist.
 
 ## Known limitations
 
