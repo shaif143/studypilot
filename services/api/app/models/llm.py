@@ -11,9 +11,12 @@ Four implementations:
     and testable with no API key and no network.
 ``ollama``
     A local inference runtime.  On-device, no API key, optional install.
-``anthropic`` / ``openai``
+``anthropic`` / ``gemini``
     Hosted APIs.  Both set ``sends_data_off_device=True``; the service layer
     refuses to call them unless the user has recorded explicit consent.
+    Both read images; Gemini also reads audio, which is how image and audio
+    assignment briefs are transcribed on an installation without a local
+    speech model.
 
 Keys are read from the environment or the macOS keychain, never from the
 frontend bundle.
@@ -21,6 +24,7 @@ frontend bundle.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -243,6 +247,12 @@ class OllamaProvider:
         return True, "Runs entirely on this Mac. Nothing leaves the device."
 
     def generate(self, request: GenerationRequest) -> GenerationResult:
+        if request.attachments:
+            raise ProviderUnavailableError(
+                f"{self.model} is a text model and cannot read "
+                f"{request.attachments[0].media_type}. Use a cloud provider for image or "
+                "audio briefs, or convert the file to a PDF."
+            )
         payload = {
             "model": self.model,
             "stream": False,
@@ -294,23 +304,43 @@ class AnthropicProvider:
             generative=True,
             requires_api_key=True,
             detail=(
-                "Strongest explanations. Lecture text and your questions are sent to "
-                "Anthropic and billed per token."
+                "Strongest explanations; reads image briefs. Lecture text and your "
+                "questions are sent to Anthropic and billed per token."
                 if self.api_key
-                else "Add an Anthropic API key in Settings to enable this provider."
+                else "Add ANTHROPIC_API_KEY to the backend environment to enable this provider."
             ),
             model=self.model,
+            accepts_images=True,
+            accepts_audio=False,
         )
 
     def generate(self, request: GenerationRequest) -> GenerationResult:
         if not self.api_key:
             raise ProviderUnavailableError("No Anthropic API key configured.")
+        content: list[dict[str, object]] = []
+        for attachment in request.attachments:
+            if not attachment.media_type.startswith("image/"):
+                raise ProviderUnavailableError(
+                    f"Anthropic cannot read {attachment.media_type}; audio needs Gemini or a "
+                    "local Whisper model."
+                )
+            content.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": attachment.media_type,
+                        "data": base64.b64encode(attachment.data).decode("ascii"),
+                    },
+                }
+            )
+        content.append({"type": "text", "text": request.user})
         body: dict[str, object] = {
             "model": self.model,
             "max_tokens": request.max_output_tokens,
             "temperature": request.temperature,
             "system": request.system,
-            "messages": [{"role": "user", "content": request.user}],
+            "messages": [{"role": "user", "content": content}],
         }
         try:
             response = httpx.post(
@@ -409,6 +439,109 @@ class OpenAIProvider:
         )
 
 
+class GeminiProvider:
+    """Google's hosted Gemini models. Sends content off-device.
+
+    Reads text, images and audio through one endpoint, which makes it the
+    provider that can transcribe a recorded assignment brief on a machine
+    without a local speech model. The dedicated transcription model is used
+    for audio-only requests; everything else goes to the general model.
+    """
+
+    DEFAULT_MODEL = "gemini-3.6-flash"
+    TRANSCRIBE_MODEL = "gemini-3.5-transcribe"
+    BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+
+    def __init__(self, model: str = "", api_key: str | None = None) -> None:
+        self.model = model or self.DEFAULT_MODEL
+        self.api_key = api_key or os.environ.get(
+            "GEMINI_API_KEY", os.environ.get("GOOGLE_API_KEY", "")
+        )
+
+    @property
+    def info(self) -> ProviderInfo:
+        return ProviderInfo(
+            key="gemini",
+            label=f"Gemini API ({self.model})",
+            sends_data_off_device=True,
+            available=bool(self.api_key),
+            generative=True,
+            requires_api_key=True,
+            detail=(
+                "Fast and inexpensive; reads image and audio briefs. Content is sent to "
+                "Google and billed per token."
+                if self.api_key
+                else "Add GEMINI_API_KEY to the backend environment to enable this provider."
+            ),
+            model=self.model,
+            accepts_images=True,
+            accepts_audio=True,
+        )
+
+    def _model_for(self, request: GenerationRequest) -> str:
+        kinds = {a.media_type.split("/", 1)[0] for a in request.attachments}
+        if kinds == {"audio"}:
+            return self.TRANSCRIBE_MODEL
+        return self.model
+
+    def generate(self, request: GenerationRequest) -> GenerationResult:
+        if not self.api_key:
+            raise ProviderUnavailableError("No Gemini API key configured.")
+        parts: list[dict[str, object]] = []
+        for attachment in request.attachments:
+            parts.append(
+                {
+                    "inlineData": {
+                        "mimeType": attachment.media_type,
+                        "data": base64.b64encode(attachment.data).decode("ascii"),
+                    }
+                }
+            )
+        parts.append({"text": request.user})
+        generation_config: dict[str, object] = {
+            "temperature": request.temperature,
+            "maxOutputTokens": request.max_output_tokens,
+        }
+        if request.json_schema:
+            generation_config["responseMimeType"] = "application/json"
+        body: dict[str, object] = {
+            "systemInstruction": {"parts": [{"text": request.system}]},
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": generation_config,
+        }
+        model = self._model_for(request)
+        try:
+            response = httpx.post(
+                f"{self.BASE_URL}/models/{model}:generateContent",
+                json=body,
+                headers={"x-goog-api-key": self.api_key, "content-type": "application/json"},
+                timeout=request.timeout_seconds,
+            )
+            response.raise_for_status()
+            data = response.json()
+        except Exception as exc:
+            raise ProviderUnavailableError(f"Gemini request failed: {exc}") from exc
+        candidates = data.get("candidates") or []
+        if not candidates:
+            # A blocked prompt comes back with no candidates and a reason.
+            reason = (data.get("promptFeedback") or {}).get("blockReason", "no candidates")
+            raise ProviderUnavailableError(f"Gemini returned no answer ({reason}).")
+        text = "".join(
+            part.get("text", "")
+            for part in (candidates[0].get("content") or {}).get("parts", [])
+            if isinstance(part, dict)
+        )
+        usage = data.get("usageMetadata") or {}
+        return GenerationResult(
+            text=text,
+            provider="gemini",
+            model=model,
+            generative=True,
+            input_tokens=usage.get("promptTokenCount"),
+            output_tokens=usage.get("candidatesTokenCount"),
+        )
+
+
 def build_llm(provider: str, model: str = "") -> LLMProvider:
     if provider == "extractive":
         return ExtractiveProvider()
@@ -416,7 +549,10 @@ def build_llm(provider: str, model: str = "") -> LLMProvider:
         return OllamaProvider(model)
     if provider == "anthropic":
         return AnthropicProvider(model)
+    if provider == "gemini":
+        return GeminiProvider(model)
     if provider == "openai":
+        # Still constructible for anyone who pinned it, but no longer offered.
         return OpenAIProvider(model)
     raise ProviderUnavailableError(f"Unknown LLM provider: {provider}")
 
@@ -432,7 +568,7 @@ def probe_llm_providers(model: str = "") -> list[ProviderInfo]:
         ExtractiveProvider().info,
         OllamaProvider(model).info,
         AnthropicProvider().info,
-        OpenAIProvider().info,
+        GeminiProvider().info,
     ]
 
 

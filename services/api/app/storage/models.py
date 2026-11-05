@@ -165,6 +165,53 @@ class Document(Base, TimestampMixin):
     )
 
 
+class AssignmentPlan(Base, TimestampMixin):
+    """A step-by-step guide derived from one assignment brief.
+
+    The brief is a :class:`Document` of kind ``assignment``. The plan is kept
+    as JSON because its shape is owned by :mod:`app.assignments.planner` and
+    revised with it; the columns here are what the API filters and the UI
+    lists on.
+
+    Every step records how it is grounded. ``slides`` means the step cites
+    the course's own lecture material and the deterministic coverage check
+    agreed; ``beyond`` means it does not, and the step then waits for the
+    student's explicit approval with a disclosure saying so. That decision is
+    made in code, never by the model — the model may flag a step as beyond
+    the slides, but it cannot declare one grounded.
+    """
+
+    __tablename__ = "assignment_plans"
+    __table_args__ = (
+        Index("ix_assignment_plans_document", "document_id"),
+        Index("ix_assignment_plans_user_course", "user_id", "course_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"))
+    course_id: Mapped[str] = mapped_column(String(32), ForeignKey("courses.id", ondelete="CASCADE"))
+    document_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("documents.id", ondelete="CASCADE")
+    )
+    #: "ready" | "needs_approval" | "failed"
+    status: Mapped[str] = mapped_column(String(16), default="ready")
+    #: Requirements extracted from the brief: see planner.Requirement.
+    requirements: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    #: Ordered steps: see planner.PlanStep.
+    steps: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    #: A one-paragraph summary of what the brief asks for, in the model's words
+    #: or, without a model, the brief's own opening lines.
+    summary: Mapped[str] = mapped_column(Text, default="")
+    provider: Mapped[str] = mapped_column(String(32), default="")
+    model: Mapped[str] = mapped_column(String(128), default="")
+    #: False when no language model was involved and the plan is a list of the
+    #: brief's requirements with matching material, not a drafted guide.
+    generative: Mapped[bool] = mapped_column(Boolean, default=False)
+    warnings: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class Page(Base):
     """One page (PDF) or slide (PPTX) with its extracted elements."""
 

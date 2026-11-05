@@ -30,6 +30,8 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+desktop_router = APIRouter(prefix="/api/auth", tags=["auth"])
+
 
 def _require_builtin_provider(context) -> None:
     """Refuse password routes when Neon Auth owns identity.
@@ -72,6 +74,26 @@ class AuthStatusOut(BaseModel):
     #: "builtin" | "neon" — which sign-in flow the frontend should present.
     provider: str = "builtin"
     account: AccountOut | None = None
+
+
+@desktop_router.get("/status", response_model=AuthStatusOut)
+def desktop_status() -> AuthStatusOut:
+    """Desktop mode: the local profile is the only user; nothing to sign in to.
+
+    Mounted instead of `router` when there is nothing to sign in to. The
+    frontend asks the same question either way, and the server is the right
+    place to answer it: a client-side "404 means no accounts" rule had to be
+    scoped to the desktop host, because on a website a 404 means the API is
+    missing — and the website talking to a local desktop backend during
+    development fell between the two and showed "Cannot reach StudyPilot".
+    """
+    return AuthStatusOut(
+        authenticated=True,
+        requires_authentication=False,
+        registration_open=False,
+        provider="builtin",
+        account=None,
+    )
 
 
 def _issue_session(

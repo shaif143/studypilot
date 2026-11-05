@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.storage.models import (
     Assessment,
     AssessmentAttempt,
+    AssignmentPlan,
     AttentionSample,
     Chunk,
     Citation,
@@ -683,3 +684,66 @@ class AttentionRepository:
         )
         self.session.flush()
         return int(result.rowcount or 0)
+
+
+class AssignmentPlanRepository:
+    """Plans are private to the account that owns the brief, like everything."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def latest_for_document(self, user_id: str, document_id: str) -> AssignmentPlan | None:
+        return self.session.scalar(
+            select(AssignmentPlan)
+            .where(AssignmentPlan.user_id == user_id, AssignmentPlan.document_id == document_id)
+            .order_by(AssignmentPlan.created_at.desc())
+            .limit(1)
+        )
+
+    def latest_by_document(self, user_id: str, course_id: str) -> dict[str, AssignmentPlan]:
+        """Newest plan per brief in a course, for the assignments listing."""
+        rows = self.session.scalars(
+            select(AssignmentPlan)
+            .where(AssignmentPlan.user_id == user_id, AssignmentPlan.course_id == course_id)
+            .order_by(AssignmentPlan.created_at.desc())
+        )
+        latest: dict[str, AssignmentPlan] = {}
+        for plan in rows:
+            latest.setdefault(plan.document_id, plan)
+        return latest
+
+    def get(self, user_id: str, plan_id: str) -> AssignmentPlan:
+        plan = self.session.scalar(
+            select(AssignmentPlan).where(
+                AssignmentPlan.id == plan_id, AssignmentPlan.user_id == user_id
+            )
+        )
+        if plan is None:
+            raise NotFoundError(plan_id)
+        return plan
+
+    def create(self, user_id: str, **values: object) -> AssignmentPlan:
+        plan = AssignmentPlan(user_id=user_id, **values)  # type: ignore[arg-type]
+        self.session.add(plan)
+        self.session.flush()
+        return plan
+
+    def set_step_approval(
+        self, user_id: str, plan_id: str, step_index: int, approval: str
+    ) -> AssignmentPlan:
+        plan = self.get(user_id, plan_id)
+        steps = [dict(step) for step in plan.steps]
+        target = next((s for s in steps if int(s.get("index", -1)) == step_index), None)
+        if target is None:
+            raise NotFoundError(f"step {step_index}")
+        if target.get("approval") == "not_required":
+            # A grounded step has nothing to approve; refusing keeps the record
+            # honest about which steps ever needed a decision.
+            raise ValueError("That step is grounded in your material and needs no approval.")
+        target["approval"] = approval
+        plan.steps = steps
+        plan.status = (
+            "needs_approval" if any(s.get("approval") == "pending" for s in steps) else "ready"
+        )
+        self.session.flush()
+        return plan

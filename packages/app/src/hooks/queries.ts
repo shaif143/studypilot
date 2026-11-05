@@ -8,6 +8,8 @@
  */
 import { ApiError } from '@studypilot/api-client';
 import type {
+  Assignment,
+  AssignmentPlan,
   AuthStatus,
   AnswerResponse,
   AskRequest,
@@ -69,6 +71,8 @@ export const keys = {
   mastery: (courseId?: string) => ['mastery', courseId ?? 'all'] as const,
   recommendations: (courseId?: string) => ['recommendations', courseId ?? 'all'] as const,
   attention: (documentId: string) => ['attention', documentId] as const,
+  assignments: (courseId: string) => ['assignments', courseId] as const,
+  assignmentPlan: (documentId: string) => ['assignments', 'plan', documentId] as const,
 };
 
 /** Anything that changes as a side effect of studying. */
@@ -277,10 +281,10 @@ export function useUploadDocument() {
   return useMutation<
     UploadResult,
     Error,
-    { courseId: string; file: File; title?: string; kind?: string }
+    { courseId: string; file: File; title?: string; kind?: string; allowCloud?: boolean }
   >({
-    mutationFn: ({ courseId, file, title, kind }) =>
-      client.uploadDocument(courseId, file, { title, kind }),
+    mutationFn: ({ courseId, file, title, kind, allowCloud }) =>
+      client.uploadDocument(courseId, file, { title, kind, allowCloud }),
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({ queryKey: keys.documents(variables.courseId) });
       void queryClient.invalidateQueries({ queryKey: keys.documents(undefined) });
@@ -584,3 +588,66 @@ export function describeError(error: unknown): string {
 }
 
 export type { UseQueryOptions };
+
+
+// --- assignment guides ------------------------------------------------------
+export function useAssignments(courseId: string | undefined) {
+  const client = useClient();
+  return useQuery<Assignment[]>({
+    queryKey: keys.assignments(courseId ?? ''),
+    queryFn: () => client.assignments(courseId ?? ''),
+    enabled: Boolean(courseId),
+  });
+}
+
+export function useAssignmentPlan(documentId: string | undefined) {
+  const client = useClient();
+  return useQuery<AssignmentPlan>({
+    queryKey: keys.assignmentPlan(documentId ?? ''),
+    queryFn: () => client.assignmentPlan(documentId ?? ''),
+    enabled: Boolean(documentId),
+    // A 404 means "not drafted yet", which the screen handles; retrying it
+    // would just delay that answer.
+    retry: false,
+  });
+}
+
+export function useDraftAssignmentPlan(courseId: string) {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      documentId,
+      allowCloud,
+      provider,
+    }: {
+      documentId: string;
+      allowCloud: boolean;
+      provider?: string | null;
+    }) => client.draftAssignmentPlan(documentId, { allowCloud, provider }),
+    onSuccess: (plan) => {
+      queryClient.setQueryData(keys.assignmentPlan(plan.document_id), plan);
+      void queryClient.invalidateQueries({ queryKey: keys.assignments(courseId) });
+    },
+  });
+}
+
+export function useSetStepApproval(courseId: string) {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      planId,
+      stepIndex,
+      approval,
+    }: {
+      planId: string;
+      stepIndex: number;
+      approval: 'approved' | 'declined';
+    }) => client.setStepApproval(planId, stepIndex, approval),
+    onSuccess: (plan) => {
+      queryClient.setQueryData(keys.assignmentPlan(plan.document_id), plan);
+      void queryClient.invalidateQueries({ queryKey: keys.assignments(courseId) });
+    },
+  });
+}

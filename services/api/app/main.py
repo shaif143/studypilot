@@ -23,6 +23,7 @@ from app import __version__
 from app.api import (
     routes_analytics,
     routes_assessment,
+    routes_assignments,
     routes_auth,
     routes_courses,
     routes_documents,
@@ -149,10 +150,13 @@ def create_app(
     # Accounts exist only where there is something to sign in to.
     if settings.is_hosted:
         app.include_router(routes_auth.router)
+    else:
+        app.include_router(routes_auth.desktop_router)
     app.include_router(routes_settings.router)
     app.include_router(routes_courses.router)
     app.include_router(routes_documents.router)
     app.include_router(routes_tutor.router)
+    app.include_router(routes_assignments.router)
     app.include_router(routes_assessment.router)
     app.include_router(routes_flashcards.router)
     app.include_router(routes_notes.router)

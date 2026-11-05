@@ -31,6 +31,10 @@ class ProviderInfoOut(BaseModel):
     requires_api_key: bool
     detail: str
     model: str
+    #: Which non-text briefs this provider can read. Decides whether an
+    #: image or audio upload can be transcribed on this installation.
+    accepts_images: bool = False
+    accepts_audio: bool = False
 
 
 class ProvidersResponse(BaseModel):
@@ -518,3 +522,76 @@ class ExportResponse(BaseModel):
 class DeleteResultOut(BaseModel):
     deleted: bool
     detail: str
+
+
+# --- assignment guides ----------------------------------------------------
+class PlanCitationOut(BaseModel):
+    marker: int
+    chunk_id: str
+    document_id: str
+    document_title: str = ""
+    page_number: int
+    section: str = ""
+    quote: str = ""
+
+
+class PlanStepOut(BaseModel):
+    index: int
+    title: str
+    instruction: str
+    why: str = ""
+    requirement_ids: list[str] = Field(default_factory=list)
+    #: "slides" when grounded in the course's lecture material, else "beyond".
+    grounding: Literal["slides", "beyond"]
+    citations: list[PlanCitationOut] = Field(default_factory=list)
+    approval: Literal["not_required", "pending", "approved", "declined"]
+    #: The warning shown on a step that goes beyond the slides. Empty when grounded.
+    disclosure: str = ""
+    coverage: float = 0.0
+    model_flagged_beyond: bool = False
+    beyond_reason: str = ""
+
+
+class RequirementOut(BaseModel):
+    id: str
+    text: str
+    kind: Literal["deliverable", "constraint", "criterion", "tool"] = "deliverable"
+    quote: str = ""
+
+
+class AssignmentPlanOut(BaseModel):
+    model_config = ORM
+
+    id: str
+    course_id: str
+    document_id: str
+    status: Literal["ready", "needs_approval", "failed"]
+    summary: str
+    requirements: list[RequirementOut]
+    steps: list[PlanStepOut]
+    provider: str
+    model: str
+    #: False means no language model drafted this: it is the brief's
+    #: requirements with matching passages, and the UI must say so.
+    generative: bool
+    warnings: list[str] = Field(default_factory=list)
+    input_tokens: int = 0
+    output_tokens: int = 0
+    created_at: datetime
+
+
+class PlanRequest(BaseModel):
+    #: Per-request opt-in to a cloud provider, in addition to the stored setting.
+    allow_cloud: bool = False
+    provider: str | None = None
+
+
+class StepApprovalRequest(BaseModel):
+    approval: Literal["approved", "declined"]
+
+
+class AssignmentOut(BaseModel):
+    """One assignment brief in a course, with its latest plan if any."""
+
+    document: DocumentOut
+    plan: AssignmentPlanOut | None = None

@@ -273,7 +273,53 @@ application — and therefore the desktop build — carries no dependency on it.
 
 ---
 
-## 17. Deferred deliberately
+## 17. The planner's grounding decision belongs to code
+
+**Decision.** A step in an assignment guide is "grounded in your slides" only
+when deterministic code says so: real citation markers, the model did not
+flag it as beyond the material, and the step's content terms are mostly
+present in the cited passages. The model's flag can demote a step, never
+promote one. The disclosure on a beyond-the-slides step is a fixed template,
+not model text.
+
+**Why.** The feature exists to tell a student which parts of their plan their
+course actually taught. The expensive error is a false "grounded"; a model
+asked to self-report grounding will sometimes say yes to be helpful. Making
+the decision asymmetric and mechanical means a prompt cannot soften it.
+
+**What it costs.** Some genuinely covered steps are held for approval because
+their wording does not overlap the slides — a false "beyond". That is the
+cheap error: the student reads the disclosure, sees it is covered, and
+approves it.
+
+---
+
+## 18. Gemini replaces OpenAI
+
+**Decision.** The second cloud provider is Gemini. OpenAI remains
+constructible for anyone who pinned it but is no longer offered.
+
+**Why.** One provider that reads text, images and audio through a single
+endpoint is what makes image and audio briefs possible on a hosted instance
+with no local speech model, and the owner asked for it. Audio goes to the
+dedicated transcription model.
+
+---
+
+## 19. Tests never read `.env.local`
+
+**Decision.** `Settings` reads only `.env`; the dev script exports
+`.env.local` into its own environment.
+
+**Why.** `.env.local` holds the hosted deployment's real connection string.
+Letting `Settings` read it — which was briefly done so API keys would be
+picked up — would have pointed every `Settings()` in the test suite, whose
+fixtures drop and recreate the schema, at the production database. The
+permission classifier refused to run the suite, which is how it was caught.
+
+---
+
+## 20. Deferred deliberately
 
 | Deferred | Reason |
 | --- | --- |

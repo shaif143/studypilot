@@ -2,6 +2,8 @@ import type {
   Account,
   AnswerResponse,
   Assessment,
+  Assignment,
+  AssignmentPlan,
   AskRequest,
   AuthStatus,
   AttemptResult,
@@ -261,12 +263,15 @@ export class StudyPilotClient {
   uploadDocument = (
     courseId: string,
     file: File,
-    options: { title?: string; kind?: string } = {},
+    options: { title?: string; kind?: string; allowCloud?: boolean } = {},
   ) => {
     const form = new FormData();
     form.append('file', file);
     if (options.title) form.append('title', options.title);
     if (options.kind) form.append('kind', options.kind);
+    // Image and audio briefs are read by a model; this is the per-request
+    // consent for a cloud one. PDFs ignore it.
+    if (options.allowCloud) form.append('allow_cloud', 'true');
     return this.request<import('@studypilot/shared').UploadResult>(
       `/api/courses/${courseId}/documents`,
       { method: 'POST', form },
@@ -304,6 +309,27 @@ export class StudyPilotClient {
     if (!response.ok) throw new ApiError(`Could not load ${path}`, response.status);
     return URL.createObjectURL(await response.blob());
   }
+
+  // --- assignment guides ----------------------------------------------
+  assignments = (courseId: string) =>
+    this.request<Assignment[]>(`/api/courses/${courseId}/assignments`);
+  assignmentPlan = (documentId: string) =>
+    this.request<AssignmentPlan>(`/api/assignments/${documentId}/plan`);
+  draftAssignmentPlan = (
+    documentId: string,
+    options: { allowCloud?: boolean; provider?: string | null } = {},
+    signal?: AbortSignal,
+  ) =>
+    this.request<AssignmentPlan>(`/api/assignments/${documentId}/plan`, {
+      method: 'POST',
+      body: { allow_cloud: options.allowCloud ?? false, provider: options.provider ?? null },
+      signal,
+    });
+  setStepApproval = (planId: string, stepIndex: number, approval: 'approved' | 'declined') =>
+    this.request<AssignmentPlan>(`/api/assignments/plans/${planId}/steps/${stepIndex}/approval`, {
+      method: 'POST',
+      body: { approval },
+    });
 
   // --- tutor -----------------------------------------------------------
   ask = (request: AskRequest, signal?: AbortSignal) =>

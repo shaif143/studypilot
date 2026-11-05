@@ -113,7 +113,7 @@ def test_rejects_a_disguised_non_pdf(client: TestClient, course):
         files={"file": ("evil.pdf", b"PK\x03\x04 a zip pretending to be a pdf", "application/pdf")},
     )
     assert response.status_code == 400
-    assert "does not look like a PDF" in response.json()["detail"]
+    assert "does not look like any of those" in response.json()["detail"]
 
 
 def test_pptx_is_declined_honestly_not_silently(client: TestClient, course):
@@ -183,7 +183,9 @@ def test_providers_endpoint_declares_data_egress(client: TestClient):
     assert by_key["extractive"]["generative"] is False
     assert by_key["ollama"]["sends_data_off_device"] is False
     assert by_key["anthropic"]["sends_data_off_device"] is True
-    assert by_key["openai"]["sends_data_off_device"] is True
+    assert by_key["gemini"]["sends_data_off_device"] is True
+    assert by_key["gemini"]["accepts_audio"] is True
+    assert "openai" not in by_key
     assert body["active_is_generative"] is False
 
 

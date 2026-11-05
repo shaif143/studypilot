@@ -150,8 +150,14 @@ provider names.
 | --- | --- | --- | --- |
 | `extractive` *(default)* | **No** | No | Ranks and quotes sentences from the student's own material. Cannot hallucinate; cannot teach. |
 | `ollama` | Yes | No | Local runtime, optional install. |
-| `anthropic` | Yes | **Yes** | Requires consent and an API key. |
-| `openai` | Yes | **Yes** | Requires consent and an API key. |
+| `anthropic` | Yes | **Yes** | Requires consent and `ANTHROPIC_API_KEY`. Reads images. The default for assignment guides when a key is present. |
+| `gemini` | Yes | **Yes** | Requires consent and `GEMINI_API_KEY`. Reads images and audio; audio goes to the dedicated `gemini-3.5-transcribe` model. Replaced OpenAI. |
+
+`GenerationRequest` carries optional `attachments` (image or audio bytes). A
+provider that cannot read them raises rather than answering without them —
+answering about a file it did not see would be answering a different
+question. `ProviderInfo.accepts_images` / `accepts_audio` are what the
+ingestion path checks before handing a brief to a model.
 
 Embeddings follow the same pattern: `hash` (no download, offline, weak),
 `model2vec` (~30 MB, CPU-only, recommended), `sentence-transformers` (best
@@ -218,8 +224,8 @@ unresponsive window for that time.
 
 ## Ingestion
 
-Deterministic end to end — no model is involved, so the output is identical on
-every run and works with nothing installed:
+For PDFs, deterministic end to end — no model is involved, so the output is
+identical on every run and works with nothing installed:
 
 ```text
 validate (magic bytes, size) → extract (PyMuPDF) → detect topics
@@ -234,6 +240,64 @@ Every indexed item retains: owner, course, document, version, page number,
 section, element type, bounding box, source text, and the embedding model
 version. The bounding boxes are what make a citation clickable — the reader
 draws them over the rendered PDF.
+
+### Image and audio briefs
+
+A photographed brief or a recording cannot be read without a model, so
+`app/ingestion/media.py` is the one place a model enters ingestion. It
+produces the same `ExtractedDocument` the PDF path does — one page holding
+the transcript — and everything downstream is unchanged. The rules that
+follow from a model being involved:
+
+- the file type comes from the bytes, never the name or the declared type;
+- the document records what read it (`extraction_meta.extractor`:
+  `vision:anthropic`, `whisper-small`, `transcribe:gemini`) and the upload
+  response warns the student to check the transcript against the original;
+- images need a provider with `accepts_images`; audio tries a local
+  `faster-whisper` model first (optional `[audio]` extra — nothing leaves the
+  machine) and falls back to a provider with `accepts_audio` under the same
+  consent gate as the tutor, controlled by `STUDYPILOT_AUDIO_TRANSCRIBER`;
+- a provider that cannot read the file refuses with a message naming what is
+  needed, and the document is marked `failed` rather than indexed empty.
+
+## Assignment guides
+
+`app/assignments/planner.py` turns an assignment brief into a step-by-step
+plan grounded in the course's lecture material:
+
+```text
+brief ─▶ requirements ─▶ retrieve lecture passages per requirement
+      ─▶ draft steps ─▶ ground each step ─▶ plan (ready | needs_approval)
+```
+
+Two model calls, both returning JSON that is parsed and validated rather
+than trusted: one reduces the brief to its requirements (deliverables,
+constraints, criteria, tools), one drafts steps against those requirements
+and the retrieved passages. Retrieval is scoped to documents of kind
+`lecture` and `textbook` only — citing another brief as evidence that the
+slides cover something would be circular.
+
+**The grounding rule is code, not the model.** A step is `slides` only when
+it cites at least one real passage marker, the model did not itself flag it
+as beyond the material, *and* the step's content terms are mostly present in
+the passages it cited (the same term-coverage test the tutor uses). Anything
+else is `beyond`: its approval state is `pending`, and it carries a
+disclosure — written by code, so it reads the same every time — naming the
+terms the lecture material does not cover. The model's own flag can hold a
+step back but never promote one. The expensive mistake is telling a student
+their slides cover something they do not.
+
+The plan never contains the work. The system prompt forbids writing code,
+analysis or report text; a step says what to do, why, and where the lecture
+material shows how. The course's integrity policy is passed through.
+
+Without a generative provider the planner still answers, honestly: the
+brief's numbered lines become requirements, each gets the passages that
+match it, and the plan says in its warnings that no model was used.
+
+Plans persist as JSON in `assignment_plans`; approving or declining a step is
+a repository operation that refuses to change a grounded step, so the record
+of which steps ever needed a decision stays intact.
 
 ## Prompt-injection posture
 

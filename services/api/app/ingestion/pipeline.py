@@ -19,6 +19,7 @@ from pathlib import Path
 
 from app.config import Settings
 from app.ingestion.chunking import build_chunks
+from app.ingestion.media import MediaReader, is_audio, is_image, sniff_media_type
 from app.ingestion.pdf import ExtractedDocument, UnreadableDocumentError, extract_pdf
 from app.ingestion.topics import (
     detect_topics,
@@ -67,13 +68,17 @@ def validate_upload(filename: str, data: bytes, settings: Settings) -> str:
         raise UnsupportedFileError(f"That file is larger than the {limit_mb} MB limit.")
     if data[:5] == _PDF_MAGIC:
         return "application/pdf"
+    sniffed = sniff_media_type(data, filename)
+    if sniffed and (is_image(sniffed) or is_audio(sniffed)):
+        return sniffed
     suffix = Path(filename).suffix.lower()
     if suffix == ".pptx":
         raise UnsupportedFileError(
             "PowerPoint import is not implemented yet. Export the deck as a PDF and upload that."
         )
     raise UnsupportedFileError(
-        "Only PDF files are supported at the moment. The file does not look like a PDF."
+        "Supported files are PDF, PNG, JPEG, WebP images, and WAV, MP3 or M4A audio. "
+        "This file does not look like any of those."
     )
 
 
@@ -88,8 +93,15 @@ def ingest_document(
     documents: DocumentRepository,
     chunks: ChunkRepository,
     topics: TopicRepository,
+    media_reader: MediaReader | None = None,
 ) -> IngestionResult:
-    """Extract, chunk, embed and index a stored document."""
+    """Extract, chunk, embed and index a stored document.
+
+    PDFs are read deterministically. Image and audio briefs go through
+    ``media_reader``, which carries whatever consent-gated model the caller
+    resolved; without one, such a document fails with a message saying what
+    is needed rather than being indexed empty.
+    """
     started = time.monotonic()
     documents.set_status(document, "processing", "Reading the document")
 
@@ -101,11 +113,27 @@ def ingest_document(
         # The store yields a real file: PyMuPDF wants a path, and a remote
         # store downloads to a temporary one that is cleaned up on exit.
         with blobs.local_path(document.content_hash) as source_path:
-            extracted: ExtractedDocument = extract_pdf(
-                source_path,
-                max_pages=settings.max_pdf_pages,
-                preview_sink=store_preview,
-            )
+            extracted: ExtractedDocument
+            if is_image(document.media_type) or is_audio(document.media_type):
+                reader = media_reader or MediaReader(settings=settings, provider=None)
+                data = Path(source_path).read_bytes()
+                if is_image(document.media_type):
+                    extracted = reader.read_image(
+                        data, document.media_type, title=document.title, preview_sink=store_preview
+                    )
+                else:
+                    extracted = reader.read_audio(
+                        data,
+                        document.media_type,
+                        title=document.title,
+                        source_path=Path(source_path),
+                    )
+            else:
+                extracted = extract_pdf(
+                    source_path,
+                    max_pages=settings.max_pdf_pages,
+                    preview_sink=store_preview,
+                )
     except UnreadableDocumentError as exc:
         documents.set_status(document, "failed", str(exc))
         return IngestionResult(
@@ -146,7 +174,7 @@ def ingest_document(
         "pages_with_equations": sum(1 for p in extracted.pages if p.has_equations),
         "pages_with_figures": sum(1 for p in extracted.pages if p.has_figures),
         "pages_with_tables": sum(1 for p in extracted.pages if p.has_tables),
-        "extractor": "pymupdf",
+        "extractor": extracted.extractor,
     }
 
     # --- topics ----------------------------------------------------------

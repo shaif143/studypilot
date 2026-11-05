@@ -53,6 +53,14 @@ Legend: ✅ implemented and tested · 🧪 experimental or interface-only ·
 
 - ✅ Socratic assignment guidance with six hint levels and a per-course
   integrity policy
+- ✅ **Assignment guides**: a brief (PDF, image or audio) becomes a
+  step-by-step plan; each step is grounded in the course's lectures with
+  citations or held for the student's approval with a disclosure saying
+  what the slides do not cover. Drafted by Anthropic by default; works
+  without a model as a requirements-with-passages list.
+- ✅ Image briefs read by a vision model; audio briefs transcribed locally
+  (faster-whisper, optional) or by Gemini
+- ✅ Gemini provider (replaces OpenAI); Ollama set up for on-device generation
 - ✅ LangGraph orchestration (deliberately a bounded state machine)
 - ✅ Corrective retrieval
 - ✅ KaTeX mathematics rendering throughout
@@ -60,9 +68,10 @@ Legend: ✅ implemented and tested · 🧪 experimental or interface-only ·
   algorithm walkthroughs. The safe approach is decided (structured generation
   into predefined components; never executing model-authored JavaScript) but
   nothing is built.
-- ❌ **Multimodal understanding** of diagrams. Figures are detected and their
-  bounding boxes stored; no vision model is called. The consent switch exists
-  and is honoured, but the capability does not.
+- ⏸ **Multimodal understanding of diagrams inside lecture PDFs.** Figures are
+  detected and their bounding boxes stored, but no vision model is called on
+  them. The vision path now exists (it reads image *briefs*); pointing it at
+  figures is the next step.
 - ⏸ Knowledge graph / Graph RAG — prerequisites are a list column on `Topic`;
   no graph store.
 - ⏸ Open Knowledge Format interchange layer.

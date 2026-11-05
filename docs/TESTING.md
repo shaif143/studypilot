@@ -79,6 +79,8 @@ simulate quitting and relaunching.
 | `test_database_selection.py` | That `STUDYPILOT_DATABASE_URL` is actually honoured, end to end into the runtime context — the regression test for the silent SQLite fallback described below |
 | `test_object_storage.py` | `S3BlobStore` against a simulated S3 (`moto`): content addressing, asset prefixes, multi-batch deletion past the 1000-key API cap, prefix isolation between deployments, and that both store implementations are genuinely substitutable |
 | `test_storage_reachability.py` | That the object store is verified at boot — a missing bucket names the settings to fix, a read-only token is distinguished from an unreachable one, the probe leaves nothing behind, and the boto3 checksum behaviour that Cloudflare R2 requires is actually set |
+| `test_assignment_planner.py` | The grounding rule: a cited, covered step is grounded; a step the model flags as beyond is never grounded even with citations; an uncited step and a step whose citations do not cover its terms are both `beyond` with a disclosure naming what is missing; fabricated markers are stripped; retrieval is scoped to lecture material; without a model the plan is honest about being a requirements list; the disclosure is written by code |
+| `test_media_briefs.py` | Media type from bytes not names; images and audio accepted by validation; an image becomes one page with the transcript, the image handed to the model as bytes; a text-only provider refuses an image; audio falls back from local to a consented cloud provider, stays local when pinned, is refused when off or oversized; Ollama refuses attachments; Anthropic sends an image as a base64 block; Gemini's request shape and audio routing to the transcription model; no candidates is an error |
 | `test_neon_auth.py` | Neon Auth JWT verification: a genuine EdDSA token is accepted; one signed by another key, from another issuer or audience, expired, unsigned (`alg: none`), or without a subject is rejected. Uses a local keypair, so no network |
 | `test_postgres_integration.py` | The hosted data path against **real PostgreSQL**: `tsvector` ranking and scoping, tsquery syntax in a student's question, pgvector similarity and allow-list filtering, dimension-change rebuilds, the full upload-to-quiz workflow, and account isolation. Skipped unless `STUDYPILOT_TEST_DATABASE_URL` is set |
 | `test_supervision.py` | The parent-process watchdog, including an end-to-end test that a watched grandchild exits by itself when its parent is killed — the behaviour the packaged app depends on |
@@ -216,6 +218,12 @@ Stated plainly rather than implied by omission.
   `npm run test:e2e` is wired, but no specs are written. The browser paths —
   upload through the real file picker, pdf.js canvas rendering, drag-to-resize,
   keyboard navigation — were verified by hand, not automatically.
+- **No test calls a real model.** The planner and the vision/audio readers are
+  tested with scripted providers. The Anthropic and Gemini request bodies are
+  asserted by intercepting the HTTP call, so the shapes are pinned, but whether
+  the current model returns usable JSON for a real brief has only been checked
+  by hand once keys were available — and local Whisper transcription has not
+  been run at all: the fallback logic is tested, the model is not.
 - **No test runs the hosted container.** The two worst bugs in the list above
   — EdDSA missing from the image, and the API client failing open on a 404 —
   existed only in the deployed artefact and were found by hand: building the

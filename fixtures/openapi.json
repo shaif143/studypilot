@@ -333,6 +333,121 @@
         "title": "AssessmentOut",
         "type": "object"
       },
+      "AssignmentOut": {
+        "description": "One assignment brief in a course, with its latest plan if any.",
+        "properties": {
+          "document": {
+            "$ref": "#/components/schemas/DocumentOut"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentPlanOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "document"
+        ],
+        "title": "AssignmentOut",
+        "type": "object"
+      },
+      "AssignmentPlanOut": {
+        "properties": {
+          "course_id": {
+            "title": "Course Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "string"
+          },
+          "generative": {
+            "title": "Generative",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "input_tokens": {
+            "default": 0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "output_tokens": {
+            "default": 0,
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementOut"
+            },
+            "title": "Requirements",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "needs_approval",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/PlanStepOut"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "course_id",
+          "document_id",
+          "status",
+          "summary",
+          "requirements",
+          "steps",
+          "provider",
+          "model",
+          "generative",
+          "created_at"
+        ],
+        "title": "AssignmentPlanOut",
+        "type": "object"
+      },
       "AttemptResultOut": {
         "properties": {
           "assessment_id": {
@@ -512,6 +627,11 @@
             "title": "Authenticated",
             "type": "boolean"
           },
+          "provider": {
+            "default": "builtin",
+            "title": "Provider",
+            "type": "string"
+          },
           "registration_open": {
             "title": "Registration Open",
             "type": "boolean"
@@ -531,6 +651,11 @@
       },
       "Body_upload_document_api_courses__course_id__documents_post": {
         "properties": {
+          "allow_cloud": {
+            "default": false,
+            "title": "Allow Cloud",
+            "type": "boolean"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -1855,8 +1980,165 @@
         "title": "PasswordChangeRequest",
         "type": "object"
       },
+      "PlanCitationOut": {
+        "properties": {
+          "chunk_id": {
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "string"
+          },
+          "document_title": {
+            "default": "",
+            "title": "Document Title",
+            "type": "string"
+          },
+          "marker": {
+            "title": "Marker",
+            "type": "integer"
+          },
+          "page_number": {
+            "title": "Page Number",
+            "type": "integer"
+          },
+          "quote": {
+            "default": "",
+            "title": "Quote",
+            "type": "string"
+          },
+          "section": {
+            "default": "",
+            "title": "Section",
+            "type": "string"
+          }
+        },
+        "required": [
+          "marker",
+          "chunk_id",
+          "document_id",
+          "page_number"
+        ],
+        "title": "PlanCitationOut",
+        "type": "object"
+      },
+      "PlanRequest": {
+        "properties": {
+          "allow_cloud": {
+            "default": false,
+            "title": "Allow Cloud",
+            "type": "boolean"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          }
+        },
+        "title": "PlanRequest",
+        "type": "object"
+      },
+      "PlanStepOut": {
+        "properties": {
+          "approval": {
+            "enum": [
+              "not_required",
+              "pending",
+              "approved",
+              "declined"
+            ],
+            "title": "Approval",
+            "type": "string"
+          },
+          "beyond_reason": {
+            "default": "",
+            "title": "Beyond Reason",
+            "type": "string"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/PlanCitationOut"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "coverage": {
+            "default": 0.0,
+            "title": "Coverage",
+            "type": "number"
+          },
+          "disclosure": {
+            "default": "",
+            "title": "Disclosure",
+            "type": "string"
+          },
+          "grounding": {
+            "enum": [
+              "slides",
+              "beyond"
+            ],
+            "title": "Grounding",
+            "type": "string"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "instruction": {
+            "title": "Instruction",
+            "type": "string"
+          },
+          "model_flagged_beyond": {
+            "default": false,
+            "title": "Model Flagged Beyond",
+            "type": "boolean"
+          },
+          "requirement_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Requirement Ids",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "why": {
+            "default": "",
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "title",
+          "instruction",
+          "grounding",
+          "approval"
+        ],
+        "title": "PlanStepOut",
+        "type": "object"
+      },
       "ProviderInfoOut": {
         "properties": {
+          "accepts_audio": {
+            "default": false,
+            "title": "Accepts Audio",
+            "type": "boolean"
+          },
+          "accepts_images": {
+            "default": false,
+            "title": "Accepts Images",
+            "type": "boolean"
+          },
           "available": {
             "title": "Available",
             "type": "boolean"
@@ -2195,6 +2477,40 @@
           "password"
         ],
         "title": "RegisterRequest",
+        "type": "object"
+      },
+      "RequirementOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "default": "deliverable",
+            "enum": [
+              "deliverable",
+              "constraint",
+              "criterion",
+              "tool"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "quote": {
+            "default": "",
+            "title": "Quote",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text"
+        ],
+        "title": "RequirementOut",
         "type": "object"
       },
       "ResponseIn": {
@@ -2594,6 +2910,23 @@
           "score"
         ],
         "title": "SourceOut",
+        "type": "object"
+      },
+      "StepApprovalRequest": {
+        "properties": {
+          "approval": {
+            "enum": [
+              "approved",
+              "declined"
+            ],
+            "title": "Approval",
+            "type": "string"
+          }
+        },
+        "required": [
+          "approval"
+        ],
+        "title": "StepApprovalRequest",
         "type": "object"
       },
       "SubmitRequest": {
@@ -3465,6 +3798,303 @@
         ]
       }
     },
+    "/api/assignments/plans/{plan_id}/steps/{step_index}/approval": {
+      "post": {
+        "operationId": "set_step_approval_api_assignments_plans__plan_id__steps__step_index__approval_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "step_index",
+            "required": true,
+            "schema": {
+              "title": "Step Index",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-studypilot-token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Studypilot-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StepApprovalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignmentPlanOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Step Approval",
+        "tags": [
+          "assignments"
+        ]
+      }
+    },
+    "/api/assignments/{document_id}/plan": {
+      "get": {
+        "operationId": "get_plan_api_assignments__document_id__plan_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-studypilot-token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Studypilot-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignmentPlanOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Plan",
+        "tags": [
+          "assignments"
+        ]
+      },
+      "post": {
+        "operationId": "draft_plan_api_assignments__document_id__plan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-studypilot-token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Studypilot-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignmentPlanOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Draft Plan",
+        "tags": [
+          "assignments"
+        ]
+      }
+    },
     "/api/attention/samples": {
       "post": {
         "description": "Accept per-element dwell aggregates. Never raw gaze or camera data.",
@@ -3731,6 +4361,22 @@
         "operationId": "change_password_api_auth_change_password_post",
         "parameters": [
           {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
             "in": "cookie",
             "name": "studypilot_session",
             "required": false,
@@ -3839,6 +4485,22 @@
         "operationId": "logout_everywhere_api_auth_logout_everywhere_post",
         "parameters": [
           {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
             "in": "cookie",
             "name": "studypilot_session",
             "required": false,
@@ -3922,6 +4584,22 @@
         "description": "What the frontend needs to decide whether to show a sign-in screen.",
         "operationId": "status__api_auth_status_get",
         "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
           {
             "in": "cookie",
             "name": "studypilot_session",
@@ -4418,6 +5096,100 @@
         "summary": "Update Course",
         "tags": [
           "courses"
+        ]
+      }
+    },
+    "/api/courses/{course_id}/assignments": {
+      "get": {
+        "operationId": "list_assignments_api_courses__course_id__assignments_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "course_id",
+            "required": true,
+            "schema": {
+              "title": "Course Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-studypilot-token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Studypilot-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AssignmentOut"
+                  },
+                  "title": "Response List Assignments Api Courses  Course Id  Assignments Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Assignments",
+        "tags": [
+          "assignments"
         ]
       }
     },

@@ -29,6 +29,11 @@ class ProviderInfo:
     generative: bool = True
     requires_api_key: bool = False
     model: str = ""
+    #: Which non-text inputs the provider can read. Image and audio briefs are
+    #: ingested through a model, so these decide whether such an upload can
+    #: be read at all on this installation.
+    accepts_images: bool = False
+    accepts_audio: bool = False
 
 
 @dataclass
@@ -48,6 +53,20 @@ class EvidenceSnippet:
 
 
 @dataclass
+class Attachment:
+    """A non-text input handed to a provider that can read it.
+
+    Bytes rather than a path or URL: the provider layer never touches the
+    blob store, and a cloud provider receives exactly what is here and
+    nothing else.
+    """
+
+    media_type: str
+    data: bytes
+    label: str = ""
+
+
+@dataclass
 class GenerationRequest:
     system: str
     #: Fully rendered prompt for providers that perform real generation.
@@ -61,6 +80,11 @@ class GenerationRequest:
     #: Opaque structured-output hint; providers that cannot honour it ignore it.
     json_schema: dict[str, object] | None = None
     timeout_seconds: float = 90.0
+    #: Images or audio for a multimodal provider. A provider that cannot
+    #: read them raises ProviderUnavailableError rather than ignoring them,
+    #: because silently answering without the attachment would be answering
+    #: a different question.
+    attachments: list[Attachment] = field(default_factory=list)
 
 
 @dataclass

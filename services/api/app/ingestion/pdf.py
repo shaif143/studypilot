@@ -88,6 +88,10 @@ class ExtractedDocument:
     warnings: list[str] = field(default_factory=list)
     #: True when at least one page produced usable text.
     partial: bool = False
+    #: What produced the text: "pymupdf" for PDFs, "vision:<provider>" for an
+    #: image read by a model, "whisper-<size>" or "transcribe:<provider>" for
+    #: audio. Recorded on the document so the UI can say so.
+    extractor: str = "pymupdf"
 
     @property
     def text_pages(self) -> int:

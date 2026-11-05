@@ -46,6 +46,11 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="STUDYPILOT_",
+        # Only `.env`. `.env.local` holds the hosted deployment's real
+        # connection strings and API keys, and reading it here would make
+        # every Settings() in the test suite — whose fixtures drop and
+        # recreate the schema — point at the production database. The dev
+        # script exports `.env.local` into the environment instead.
         env_file=".env",
         extra="ignore",
     )
@@ -101,6 +106,21 @@ class Settings(BaseSettings):
         "tauri://localhost",
         "http://tauri.localhost",
     )
+
+    # --- Assignment guide ------------------------------------------------
+    #: Provider for drafting assignment guides, if different from the tutor's.
+    #: Empty means: Anthropic when a key is present, otherwise the tutor's
+    #: provider. Set explicitly to pin it.
+    assignment_provider: str = ""
+    #: Which model reads image briefs. Empty means the assignment provider.
+    vision_provider: str = ""
+    #: How audio briefs are transcribed: "auto" tries a local Whisper model
+    #: first and falls back to a cloud provider that accepts audio (with
+    #: consent); "local" and "cloud" pin one; "off" refuses audio uploads.
+    audio_transcriber: Literal["auto", "local", "cloud", "off"] = "auto"
+    #: faster-whisper model size for local transcription. "small" fits an
+    #: 8 GB Mac; "medium" is better and needs about 2 GB more.
+    whisper_model: str = "small"
 
     # --- Authentication --------------------------------------------------
     #: Desktop: a shared secret between the Tauri shell and the sidecar. When

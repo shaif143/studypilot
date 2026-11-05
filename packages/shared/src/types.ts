@@ -40,6 +40,9 @@ export interface ProviderInfo {
   requires_api_key: boolean;
   detail: string;
   model: string;
+  /** Which non-text briefs this provider can read. */
+  accepts_images: boolean;
+  accepts_audio: boolean;
 }
 
 export interface ProvidersResponse {
@@ -476,4 +479,68 @@ export interface HealthResponse {
     llm_provider: string;
     data_dir: string;
   };
+}
+
+// --- assignment guides ------------------------------------------------------
+
+export type StepGrounding = 'slides' | 'beyond';
+export type StepApproval = 'not_required' | 'pending' | 'approved' | 'declined';
+export type RequirementKind = 'deliverable' | 'constraint' | 'criterion' | 'tool';
+export type PlanStatus = 'ready' | 'needs_approval' | 'failed';
+
+export interface PlanCitation {
+  marker: number;
+  chunk_id: string;
+  document_id: string;
+  document_title: string;
+  page_number: number;
+  section: string;
+  quote: string;
+}
+
+export interface PlanStep {
+  index: number;
+  title: string;
+  instruction: string;
+  why: string;
+  requirement_ids: string[];
+  /** `slides` when grounded in this course's lecture material, else `beyond`. */
+  grounding: StepGrounding;
+  citations: PlanCitation[];
+  approval: StepApproval;
+  /** Shown on a step that goes beyond the slides; empty when grounded. */
+  disclosure: string;
+  coverage: number;
+  model_flagged_beyond: boolean;
+  beyond_reason: string;
+}
+
+export interface Requirement {
+  id: string;
+  text: string;
+  kind: RequirementKind;
+  quote: string;
+}
+
+export interface AssignmentPlan {
+  id: string;
+  course_id: string;
+  document_id: string;
+  status: PlanStatus;
+  summary: string;
+  requirements: Requirement[];
+  steps: PlanStep[];
+  provider: string;
+  model: string;
+  /** False: no language model drafted this — requirements with matching passages only. */
+  generative: boolean;
+  warnings: string[];
+  input_tokens: number;
+  output_tokens: number;
+  created_at: string;
+}
+
+export interface Assignment {
+  document: DocumentSummary;
+  plan: AssignmentPlan | null;
 }

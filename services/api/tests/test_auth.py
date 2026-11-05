@@ -429,11 +429,24 @@ def test_the_desktop_shared_token_is_not_accepted_as_identity(hosted: TestClient
 
 
 def test_auth_routes_are_absent_in_desktop_mode(client: TestClient):
-    """Offering an account system where there is nothing to sign in to would lie."""
+    """Offering an account system where there is nothing to sign in to would lie.
+
+    The one exception is the status question itself: the frontend asks it
+    everywhere, and the honest answer in desktop mode is "no sign-in here",
+    said by the server rather than inferred from a 404 — which a website
+    talking to a local backend during development could not tell apart from
+    a missing API.
+    """
     assert (
         client.post("/api/auth/login", json={"email": "a@b.co", "password": "x"}).status_code == 404
     )
-    assert client.get("/api/auth/status").status_code == 404
+    assert client.post("/api/auth/register", json={}).status_code == 404
+    status = client.get("/api/auth/status")
+    assert status.status_code == 200
+    body = status.json()
+    assert body["requires_authentication"] is False
+    assert body["account"] is None
+    assert body["registration_open"] is False
 
 
 # --- isolation between accounts -------------------------------------------

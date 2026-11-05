@@ -15,6 +15,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import Response
 
+from app.agents.service import resolve_provider
 from app.api.deps import (
     ChunksDep,
     ContextDep,
@@ -23,6 +24,7 @@ from app.api.deps import (
     SessionDep,
     TopicsDep,
     UserDep,
+    UsersDep,
     require_token,
 )
 from app.api.schemas import (
@@ -32,6 +34,7 @@ from app.api.schemas import (
     TopicOut,
     UploadResponse,
 )
+from app.ingestion.media import MediaReader, is_audio, is_image
 from app.ingestion.pipeline import UnsupportedFileError, ingest_document, validate_upload
 from app.storage.files import BlobNotFoundError
 
@@ -53,9 +56,14 @@ async def upload_document(
     documents: DocumentsDep,
     chunks: ChunksDep,
     topics: TopicsDep,
+    users: UsersDep,
     file: UploadFile = File(...),
     title: str = Form(default=""),
     kind: str = Form(default="lecture"),
+    #: Per-request consent to read an image or audio brief with a cloud model,
+    #: required in addition to the stored setting. Ignored for PDFs, which are
+    #: read on this machine without any model.
+    allow_cloud: bool = Form(default=False),
 ) -> UploadResponse:
     courses.get(user.id, course_id)  # ownership check before touching the file
 
@@ -97,6 +105,26 @@ async def upload_document(
         status="pending",
     )
 
+    media_reader = None
+    if is_image(media_type) or is_audio(media_type):
+        # A model reads these, so the same consent gate as the tutor applies.
+        settings = context.settings
+        requested = settings.vision_provider or settings.assignment_provider or None
+        if requested is None and settings.llm_provider == "extractive":
+            from app.models.llm import AnthropicProvider, GeminiProvider
+
+            # Audio needs a provider that accepts it; images prefer Anthropic.
+            if is_audio(media_type) and GeminiProvider().info.available:
+                requested = "gemini"
+            elif AnthropicProvider().info.available:
+                requested = "anthropic"
+            elif GeminiProvider().info.available:
+                requested = "gemini"
+        provider, _warnings = resolve_provider(
+            settings, users.settings(user.id), requested=requested, allow_cloud_request=allow_cloud
+        )
+        media_reader = MediaReader(settings=settings, provider=provider)
+
     result = ingest_document(
         document=document,
         settings=context.settings,
@@ -107,6 +135,7 @@ async def upload_document(
         documents=documents,
         chunks=chunks,
         topics=topics,
+        media_reader=media_reader,
     )
 
     return UploadResponse(

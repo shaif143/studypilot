@@ -44,7 +44,10 @@ wherever the backend that the site is configured to talk to stores it.
 | Asking a question with the default provider | No |
 | Asking a question with Ollama | No |
 | Generating quizzes, flashcards or notes without an AI model | No |
-| Asking a question with Anthropic or OpenAI enabled **and** opted into | **Yes** — the question and the retrieved passages |
+| Asking a question with Anthropic or Gemini enabled **and** opted into | **Yes** — the question and the retrieved passages |
+| Drafting an assignment guide with a cloud provider | **Yes** — the brief's text and the lecture passages retrieved for it |
+| Uploading an **image** brief | **Yes, if** cloud processing is on and you opt in on the upload — the image is sent to the vision model. Otherwise the upload is refused with a message, never read silently |
+| Uploading an **audio** brief | **No** when the local Whisper model is installed; otherwise **yes** under the same two-part consent — the recording is sent to Gemini |
 | Telemetry | Never — none is collected or transmitted |
 
 Each provider declares `sends_data_off_device` in code, and the Settings screen

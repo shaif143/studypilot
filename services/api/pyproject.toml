@@ -33,6 +33,9 @@ hosted = [
 ]
 # Static distilled embeddings: ~30 MB, CPU-only, no PyTorch. Recommended.
 local-models = ["model2vec>=0.3"]
+# On-device speech-to-text for audio assignment briefs. CTranslate2 int8 on
+# the CPU, no PyTorch; the "small" model is ~250 MB and fits an 8 GB Mac.
+audio = ["faster-whisper>=1.1"]
 # Full transformer encoders. Best local quality, ~1 GB install.
 strong-models = ["sentence-transformers>=3.0"]
 dev = [

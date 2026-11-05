@@ -340,8 +340,16 @@ function UploadDialog({
 
   const accept = useCallback((candidate: File | undefined) => {
     if (!candidate) return;
-    if (!candidate.name.toLowerCase().endsWith('.pdf') && candidate.type !== 'application/pdf') {
-      setLocalError('Only PDF files are supported. Export slides as a PDF and try again.');
+    const name = candidate.name.toLowerCase();
+    const ok =
+      candidate.type === 'application/pdf' ||
+      /\.(pdf|png|jpe?g|webp|wav|mp3|m4a)$/.test(name) ||
+      candidate.type.startsWith('image/') ||
+      candidate.type.startsWith('audio/');
+    if (!ok) {
+      setLocalError(
+        'Supported files: PDF, PNG/JPEG/WebP images, and WAV/MP3/M4A audio. Export slides as a PDF and try again.',
+      );
       return;
     }
     setLocalError(null);
@@ -429,7 +437,7 @@ function UploadDialog({
             id={inputId}
             ref={inputRef}
             type="file"
-            accept="application/pdf,.pdf"
+            accept="application/pdf,.pdf,image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp,audio/wav,audio/mpeg,audio/mp4,.wav,.mp3,.m4a"
             className="sr-only"
             onChange={(event) => accept(event.target.files?.[0])}
           />
