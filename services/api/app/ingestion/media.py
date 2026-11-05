@@ -169,7 +169,9 @@ class MediaReader:
                 "transcript against the original before relying on it."
             ]
             + ([page.warning] if page.warning else []),
-            partial=bool(text),
+            # The pipeline reads `partial` as "something was lost": a brief whose
+            # transcript came back empty is partial, one with text is complete.
+            partial=not text,
             extractor=f"vision:{provider.info.key}",
         )
 
@@ -234,7 +236,9 @@ class MediaReader:
                 "transcript against the recording before relying on it."
             ]
             + ([page.warning] if page.warning else []),
-            partial=bool(text),
+            # The pipeline reads `partial` as "something was lost": a brief whose
+            # transcript came back empty is partial, one with text is complete.
+            partial=not text,
             extractor=extractor,
         )
 

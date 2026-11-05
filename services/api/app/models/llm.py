@@ -335,10 +335,13 @@ class AnthropicProvider:
                 }
             )
         content.append({"type": "text", "text": request.user})
+        # No `temperature`: Claude 5.x models reject it as deprecated with a
+        # 400, which failed every request until the body was read. Sampling is
+        # left to the model's default; the prompts ask for JSON and are
+        # validated, so determinism is enforced after the call, not before.
         body: dict[str, object] = {
             "model": self.model,
             "max_tokens": request.max_output_tokens,
-            "temperature": request.temperature,
             "system": request.system,
             "messages": [{"role": "user", "content": content}],
         }
@@ -353,8 +356,16 @@ class AnthropicProvider:
                 },
                 timeout=request.timeout_seconds,
             )
-            response.raise_for_status()
+            if response.status_code >= 400:
+                # The body names the problem (a retired model id, a bad
+                # parameter); the status alone does not.
+                raise ProviderUnavailableError(
+                    f"Anthropic returned {response.status_code} for {self.model}: "
+                    f"{_api_error_text(response)}"
+                )
             data = response.json()
+        except ProviderUnavailableError:
+            raise
         except Exception as exc:
             raise ProviderUnavailableError(f"Anthropic request failed: {exc}") from exc
         text = "".join(
@@ -444,12 +455,21 @@ class GeminiProvider:
 
     Reads text, images and audio through one endpoint, which makes it the
     provider that can transcribe a recorded assignment brief on a machine
-    without a local speech model. The dedicated transcription model is used
-    for audio-only requests; everything else goes to the general model.
+    without a local speech model.
+
+    Audio goes to the general model, not Google's dedicated
+    ``gemini-3.5-transcribe``: that model rejects a system instruction
+    ("Developer instruction is not enabled for this model") and, given only
+    the audio, returned an empty text part — its response shape is not the
+    one documented for generateContent, and guessing at it would be worse
+    than using the model that demonstrably works. Checked 2026-11-05 with a
+    15-second recording; 3.6 Flash returned a correct timestamped transcript.
     """
 
     DEFAULT_MODEL = "gemini-3.6-flash"
-    TRANSCRIBE_MODEL = "gemini-3.5-transcribe"
+    #: Tried once when the default answers 503 "high demand", which it did
+    #: for a stretch on the first day of use. Also listed as stable.
+    FALLBACK_MODEL = "gemini-3.5-flash-lite"
     BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
     def __init__(self, model: str = "", api_key: str | None = None) -> None:
@@ -478,12 +498,6 @@ class GeminiProvider:
             accepts_audio=True,
         )
 
-    def _model_for(self, request: GenerationRequest) -> str:
-        kinds = {a.media_type.split("/", 1)[0] for a in request.attachments}
-        if kinds == {"audio"}:
-            return self.TRANSCRIBE_MODEL
-        return self.model
-
     def generate(self, request: GenerationRequest) -> GenerationResult:
         if not self.api_key:
             raise ProviderUnavailableError("No Gemini API key configured.")
@@ -509,16 +523,22 @@ class GeminiProvider:
             "contents": [{"role": "user", "parts": parts}],
             "generationConfig": generation_config,
         }
-        model = self._model_for(request)
+        model = self.model
         try:
-            response = httpx.post(
-                f"{self.BASE_URL}/models/{model}:generateContent",
-                json=body,
-                headers={"x-goog-api-key": self.api_key, "content-type": "application/json"},
-                timeout=request.timeout_seconds,
-            )
-            response.raise_for_status()
+            response = self._post(model, body, request.timeout_seconds)
+            if response.status_code == 503 and model != self.FALLBACK_MODEL:
+                model = self.FALLBACK_MODEL
+                response = self._post(model, body, request.timeout_seconds)
+            if response.status_code >= 400:
+                # The body says what was wrong with the request; the status
+                # alone sends you to the wrong place.
+                raise ProviderUnavailableError(
+                    f"Gemini returned {response.status_code} for {model}: "
+                    f"{_gemini_error_text(response)}"
+                )
             data = response.json()
+        except ProviderUnavailableError:
+            raise
         except Exception as exc:
             raise ProviderUnavailableError(f"Gemini request failed: {exc}") from exc
         candidates = data.get("candidates") or []
@@ -536,10 +556,39 @@ class GeminiProvider:
             text=text,
             provider="gemini",
             model=model,
+            warnings=(
+                [f"{self.model} was overloaded; {model} answered instead."]
+                if model != self.model
+                else []
+            ),
             generative=True,
             input_tokens=usage.get("promptTokenCount"),
             output_tokens=usage.get("candidatesTokenCount"),
         )
+
+
+def _gemini_post(self: GeminiProvider, model: str, body: dict[str, object], timeout: float):
+    return httpx.post(
+        f"{self.BASE_URL}/models/{model}:generateContent",
+        json=body,
+        headers={"x-goog-api-key": self.api_key, "content-type": "application/json"},
+        timeout=timeout,
+    )
+
+
+GeminiProvider._post = _gemini_post  # type: ignore[attr-defined]
+
+
+def _api_error_text(response: httpx.Response) -> str:
+    """The provider's own description of what was wrong, or the raw body."""
+    try:
+        err = response.json().get("error", {})
+        return str(err.get("message") or err)[:300]
+    except Exception:
+        return response.text[:300]
+
+
+_gemini_error_text = _api_error_text
 
 
 def build_llm(provider: str, model: str = "") -> LLMProvider:

@@ -35,8 +35,10 @@ def get_llm_provider(
 ) -> LLMProvider:
     """Return a generation provider, enforcing the cloud-consent gate.
 
-    A provider that transmits content off the device is refused unless consent
-    has been recorded both in settings and in the caller's user preferences.
+    A provider that transmits content off the device is refused unless the
+    installation permits cloud use (`Settings.cloud_processing_permitted`)
+    and the caller carries the user's consent — the stored preference plus
+    the per-request flag, combined into ``cloud_consent`` upstream.
     """
     key = requested or settings.llm_provider
     try:
@@ -46,7 +48,7 @@ def get_llm_provider(
         return cached_llm("extractive", "")
 
     info = provider.info
-    if info.sends_data_off_device and not (cloud_consent and settings.allow_cloud_processing):
+    if info.sends_data_off_device and not (cloud_consent and settings.cloud_processing_permitted):
         raise ConsentRequiredError(
             f"{info.label} would send your course material off this device. "
             "Enable cloud processing in Settings to use it."

@@ -56,10 +56,14 @@ egress behaviour is hidden.
 
 ### The consent gate
 
-Using a cloud provider requires **two** separate affirmations:
+Using a cloud provider requires separate affirmations from everyone involved:
 
-1. `allow_cloud_processing` enabled in Settings, and
-2. an explicit flag on the individual request.
+1. the user's `allow_cloud_processing` toggle in Settings, and
+2. an explicit flag on the individual request — and, on a hosted deployment,
+3. the operator's `STUDYPILOT_ALLOW_CLOUD_PROCESSING` switch, off by default.
+
+On the desktop the operator is the user, so an unset operator switch defers to
+the first two; otherwise the toggle in the app could never do anything.
 
 A single global toggle, once flipped, silently applies to everything
 afterwards. Requiring per-request consent keeps the egress decision attached to

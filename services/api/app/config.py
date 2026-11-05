@@ -173,7 +173,10 @@ class Settings(BaseSettings):
     #: are higher quality and installed via optional extras.
     embedding_provider: str = "hash"
     embedding_model: str = ""
-    #: Explicit, per-install consent gate for sending content to a cloud provider.
+    #: The operator's switch for sending content to a cloud provider. It is
+    #: one of three layers — see `cloud_processing_permitted` — and only the
+    #: hosted deployment has an operator distinct from the user, so only
+    #: there does its default of False bite.
     allow_cloud_processing: bool = False
 
     # --- Retrieval -------------------------------------------------------
@@ -233,6 +236,24 @@ class Settings(BaseSettings):
     @property
     def is_hosted(self) -> bool:
         return self.deployment_mode == "hosted"
+
+    @property
+    def cloud_processing_permitted(self) -> bool:
+        """Whether this installation may send content to a cloud provider at all.
+
+        Cloud use needs three affirmations: this one from whoever runs the
+        service, the user's own Settings toggle, and a flag on the individual
+        request. On the desktop the person running the service *is* the user,
+        so an unset operator switch defers to the other two — otherwise the
+        Settings toggle would be a control that could never do anything,
+        because nobody launches the packaged app with an environment variable.
+        A hosted deployment keeps the operator's explicit say: its default is
+        no. Setting STUDYPILOT_ALLOW_CLOUD_PROCESSING explicitly wins in
+        either mode.
+        """
+        if "allow_cloud_processing" in self.model_fields_set:
+            return self.allow_cloud_processing
+        return self.allow_cloud_processing or not self.is_hosted
 
     @property
     def effective_cors_origins(self) -> tuple[str, ...]:

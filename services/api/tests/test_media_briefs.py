@@ -142,6 +142,7 @@ def test_an_image_brief_becomes_one_page_with_the_transcript_and_a_preview(tmp_p
     assert doc.pages[0].text.startswith("1. Record")
     assert doc.pages[0].heading == "CW2 photo"
     assert doc.extractor == "vision:fake"
+    assert doc.partial is False, "a transcribed brief is a complete document, not a degraded one"
     assert any("read from an image" in w for w in doc.warnings)
     # The image itself was handed to the model, not a description of it.
     sent = vision.requests[0].attachments
@@ -260,6 +261,8 @@ def test_anthropic_sends_an_image_as_a_base64_content_block(monkeypatch):
     captured: dict = {}
 
     class FakeResponse:
+        status_code = 200
+
         def raise_for_status(self):
             pass
 
@@ -291,13 +294,15 @@ def test_anthropic_sends_an_image_as_a_base64_content_block(monkeypatch):
     assert captured["headers"]["x-api-key"] == "k"
 
 
-def test_gemini_request_shape_and_audio_routing(monkeypatch):
+def test_gemini_request_shape_for_audio_and_json(monkeypatch):
     from app.models import llm
     from app.models.base import Attachment
 
     captured: dict = {}
 
     class FakeResponse:
+        status_code = 200
+
         def raise_for_status(self):
             pass
 
@@ -324,8 +329,9 @@ def test_gemini_request_shape_and_audio_routing(monkeypatch):
             json_schema=None,
         )
     )
-    # Audio-only requests go to the dedicated transcription model.
-    assert captured["url"].endswith(f"/models/{GeminiProvider.TRANSCRIBE_MODEL}:generateContent")
+    # Audio goes to the general model: the dedicated transcription model
+    # rejects system instructions and answered a bare request with nothing.
+    assert captured["url"].endswith(f"/models/{GeminiProvider.DEFAULT_MODEL}:generateContent")
     assert captured["headers"]["x-goog-api-key"] == "g"
     body = captured["body"]
     assert body["systemInstruction"] == {"parts": [{"text": "sys"}]}
@@ -333,7 +339,7 @@ def test_gemini_request_shape_and_audio_routing(monkeypatch):
     assert parts[0]["inlineData"]["mimeType"] == "audio/wav"
     assert parts[-1] == {"text": "transcribe"}
     assert result.text == "[00:00] hello"
-    assert result.model == GeminiProvider.TRANSCRIBE_MODEL
+    assert result.model == GeminiProvider.DEFAULT_MODEL
     assert (result.input_tokens, result.output_tokens) == (5, 3)
 
     # Text and images go to the general model, and JSON mode is requested when asked.
@@ -347,6 +353,8 @@ def test_gemini_with_no_candidates_is_an_error_not_an_empty_answer(monkeypatch):
     from app.models.base import ProviderUnavailableError
 
     class FakeResponse:
+        status_code = 200
+
         def raise_for_status(self):
             pass
 
@@ -394,3 +402,34 @@ def test_non_wav_input_is_left_to_the_library(tmp_path):
     path = tmp_path / "a.wav"
     path.write_bytes(b"not a wav")
     assert _decode_pcm_wav(path) is None
+
+
+def test_gemini_falls_back_to_the_lite_model_on_503(monkeypatch):
+    from app.models import llm
+
+    calls: list[str] = []
+
+    class Overloaded:
+        status_code = 503
+
+        def json(self):
+            return {"error": {"message": "high demand"}}
+
+        text = "high demand"
+
+    class Fine:
+        status_code = 200
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": "ok"}]}}], "usageMetadata": {}}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        calls.append(url)
+        return Overloaded() if GeminiProvider.DEFAULT_MODEL in url else Fine()
+
+    monkeypatch.setattr(llm.httpx, "post", fake_post)
+    result = GeminiProvider(api_key="g").generate(GenerationRequest(system="s", user="u"))
+    assert result.text == "ok"
+    assert result.model == GeminiProvider.FALLBACK_MODEL
+    assert len(calls) == 2
+    assert any("overloaded" in w for w in result.warnings)

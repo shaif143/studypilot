@@ -61,6 +61,8 @@ Legend: ✅ implemented and tested · 🧪 experimental or interface-only ·
 - ✅ Image briefs read by a vision model; audio briefs transcribed locally
   (faster-whisper, optional) or by Gemini
 - ✅ Gemini provider (replaces OpenAI); Ollama set up for on-device generation
+  (usable for tutor turns; `llama3.1:8b` is too slow to draft a plan on an
+  8 GB Mac — see `docs/TESTING.md`)
 - ✅ LangGraph orchestration (deliberately a bounded state machine)
 - ✅ Corrective retrieval
 - ✅ KaTeX mathematics rendering throughout

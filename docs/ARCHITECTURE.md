@@ -149,9 +149,9 @@ provider names.
 | Provider | Generative | Leaves device | Notes |
 | --- | --- | --- | --- |
 | `extractive` *(default)* | **No** | No | Ranks and quotes sentences from the student's own material. Cannot hallucinate; cannot teach. |
-| `ollama` | Yes | No | Local runtime, optional install. |
-| `anthropic` | Yes | **Yes** | Requires consent and `ANTHROPIC_API_KEY`. Reads images. The default for assignment guides when a key is present. |
-| `gemini` | Yes | **Yes** | Requires consent and `GEMINI_API_KEY`. Reads images and audio; audio goes to the dedicated `gemini-3.5-transcribe` model. Replaced OpenAI. |
+| `ollama` | Yes | No | Local runtime, optional install. Fine for tutor turns; too slow for a plan with `llama3.1:8b` on an 8 GB Mac (13 minutes for one call). Text only — it refuses image and audio attachments rather than ignoring them. |
+| `anthropic` | Yes | **Yes** | Requires consent and `ANTHROPIC_API_KEY`. Reads images. The default for assignment guides when a key is present. No `temperature` is sent — Claude 5.x rejects it. |
+| `gemini` | Yes | **Yes** | Requires consent and `GEMINI_API_KEY`. Reads images and audio through the general model (Google's dedicated transcribe model rejects system instructions and answered a bare request with nothing, so it is not used). Replaced OpenAI. |
 
 `GenerationRequest` carries optional `attachments` (image or audio bytes). A
 provider that cannot read them raises rather than answering without them —
@@ -275,7 +275,14 @@ brief ─▶ requirements ─▶ retrieve lecture passages per requirement
 Two model calls, both returning JSON that is parsed and validated rather
 than trusted: one reduces the brief to its requirements (deliverables,
 constraints, criteria, tools), one drafts steps against those requirements
-and the retrieved passages. Retrieval is scoped to documents of kind
+and the retrieved passages. Output budgets are generous (4,000 and 8,000
+tokens) because the first real run was cut off mid-array; a response that
+is still cut off is salvaged object by object, and the plan says so. The
+request's database transaction is released before each model call: a plan
+takes a model a minute, and an 8B model on a laptop a quarter of an hour,
+and holding a transaction that long blocks every writer on SQLite and pins a
+pooled connection on PostgreSQL. On-device models get a 15-minute timeout,
+cloud ones a few minutes. Retrieval is scoped to documents of kind
 `lecture` and `textbook` only — citing another brief as evidence that the
 slides cover something would be circular.
 

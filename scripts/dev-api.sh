@@ -16,6 +16,13 @@ if [[ -f .env.local ]]; then
   # shellcheck disable=SC1091
   . ./.env.local
   set +a
+  # The same file holds the hosted deployment's database and storage. A local
+  # dev server must not quietly run against production, so those are dropped
+  # unless asked for; API keys are kept.
+  if [[ "${STUDYPILOT_DEV_USE_HOSTED_SERVICES:-0}" != "1" ]]; then
+    unset DATABASE_URL DATABASE_URL_UNPOOLED NEON_BRANCH NEON_AUTH_BASE_URL NEON_AUTH_JWKS_URL
+    unset AWS_ENDPOINT_URL_S3 AWS_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY VERCEL_OIDC_TOKEN
+  fi
 fi
 
 export STUDYPILOT_LOG_LEVEL="${STUDYPILOT_LOG_LEVEL:-INFO}"

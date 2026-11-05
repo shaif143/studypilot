@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -144,7 +145,17 @@ def build_plan(
     brief_text: str,
     lecture_document_ids: list[str],
     integrity_policy: str = "",
+    release_db: Callable[[], None] | None = None,
 ) -> PlanDraft:
+    """Draft a plan. See the module docstring for the grounding rule.
+
+    ``release_db`` is called right before each model call. A plan takes a
+    model a minute or more — a quarter of an hour for an 8B model on a laptop
+    — and the caller's database session must not sit on an open read
+    transaction for that long: on SQLite it blocks every writer in the
+    application, and on PostgreSQL it pins one of five pooled connections.
+    The session re-opens a transaction on its next query by itself.
+    """
     warnings: list[str] = []
     brief_text = brief_text.strip()
     if len(brief_text) > MAX_BRIEF_CHARS:
@@ -176,6 +187,8 @@ def build_plan(
     summary, requirements = "", []
     if generative:
         try:
+            if release_db:
+                release_db()
             summary, requirements, used = _extract_requirements_with_model(
                 llm, brief_title, brief_text
             )
@@ -210,6 +223,8 @@ def build_plan(
     raw_steps: list[dict[str, Any]] = []
     if generative:
         try:
+            if release_db:
+                release_db()
             raw_steps, used = _draft_steps_with_model(
                 llm,
                 brief_title=brief_title,
@@ -221,6 +236,9 @@ def build_plan(
             )
             tokens["in"] += used[0]
             tokens["out"] += used[1]
+            note = raw_steps[0].pop("_note", "") if raw_steps else ""
+            if note:
+                warnings.append(note)
         except (ProviderUnavailableError, ConsentRequiredError) as exc:
             warnings.append(f"The model could not be used: {exc}")
             generative = False
@@ -259,6 +277,13 @@ class _BadModelOutput(ValueError):
     pass
 
 
+def _timeout_for(llm: LLMProvider, cloud_seconds: float) -> float:
+    """On-device models get much longer: an 8B model on a laptop needs a few
+    minutes for a plan, and the only cost of waiting is time. A cloud call
+    that has not answered in a minute or two is not going to."""
+    return cloud_seconds if getattr(llm.info, "sends_data_off_device", True) else 900.0
+
+
 def _extract_requirements_with_model(
     llm: LLMProvider, brief_title: str, brief_text: str
 ) -> tuple[str, list[Requirement], tuple[int, int]]:
@@ -267,13 +292,23 @@ def _extract_requirements_with_model(
             system=REQUIREMENTS_SYSTEM,
             user=requirements_prompt(brief_title, brief_text),
             question=brief_title,
-            max_output_tokens=1800,
+            # A dozen requirements with quotes runs past 1,800 tokens on a
+            # verbose model; Gemini's first real list was cut off there.
+            max_output_tokens=4000,
             temperature=0.0,
             json_schema={"type": "object"},
+            timeout_seconds=_timeout_for(llm, 120.0),
         )
     )
-    data = _parse_json_object(result.text)
-    items = data.get("requirements")
+    try:
+        data = _parse_json_object(result.text)
+        items = data.get("requirements")
+    except _BadModelOutput:
+        # Cut off mid-list: keep the complete entries, lose the summary.
+        items = _salvage_objects(result.text, ("id", "text"))
+        data = {"summary": ""}
+        if not items:
+            raise
     if not isinstance(items, list) or not items:
         raise _BadModelOutput("no requirements array")
     requirements: list[Requirement] = []
@@ -420,14 +455,29 @@ def _draft_steps_with_model(
             ),
             question=brief_title,
             evidence=snippets,
-            max_output_tokens=3500,
+            # A plan for a dozen requirements runs to several thousand tokens;
+            # the first real run was cut off at 3,500 and the JSON would not
+            # parse. The budget is generous and a cut-off is salvaged below.
+            max_output_tokens=8000,
             temperature=0.1,
             json_schema={"type": "object"},
-            timeout_seconds=180.0,
+            timeout_seconds=_timeout_for(llm, 300.0),
         )
     )
-    data = _parse_json_object(result.text)
-    steps = data.get("steps")
+    salvage_note = ""
+    try:
+        data = _parse_json_object(result.text)
+        steps = data.get("steps")
+    except _BadModelOutput:
+        # Usually a response cut off mid-array. Complete step objects are
+        # still worth having; the plan says that it was cut short.
+        steps = _salvage_objects(result.text, ("title", "instruction"))
+        if not steps:
+            raise
+        salvage_note = (
+            f"The model's plan was cut short; {len(steps)} complete step(s) were recovered "
+            "and the rest were dropped. Draft again for a full plan."
+        )
     if not isinstance(steps, list) or not steps:
         raise _BadModelOutput("no steps array")
     cleaned: list[dict[str, Any]] = []
@@ -452,6 +502,8 @@ def _draft_steps_with_model(
         )
     if not cleaned:
         raise _BadModelOutput("steps were empty")
+    if salvage_note:
+        cleaned[0] = {**cleaned[0], "_note": salvage_note}
     return cleaned, (result.input_tokens or 0, result.output_tokens or 0)
 
 
@@ -502,6 +554,10 @@ def _ground_steps(
     for index, raw in enumerate(raw_steps, start=1):
         text = f"{raw['title']} {raw['instruction']}"
         referenced = sorted({int(m) for m in _CITATION_RE.findall(text)})
+        # Coverage is judged on the step's own words. The heuristic plan wraps
+        # each requirement in template phrases; those are ours, not the
+        # brief's, and must not show up as "terms your slides do not cover".
+        wording = _TEMPLATE_RE.sub(" ", text)
         valid = [m for m in referenced if m in by_marker]
         invalid = [m for m in referenced if m not in by_marker]
         instruction = raw["instruction"]
@@ -509,7 +565,7 @@ def _ground_steps(
             instruction = instruction.replace(f"[{marker}]", "")
 
         cited_chunks = [by_marker[m] for m in valid]
-        terms = content_terms(text)
+        terms = content_terms(wording)
         coverage = (
             sum(1 for t in terms if any(_term_in(t, c.text) for c in cited_chunks)) / len(terms)
             if terms and cited_chunks
@@ -539,9 +595,10 @@ def _ground_steps(
         if not grounded:
             disclosure = _disclosure_for(
                 title=raw["title"],
-                missing_terms=missing[:4] if cited_chunks else terms[:4],
+                missing_terms=_content_only(missing if cited_chunks else terms)[:4],
                 model_reason=raw.get("beyond_reason", ""),
                 had_citations=bool(valid),
+                model_flagged=model_beyond,
             )
 
         steps.append(
@@ -563,26 +620,150 @@ def _ground_steps(
     return steps
 
 
+#: Words about doing the work rather than the subject. Their absence from
+#: the slides means nothing, so they never appear in a disclosure.
+_META_WORDS = frozenset(
+    [
+        "address",
+        "add",
+        "apply",
+        "brief",
+        "calculate",
+        "calculation",
+        "calculations",
+        "check",
+        "choose",
+        "compare",
+        "confirm",
+        "decide",
+        "deliverable",
+        "deliverables",
+        "document",
+        "environment",
+        "find",
+        "hand",
+        "include",
+        "item",
+        "items",
+        "keep",
+        "list",
+        "log",
+        "map",
+        "note",
+        "organise",
+        "package",
+        "place",
+        "plan",
+        "put",
+        "record",
+        "report",
+        "requirement",
+        "requirements",
+        "review",
+        "run",
+        "script",
+        "section",
+        "sections",
+        "set",
+        "state",
+        "step",
+        "steps",
+        "submit",
+        "task",
+        "tool",
+        "tools",
+        "use",
+        "verify",
+        "word",
+        "words",
+        "work",
+        "write",
+    ]
+)
+
+
+def _content_only(terms: list[str]) -> list[str]:
+    return [t for t in terms if t not in _META_WORDS and not t.isdigit()]
+
+
 def _disclosure_for(
-    *, title: str, missing_terms: list[str], model_reason: str, had_citations: bool
+    *,
+    title: str,
+    missing_terms: list[str],
+    model_reason: str,
+    had_citations: bool,
+    model_flagged: bool = False,
 ) -> str:
     """The warning shown on a step that goes beyond the lecture material.
 
     Written by code, not the model, so it says the same thing every time and
-    cannot be softened.
+    cannot be softened. Three situations read differently:
+
+    * the model itself said the step needs something the material lacks —
+      its reason is quoted after the fixed lead;
+    * the step cites nothing — it rests on knowledge from outside the slides;
+    * the step cites the slides but its wording mostly does not match them —
+      either a real gap or an organisational step the course never needed to
+      teach; the student can tell which, and is told to.
     """
     what = ", ".join(missing_terms) if missing_terms else title.lower()
-    lead = (
-        f"If you follow this step you will be using {what}, which is not in your lecture "
-        "slides for this course."
-        if not had_citations
-        else f"This step cites your slides, but they do not cover {what}."
-    )
     reason = f" {model_reason.strip().rstrip('.')}." if model_reason.strip() else ""
+    if model_flagged or not had_citations:
+        lead = (
+            f"If you follow this step you will be using {what}, which is not in your "
+            "lecture slides for this course."
+        )
+    else:
+        lead = (
+            f"This step cites your slides, but they do not cover {what}. That may be a "
+            "real gap, or a step about organising the work that your lectures never "
+            "needed to teach."
+        )
     return (
         f"{lead}{reason} Check whether your assignment allows methods beyond the taught "
         "material before approving it."
     )
+
+
+_TEMPLATE_RE = re.compile(
+    r"Address this requirement:|Your lecture material covers it here:|\[\d{1,2}\]", re.I
+)
+
+
+def _salvage_objects(text: str, required: tuple[str, ...]) -> list[dict[str, Any]]:
+    """Recover complete `{...}` objects carrying all of ``required`` keys.
+
+    Scans with a stack of object starts rather than a regex, so nested
+    objects and strings containing braces do not break it. The innermost
+    object closes first; the outer `{"steps": [...]` of a truncated response
+    never closes and is simply never tried.
+    """
+    objects: list[dict[str, Any]] = []
+    starts: list[int] = []
+    in_string = False
+    escape = False
+    for position, char in enumerate(text):
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            starts.append(position)
+        elif char == "}" and starts:
+            begin = starts.pop()
+            try:
+                candidate = json.loads(text[begin : position + 1])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict) and all(candidate.get(key) for key in required):
+                objects.append(candidate)
+    return objects
 
 
 # --- json -----------------------------------------------------------------

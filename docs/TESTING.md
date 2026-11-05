@@ -218,15 +218,36 @@ Stated plainly rather than implied by omission.
   `npm run test:e2e` is wired, but no specs are written. The browser paths —
   upload through the real file picker, pdf.js canvas rendering, drag-to-resize,
   keyboard navigation — were verified by hand, not automatically.
-- **No test calls a real model.** The planner and the vision/audio readers are
-  tested with scripted providers. The Anthropic and Gemini request bodies are
-  asserted by intercepting the HTTP call, so the shapes are pinned, but whether
-  the current model returns usable JSON for a real brief has only been checked
-  by hand once keys were available. Local Whisper transcription was run by
-  hand on this Mac: a 15-second synthesised spoken brief transcribed by
-  `whisper-small` in 4.7 s with correct timestamps, after the first-run model
-  download. That is one clip, one voice, no background noise; nothing
-  automated runs the model.
+- **No automated test calls a real model.** The planner and the readers are
+  tested with scripted providers, and the Anthropic and Gemini request
+  bodies are pinned by intercepting the HTTP call. The real models were run
+  by hand on 2026-11-05 against `fixtures/sample-assignment-brief.pdf` with
+  the CNN lecture indexed:
+  - **Claude (`claude-sonnet-5-5`)**: 14 typed requirements, 11 steps, 59 s,
+    4,053 input / 4,807 output tokens. Grounded: architecture design, same
+    padding and its justification. Held for approval with precise reasons:
+    tooling, pooling-size arithmetic ("the output-size expression is given
+    for convolution only"), training, batch normalisation ("does not appear
+    anywhere in the supplied passages"), plots, report structure, submission.
+  - **Gemini (`gemini-3.6-flash`)**: 7 requirements, 8 steps, 59 s,
+    2,571 / 1,812 tokens, same shape of result. Returned 503 "high demand"
+    for a stretch; the provider now falls back once to `gemini-3.5-flash-lite`.
+  - **Image brief via Claude vision**: an exact transcript of a rendered
+    page in 3.6 s, preview stored, `extractor: vision:anthropic`.
+  - **Audio via Gemini** (direct call): a correct timestamped transcript of a
+    15-second clip; Google's dedicated transcribe model rejected the request
+    shape and is not used.
+  - **Ollama (`llama3.1:8b`)** on this 8 GB Mac: the *requirements* call
+    alone took 13 minutes, so a plan would take half an hour. It is left
+    available but is not a practical planner model here; the tutor's short
+    turns are a different matter. Choose a smaller model with
+    `STUDYPILOT_OLLAMA_MODEL` if on-device planning matters.
+  Three bugs those runs found, none visible to the scripted tests: Claude
+  5.x rejects `temperature` (every request 400'd until the body was read);
+  the plan's 3,500-token budget cut Claude's JSON off mid-array (the budget
+  is 8,000 now and complete steps are salvaged from a cut-off response);
+  and a long model call held the request's database transaction open,
+  which on SQLite blocked every other writer for the duration.
 - **No test runs the hosted container.** The two worst bugs in the list above
   — EdDSA missing from the image, and the API client failing open on a 404 —
   existed only in the deployed artefact and were found by hand: building the

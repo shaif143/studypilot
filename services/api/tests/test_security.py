@@ -153,6 +153,38 @@ def test_cloud_provider_refused_without_consent(settings: Settings):
         get_llm_provider(settings, cloud_consent=False)
 
 
+def test_desktop_defers_the_operator_switch_to_the_user(tmp_path):
+    """On the desktop the user is the operator; the Settings toggle must work.
+
+    Without this, the toggle in the app could never do anything, since nobody
+    launches the packaged app with an environment variable set.
+    """
+    desktop = Settings(data_dir=tmp_path, llm_provider="anthropic")
+    assert desktop.cloud_processing_permitted is True
+    # The user still has to consent on both layers that are theirs.
+    with pytest.raises(ConsentRequiredError):
+        get_llm_provider(desktop, cloud_consent=False)
+
+
+def test_hosted_keeps_the_operator_switch_off_by_default(tmp_path):
+    hosted = Settings(
+        data_dir=tmp_path,
+        deployment_mode="hosted",
+        jwt_secret="a-sufficiently-long-secret-for-the-tests-0123",
+        llm_provider="anthropic",
+    )
+    assert hosted.cloud_processing_permitted is False
+    with pytest.raises(ConsentRequiredError, match="off this device"):
+        get_llm_provider(hosted, cloud_consent=True)
+
+
+def test_an_explicit_operator_no_wins_on_the_desktop(tmp_path):
+    desktop = Settings(data_dir=tmp_path, llm_provider="anthropic", allow_cloud_processing=False)
+    assert desktop.cloud_processing_permitted is False
+    with pytest.raises(ConsentRequiredError):
+        get_llm_provider(desktop, cloud_consent=True)
+
+
 def test_offline_provider_never_needs_consent(settings: Settings):
     provider = get_llm_provider(settings, cloud_consent=False)
     assert provider.info.sends_data_off_device is False

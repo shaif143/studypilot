@@ -494,4 +494,118 @@ def test_the_disclosure_is_written_by_code_not_the_model():
     assert a.startswith(
         "If you follow this step you will be using wavelet, which is not in your lecture slides"
     )
+    # Planning words are never what the slides "do not cover".
+    c = planner._disclosure_for(
+        title="Package and submit",
+        missing_terms=planner._content_only(["package", "submit", "put", "script", "zip"]),
+        model_reason="",
+        had_citations=False,
+    )
+    assert "package" not in c and "submit" not in c and "put" not in c
+    assert "zip" in c
     assert a.endswith("before approving it.")
+
+
+def test_a_plan_cut_off_mid_array_keeps_its_complete_steps():
+    """The first real run was truncated by the output budget; salvage it."""
+
+    class CutOff(ScriptedModel):
+        def generate(self, request):
+            self.requests.append(request)
+            if len(self.requests) == 1:
+                return GenerationResult(
+                    text=json.dumps(REQS), provider="s", model="m", generative=True
+                )
+            truncated = (
+                '{"steps": [\n'
+                '  {"title": "Compute the frequency spectrum", "instruction": "Use fft [1].",'
+                ' "why": "r2", "requirement_ids": ["r2"], "beyond_slides": '
+                'false, "beyond_reason": ""},\n'
+                '  {"title": "Filter the noise", "instruction": "Design a '
+                "Butterworth low-pass filter"
+                ' with butter and apply it with filtfilt [2].", "why": "r3",'
+                ' "requirement_ids": ["r3"],'
+                ' "beyond_slides": false, "beyond_reason": ""},\n'
+                '  {"title": "Write the report", "instruction": "Structure it as method, res'
+            )
+            return GenerationResult(text=truncated, provider="s", model="m", generative=True)
+
+    draft = build_plan(
+        settings=settings(),
+        llm=CutOff(REQS, {}),
+        retriever=FixedRetriever(POOL),
+        user_id="u",
+        course_id="c",
+        brief_title="CW2",
+        brief_text=BRIEF,
+        lecture_document_ids=["doc-lecture"],
+    )
+
+    assert draft.generative is True
+    assert [s.title for s in draft.steps] == [
+        "Compute the frequency spectrum",
+        "Filter the noise",
+    ]
+    assert draft.steps[1].grounding == "slides"
+    assert any("cut short" in w and "2 complete" in w for w in draft.warnings)
+
+
+def test_template_words_never_count_as_missing_from_the_slides():
+    """ "Address" and "requirement" are ours, not the brief's."""
+    draft = build_plan(
+        settings=settings(),
+        llm=Extractive(),
+        retriever=FixedRetriever(POOL),
+        user_id="u",
+        course_id="c",
+        brief_title="CW2",
+        brief_text=BRIEF,
+        lecture_document_ids=["doc-lecture"],
+    )
+    for step in draft.steps:
+        assert "address" not in step.disclosure.lower()
+        assert "requirement" not in step.disclosure.lower().replace("requirements", "")
+
+
+def test_a_cut_off_requirements_list_keeps_its_complete_entries():
+    class CutOff(ScriptedModel):
+        def generate(self, request):
+            self.requests.append(request)
+            if len(self.requests) == 1:
+                text = (
+                    '{"summary": "x", "requirements": [\n'
+                    '  {"id": "r1", "text": "Load a clip in MATLAB", "kind": '
+                    '"tool", "quote": "q"},\n'
+                    '  {"id": "r2", "text": "Plot the spectrum", "kind": '
+                    '"deliverable", "quote": "q"},\n'
+                    '  {"id": "r3", "text": "Remove noi'
+                )
+                return GenerationResult(text=text, provider="s", model="m", generative=True)
+            return GenerationResult(
+                text=json.dumps(self.plan), provider="s", model="m", generative=True
+            )
+
+    model = CutOff(
+        REQS,
+        {
+            "steps": [
+                {
+                    "title": "Plot the spectrum",
+                    "instruction": "Use fft [1].",
+                    "requirement_ids": ["r2"],
+                }
+            ]
+        },
+    )
+    draft = build_plan(
+        settings=settings(),
+        llm=model,
+        retriever=FixedRetriever(POOL),
+        user_id="u",
+        course_id="c",
+        brief_title="CW2",
+        brief_text=BRIEF,
+        lecture_document_ids=["doc-lecture"],
+    )
+    assert draft.generative is True
+    assert [r.id for r in draft.requirements] == ["r1", "r2"]

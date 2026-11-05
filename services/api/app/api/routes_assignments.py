@@ -140,6 +140,8 @@ def draft_plan(
         brief_text=_brief_text(documents, user.id, brief),
         lecture_document_ids=lecture_ids,
         integrity_policy=course.integrity_policy,
+        # End the read transaction before each model call; see build_plan.
+        release_db=db_session.commit,
     )
     record = draft.to_record()
     record["warnings"] = provider_warnings + record["warnings"]
