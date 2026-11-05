@@ -8,6 +8,7 @@
  */
 import { ApiError } from '@studypilot/api-client';
 import type {
+  ArchiveUploadResult,
   Assignment,
   AttemptReview,
   ConceptMap,
@@ -302,6 +303,23 @@ export function useUploadDocument() {
       void queryClient.invalidateQueries({ queryKey: keys.documents(undefined) });
       // A brief appears in the assignments list and a lecture in the concept
       // map; both read from their own queries. Found by the end-to-end test.
+      void queryClient.invalidateQueries({ queryKey: keys.assignments(variables.courseId) });
+      void queryClient.invalidateQueries({ queryKey: keys.conceptMap(variables.courseId) });
+      void queryClient.invalidateQueries({ queryKey: keys.courseTopics(variables.courseId) });
+      void queryClient.invalidateQueries({ queryKey: keys.courses });
+      void queryClient.invalidateQueries({ queryKey: keys.dashboard });
+    },
+  });
+}
+
+export function useUploadArchive() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation<ArchiveUploadResult, Error, { courseId: string; file: File; kind?: string }>({
+    mutationFn: ({ courseId, file, kind }) => client.uploadArchive(courseId, file, { kind }),
+    onSuccess: (_result, variables) => {
+      void queryClient.invalidateQueries({ queryKey: keys.documents(variables.courseId) });
+      void queryClient.invalidateQueries({ queryKey: keys.documents(undefined) });
       void queryClient.invalidateQueries({ queryKey: keys.assignments(variables.courseId) });
       void queryClient.invalidateQueries({ queryKey: keys.conceptMap(variables.courseId) });
       void queryClient.invalidateQueries({ queryKey: keys.courseTopics(variables.courseId) });

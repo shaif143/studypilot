@@ -145,6 +145,19 @@ export interface UploadResult {
   deduplicated: boolean;
 }
 
+export interface ArchiveMemberResult {
+  /** The member's path inside the archive. */
+  path: string;
+  status: 'indexed' | 'partial' | 'failed' | 'skipped';
+  detail: string;
+  result: UploadResult | null;
+}
+
+export interface ArchiveUploadResult {
+  archive: string;
+  members: ArchiveMemberResult[];
+}
+
 export type ElementKind = 'heading' | 'text' | 'table' | 'equation' | 'figure';
 
 export interface PageElement {

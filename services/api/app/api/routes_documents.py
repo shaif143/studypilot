@@ -29,12 +29,15 @@ from app.api.deps import (
     require_token,
 )
 from app.api.schemas import (
+    ArchiveMemberOut,
+    ArchiveUploadResponse,
     DocumentOut,
     PageOut,
     PageSummaryOut,
     TopicOut,
     UploadResponse,
 )
+from app.ingestion.archives import UnreadableArchiveError, archive_kind, unpack
 from app.ingestion.media import MediaReader, is_audio, is_image
 from app.ingestion.pipeline import UnsupportedFileError, ingest_document, validate_upload
 from app.ingestion.removal import remove_document
@@ -68,12 +71,119 @@ async def upload_document(
     allow_cloud: bool = Form(default=False),
 ) -> UploadResponse:
     courses.get(user.id, course_id)  # ownership check before touching the file
-
     data = await file.read()
     try:
-        media_type = validate_upload(file.filename or "upload", data, context.settings)
+        return _ingest_upload(
+            filename=file.filename or "upload",
+            data=data,
+            title=title,
+            kind=kind,
+            allow_cloud=allow_cloud,
+            course_id=course_id,
+            context=context,
+            user=user,
+            documents=documents,
+            chunks=chunks,
+            topics=topics,
+            users=users,
+        )
     except UnsupportedFileError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/courses/{course_id}/documents/archive",
+    response_model=ArchiveUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_archive(
+    course_id: str,
+    context: ContextDep,
+    user: UserDep,
+    courses: CoursesDep,
+    documents: DocumentsDep,
+    chunks: ChunksDep,
+    topics: TopicsDep,
+    users: UsersDep,
+    file: UploadFile = File(...),
+    kind: str = Form(default="lecture"),
+) -> ArchiveUploadResponse:
+    """A .zip or .rar: every readable member becomes a document of its own.
+
+    Each member's outcome is reported by its path inside the archive, and
+    members the app cannot read are listed with a reason rather than lost.
+    The archive itself is not kept.
+    """
+    courses.get(user.id, course_id)
+    data = await file.read()
+    settings = context.settings
+    if len(data) > settings.max_upload_bytes:
+        limit_mb = settings.max_upload_bytes // (1024 * 1024)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"That archive is larger than the {limit_mb} MB limit.",
+        )
+    archive_name = file.filename or "archive"
+    archive = archive_kind(data, archive_name)
+    if not archive:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="That file is not a .zip or .rar archive.",
+        )
+    try:
+        unpacked = unpack(
+            data,
+            archive,
+            max_member_bytes=settings.max_upload_bytes,
+            max_total_bytes=settings.max_upload_bytes * 4,
+        )
+    except UnreadableArchiveError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    del data
+
+    results: list[ArchiveMemberOut] = []
+    for member in unpacked.members:
+        try:
+            result = _ingest_upload(
+                filename=Path(member.path).name,
+                data=member.data,
+                title=Path(member.path).stem,
+                kind=kind,
+                allow_cloud=False,
+                course_id=course_id,
+                context=context,
+                user=user,
+                documents=documents,
+                chunks=chunks,
+                topics=topics,
+                users=users,
+            )
+        except UnsupportedFileError as exc:
+            results.append(ArchiveMemberOut(path=member.path, status="skipped", detail=str(exc)))
+            continue
+        results.append(ArchiveMemberOut(path=member.path, status=result.status, result=result))
+    for skipped in unpacked.skipped:
+        results.append(ArchiveMemberOut(path=skipped.path, status="skipped", detail=skipped.reason))
+    return ArchiveUploadResponse(archive=archive_name, members=results)
+
+
+def _ingest_upload(
+    *,
+    filename: str,
+    data: bytes,
+    title: str,
+    kind: str,
+    allow_cloud: bool,
+    course_id: str,
+    context: ContextDep,
+    user: UserDep,
+    documents: DocumentsDep,
+    chunks: ChunksDep,
+    topics: TopicsDep,
+    users: UsersDep,
+) -> UploadResponse:
+    """Validate, store, and index one file; shared by the upload and archive routes."""
+    media_type = validate_upload(filename, data, context.settings)
 
     content_hash = context.blobs.hash_bytes(data)
     existing = documents.find_by_hash(user.id, course_id, content_hash)
@@ -98,8 +208,8 @@ async def upload_document(
     document = documents.create(
         user_id=user.id,
         course_id=course_id,
-        title=(title.strip() or Path(file.filename or "Untitled").stem)[:512],
-        original_filename=(file.filename or "upload")[:512],
+        title=(title.strip() or Path(filename).stem)[:512],
+        original_filename=filename[:512],
         media_type=media_type,
         content_hash=content_hash,
         byte_size=len(data),

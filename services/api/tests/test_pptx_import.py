@@ -51,11 +51,6 @@ def test_a_zip_that_is_not_a_deck_is_refused(settings):
         validate_upload("slides.pptx", buffer.getvalue(), settings)
 
 
-def test_old_ppt_gets_a_specific_message(settings):
-    with pytest.raises(UnsupportedFileError, match=r"old-format \.ppt"):
-        validate_upload("lecture.ppt", b"\xd0\xcf\x11\xe0" + b"\x00" * 64, settings)
-
-
 # --- rendering ---------------------------------------------------------------
 def test_every_slide_becomes_a_page_with_its_words_in_place():
     if not FIXTURE.is_file():

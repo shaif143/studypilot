@@ -24,6 +24,7 @@ from app.config import Settings
 from app.ingestion.chunking import build_chunks
 from app.ingestion.media import MediaReader, is_audio, is_image, sniff_media_type
 from app.ingestion.pdf import ExtractedDocument, UnreadableDocumentError, extract_pdf
+from app.ingestion.ppt import PPT_MEDIA_TYPE, looks_like_ppt, render_ppt_to_pdf
 from app.ingestion.pptx import (
     PPTX_MEDIA_TYPE,
     UnreadablePresentationError,
@@ -82,14 +83,12 @@ def validate_upload(filename: str, data: bytes, settings: Settings) -> str:
         return sniffed
     if looks_like_pptx(data, filename):
         return PPTX_MEDIA_TYPE
-    suffix = Path(filename).suffix.lower()
-    if suffix == ".ppt":
-        raise UnsupportedFileError(
-            "This is an old-format .ppt file. Save it as .pptx (or export a PDF) and upload that."
-        )
+    if looks_like_ppt(data, filename):
+        return PPT_MEDIA_TYPE
     raise UnsupportedFileError(
-        "Supported files are PDF, PowerPoint (.pptx), PNG, JPEG, WebP images, and WAV, MP3 "
-        "or M4A audio. This file does not look like any of those."
+        "Supported files are PDF, PowerPoint (.pptx and .ppt), PNG, JPEG, WebP images, WAV, "
+        "MP3 or M4A audio, and .zip or .rar archives of those. This file does not look like "
+        "any of those."
     )
 
 
@@ -122,7 +121,8 @@ def _extract_presentation(
     it is stored next to the page previews and its key recorded on the
     document; ``/documents/{id}/file`` serves it in place of the original.
     """
-    deck = render_pptx_to_pdf(source_path, max_slides=settings.max_pdf_pages)
+    render = render_ppt_to_pdf if document.media_type == PPT_MEDIA_TYPE else render_pptx_to_pdf
+    deck = render(source_path, max_slides=settings.max_pdf_pages)
     rendered_key = blobs.put_asset(f"{document.id}/rendered.pdf", deck.pdf, "application/pdf")
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as handle:
         handle.write(deck.pdf)
@@ -130,7 +130,9 @@ def _extract_presentation(
         extracted = extract_pdf(
             Path(handle.name), max_pages=settings.max_pdf_pages, preview_sink=preview_sink
         )
-    extracted.extractor = "python-pptx+pymupdf"
+    extracted.extractor = (
+        "olefile+pymupdf" if document.media_type == PPT_MEDIA_TYPE else "python-pptx+pymupdf"
+    )
     extracted.warnings = deck.warnings + extracted.warnings
     if deck.title and not extracted.title:
         extracted.title = deck.title
@@ -194,7 +196,7 @@ def ingest_document(
                         title=document.title,
                         source_path=Path(source_path),
                     )
-            elif document.media_type == PPTX_MEDIA_TYPE:
+            elif document.media_type in (PPTX_MEDIA_TYPE, PPT_MEDIA_TYPE):
                 extracted = _extract_presentation(
                     Path(source_path), document, settings, blobs, preview_sink
                 )

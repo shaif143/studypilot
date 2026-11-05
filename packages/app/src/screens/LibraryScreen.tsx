@@ -67,12 +67,14 @@ import {
   useImportFromDrive,
   useSyncDriveLink,
   useUnlinkDriveFolder,
+  useUploadArchive,
   useUploadDocument,
 } from '../hooks/queries';
 import {
   ACCEPT_ATTRIBUTE,
   SUPPORTED_DESCRIPTION,
   filesFromDrop,
+  isArchive,
   partitionFiles,
   relativePathOf,
   titleFor,
@@ -105,6 +107,8 @@ const DOCUMENT_KINDS = [
 /** One file's upload, as it happened. */
 interface UploadEntry {
   file: File;
+  /** The name shown; for an archive member, "archive.zip/path/inside". */
+  label: string;
   result?: UploadResult;
   error?: string;
 }
@@ -374,7 +378,7 @@ function resultTone(result: UploadResult): Tone {
 function BatchSummary({ batch, onDismiss }: { batch: UploadBatch; onDismiss: () => void }) {
   const { entries, rejected } = batch;
   const indexed = entries.filter((e) => e.result?.status === 'indexed').length;
-  const failed = entries.filter((e) => e.error || e.result?.status === 'failed').length;
+  const failed = entries.filter((e) => !e.result || e.result.status === 'failed').length;
   const tone: Tone = failed === 0 && rejected.length === 0 ? 'grounded' : failed === entries.length ? 'danger' : 'caution';
 
   if (entries.length === 1 && rejected.length === 0) {
@@ -396,9 +400,9 @@ function BatchSummary({ batch, onDismiss }: { batch: UploadBatch; onDismiss: () 
       }
     >
       <ul className="max-h-56 space-y-0.5 overflow-y-auto text-[0.75rem]">
-        {entries.map((entry) => (
-          <li key={relativePathOf(entry.file)} className="flex flex-wrap items-center gap-1.5">
-            <span className="truncate">{relativePathOf(entry.file)}</span>
+        {entries.map((entry, index) => (
+          <li key={`${entry.label}-${index}`} className="flex flex-wrap items-center gap-1.5">
+            <span className="truncate">{entry.label}</span>
             {entry.result ? (
               <>
                 <Badge tone={resultTone(entry.result)}>
@@ -488,6 +492,7 @@ function UploadDialog({
   onUploaded: (batch: UploadBatch) => void;
 }) {
   const upload = useUploadDocument();
+  const uploadArchive = useUploadArchive();
   const inputId = useId();
   const filesRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
@@ -516,6 +521,7 @@ function UploadDialog({
     setKind('lecture');
     setProgress(null);
     upload.reset();
+    uploadArchive.reset();
   };
 
   const close = () => {
@@ -528,17 +534,31 @@ function UploadDialog({
     if (files.length === 0 || !effectiveCourse) return;
     const entries: UploadEntry[] = [];
     for (const [index, file] of files.entries()) {
-      setProgress({ done: index, current: relativePathOf(file) });
+      const label = relativePathOf(file);
+      setProgress({ done: index, current: label });
       try {
+        if (isArchive(file)) {
+          // The backend unpacks it and answers once per member.
+          const unpacked = await uploadArchive.mutateAsync({ courseId: effectiveCourse, file, kind });
+          for (const member of unpacked.members) {
+            entries.push({
+              file,
+              label: member.path ? `${label}/${member.path}` : label,
+              result: member.result ?? undefined,
+              error: member.result ? undefined : member.detail || member.status,
+            });
+          }
+          continue;
+        }
         const result = await upload.mutateAsync({
           courseId: effectiveCourse,
           file,
           title: files.length === 1 ? title.trim() || undefined : titleFor(file),
           kind,
         });
-        entries.push({ file, result });
+        entries.push({ file, label, result });
       } catch (error) {
-        entries.push({ file, error: describeError(error) });
+        entries.push({ file, label, error: describeError(error) });
       }
     }
     setProgress(null);

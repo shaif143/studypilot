@@ -260,6 +260,21 @@ pdf.js reader — is the PDF path unchanged. Text is drawn with FiraGO from
 `pymupdf-fonts`, because the Base-14 fonts render bullets, dashes and Greek
 letters as "?".
 
+**Old PowerPoint (.ppt).** The 1997-2003 binary format is read directly:
+`olefile` opens the compound file, and `ingestion/ppt.py` walks its records —
+the current edit's persist directory (so incremental saves resolve to the
+live slides), the slide list with its placeholder text, each slide's
+OfficeArt drawing for anchors, inline text boxes, pictures and groups, and
+the notes list. The result is rendered exactly as a `.pptx` is. EMF/WMF
+drawings cannot be rasterised without a metafile renderer and are reported
+as such; everything else — words, bullets, JPEG/PNG/BMP pictures, speaker
+notes — comes through.
+
+**Archives.** A `.zip` is read with the standard library and a `.rar` with
+`bsdtar` (libarchive), into memory and a private temporary directory, with
+path checks, a member cap and size caps. Each readable member goes through
+the single-file ingestion as its own document; the archive is not kept.
+
 Every indexed item retains: owner, course, document, version, page number,
 section, element type, bounding box, source text, and the embedding model
 version. The bounding boxes are what make a citation clickable — the reader

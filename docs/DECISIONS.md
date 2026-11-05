@@ -438,6 +438,22 @@ no dependency that does not earn its place.
 
 ---
 
+## 28. Old .ppt decks are parsed, not converted
+
+**Decision.** `.ppt` files are read by a purpose-written parser of the
+MS-PPT binary format on top of `olefile`, and rendered through the same
+PyMuPDF path as `.pptx`.
+
+**Why.** A lecturer's archive is full of them and the user needed them now.
+Faithful conversion needs PowerPoint or LibreOffice, which the app cannot
+bundle and the user may not have. The binary format is documented, the
+parts a student needs (text, pictures, positions, notes) are a few hundred
+lines to read, and the result is indexed, cited and shown like any deck.
+Windows metafiles are the honest gap: there is no pure-Python rasteriser,
+so they are reported slide by slide instead of silently dropped.
+
+---
+
 ## 25. Deferred deliberately
 
 | Deferred | Reason |

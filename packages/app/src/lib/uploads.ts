@@ -7,16 +7,24 @@
  * here, from the name and declared type; the backend checks the bytes.
  */
 
-const SUPPORTED = /\.(pdf|pptx|png|jpe?g|webp|wav|mp3|m4a)$/i;
+const SUPPORTED = /\.(pdf|pptx?|png|jpe?g|webp|wav|mp3|m4a|zip|rar)$/i;
+const ARCHIVE = /\.(zip|rar)$/i;
 
 export const SUPPORTED_DESCRIPTION =
-  'PDF, PowerPoint (.pptx), PNG/JPEG/WebP images, and WAV/MP3/M4A audio.';
+  'PDF, PowerPoint (.pptx and .ppt), PNG/JPEG/WebP images, WAV/MP3/M4A audio, and .zip or .rar archives of those.';
 
 export const ACCEPT_ATTRIBUTE = [
   'application/pdf',
   '.pdf',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.pptx',
+  'application/vnd.ms-powerpoint',
+  '.ppt',
+  'application/zip',
+  '.zip',
+  'application/vnd.rar',
+  'application/x-rar-compressed',
+  '.rar',
   'image/png',
   'image/jpeg',
   'image/webp',
@@ -70,8 +78,6 @@ export function partitionFiles(candidates: Iterable<File>): Partition {
     seen.add(path);
     if (file.size === 0) {
       rejected.push({ file, reason: 'Empty file.' });
-    } else if (/\.ppt$/i.test(base)) {
-      rejected.push({ file, reason: 'Old .ppt format; save it as .pptx first.' });
     } else if (!isSupported(file)) {
       rejected.push({ file, reason: 'Not a supported type.' });
     } else {
@@ -80,6 +86,11 @@ export function partitionFiles(candidates: Iterable<File>): Partition {
   }
   accepted.sort((a, b) => relativePathOf(a).localeCompare(relativePathOf(b)));
   return { accepted, rejected };
+}
+
+/** A .zip or .rar: uploaded whole, unpacked and indexed member by member on the backend. */
+export function isArchive(file: File): boolean {
+  return ARCHIVE.test(file.name);
 }
 
 /** The file name without its extension, for a default document title. */

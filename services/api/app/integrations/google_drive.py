@@ -43,6 +43,7 @@ from urllib.parse import urlencode
 
 import httpx
 
+from app.ingestion.ppt import PPT_MEDIA_TYPE
 from app.ingestion.pptx import PPTX_MEDIA_TYPE
 
 log = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ EXPORT_AS_PDF = frozenset(
     }
 )
 #: Formats the ingestion pipeline reads without a model.
-IMPORTABLE_MIMES = frozenset({"application/pdf", PPTX_MEDIA_TYPE}) | EXPORT_AS_PDF
+IMPORTABLE_MIMES = frozenset({"application/pdf", PPTX_MEDIA_TYPE, PPT_MEDIA_TYPE}) | EXPORT_AS_PDF
 #: A refreshed token is used until this close to expiry, then refreshed.
 REFRESH_MARGIN_SECONDS = 120
 
@@ -342,8 +343,14 @@ class DriveFile:
             return ""
         if self.mime_type.startswith("image/") or self.mime_type.startswith("audio/"):
             return "Images and audio need a model to read them; upload them from the Library."
-        if self.mime_type in {"application/vnd.ms-powerpoint"}:
-            return "Old .ppt format; save it as .pptx or PDF in Drive first."
+        if self.mime_type in {
+            "application/zip",
+            "application/x-rar-compressed",
+            "application/vnd.rar",
+        }:
+            return (
+                "Archives are not read from Drive; unpack it there or upload it from the Library."
+            )
         return "Not a PDF, PowerPoint, Google Doc or Google Slides file."
 
     @property

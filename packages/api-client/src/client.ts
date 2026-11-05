@@ -1,4 +1,5 @@
 import type {
+  ArchiveUploadResult,
   AttemptReview,
   ConceptMap,
   DriveConnectResult,
@@ -286,6 +287,17 @@ export class StudyPilotClient {
       `/api/courses/${courseId}/documents`,
       { method: 'POST', form },
     );
+  };
+
+  /** A .zip or .rar: every readable member becomes its own document. */
+  uploadArchive = (courseId: string, file: File, options: { kind?: string } = {}) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (options.kind) form.append('kind', options.kind);
+    return this.request<ArchiveUploadResult>(`/api/courses/${courseId}/documents/archive`, {
+      method: 'POST',
+      form,
+    });
   };
 
   deleteDocument = (id: string) =>

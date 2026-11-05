@@ -98,6 +98,7 @@ describe('API contract', () => {
     ['documents', () => client.documents()],
     ['document', () => client.document('d1')],
     ['deleteDocument', () => client.deleteDocument('d1')],
+    ['uploadArchive', () => client.uploadArchive('c1', new File(['x'], 'a.zip'))],
     ['pages', () => client.pages('d1')],
     ['page', () => client.page('d1', 4)],
     ['documentTopics', () => client.documentTopics('d1')],

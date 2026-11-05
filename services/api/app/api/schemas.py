@@ -225,6 +225,20 @@ class UploadResponse(BaseModel):
     deduplicated: bool = False
 
 
+class ArchiveMemberOut(BaseModel):
+    #: The member's path inside the archive.
+    path: str
+    #: indexed | partial | failed | skipped
+    status: str
+    detail: str = ""
+    result: UploadResponse | None = None
+
+
+class ArchiveUploadResponse(BaseModel):
+    archive: str
+    members: list[ArchiveMemberOut]
+
+
 class TopicOut(BaseModel):
     model_config = ORM
 

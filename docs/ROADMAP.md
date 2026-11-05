@@ -23,6 +23,7 @@ Legend: ✅ implemented and tested · 🧪 experimental or interface-only ·
 - ✅ Course management (create, edit, archive, delete, cascade)
 - ✅ PDF upload with magic-byte validation, size limits and de-duplication
 - ✅ Folder upload (files and subfolders at once, each with its own result)
+- ✅ Old-format .ppt decks and .zip/.rar archives
 - ✅ Google Drive: read-only connection, linked folders, sync — files stay in Drive, only the index is kept
 - ✅ Reader: real pdf.js rendering, zoom, page navigation, keyboard shortcuts
 - ✅ Extraction: text, headings, tables, equations, figures, bounding boxes
