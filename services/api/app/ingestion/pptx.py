@@ -129,6 +129,14 @@ def render_pptx_to_pdf(path: Path, *, max_slides: int) -> RenderedDeck:
         if not title:
             title = _slide_title(slide)
 
+    metafiles = sum(1 for w in warnings if w.startswith("__metafile__"))
+    if metafiles:
+        warnings = [w for w in warnings if not w.startswith("__metafile__")]
+        warnings.append(
+            f"{metafiles} drawing{'s' if metafiles != 1 else ''} in Windows metafile format "
+            "could not be rendered; the slide text is intact."
+        )
+
     pdf.set_metadata({"title": title or path.stem, "producer": "StudyPilot python-pptx+pymupdf"})
     data = pdf.tobytes(garbage=3, deflate=True)
     pdf.close()
@@ -170,10 +178,15 @@ def _draw_shape(page: pymupdf.Page, shape, warnings: list[str], slide_number: in
         try:
             page.insert_image(rect, stream=shape.image.blob, keep_proportion=True)
         except Exception as exc:
-            warnings.append(
-                f"Slide {slide_number}: a picture could not be decoded "
-                f"({getattr(shape.image, 'ext', 'unknown')} format: {exc})."
-            )
+            ext = getattr(shape.image, "ext", "unknown")
+            if ext in {"wmf", "emf"}:
+                # Counted and reported once per deck; see render_pptx_to_pdf.
+                warnings.append(f"__metafile__:{slide_number}")
+                _insert_shrinking(page, _inset(rect, 4), "[drawing not rendered]", 8)
+            else:
+                warnings.append(
+                    f"Slide {slide_number}: a picture could not be decoded ({ext} format: {exc})."
+                )
             page.draw_rect(rect, color=(0.6, 0.6, 0.6), width=0.5)
         return True
 

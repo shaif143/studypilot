@@ -433,3 +433,53 @@ def test_gemini_falls_back_to_the_lite_model_on_503(monkeypatch):
     assert result.model == GeminiProvider.FALLBACK_MODEL
     assert len(calls) == 2
     assert any("overloaded" in w for w in result.warnings)
+
+
+# --- the local transcriber's decoding path --------------------------------------
+def test_local_transcription_decodes_itself_and_runs_without_the_vad_filter(tmp_path, monkeypatch):
+    """MP3/M4A are decoded with PyAV here (faster-whisper's own call breaks on
+    newer PyAV), WAV by the PCM reader, and no voice-activity filter is asked
+    for, because that needs onnxruntime which the packaged app does not carry."""
+    from app.ingestion import media
+
+    calls: list[dict] = []
+
+    class FakeModel:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def transcribe(self, source, **kwargs):
+            calls.append({"source": source, **kwargs})
+
+            class Segment:
+                start, end, text = 0.0, 1.0, " hello "
+
+            return iter([Segment()]), None
+
+    import types
+
+    monkeypatch.setitem(
+        __import__("sys").modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeModel)
+    )
+    decoded = []
+    monkeypatch.setattr(media, "_decode_with_av", lambda path: decoded.append(path) or "AV-ARRAY")
+
+    wav_path = tmp_path / "clip.wav"
+    wav_path.write_bytes(wav())
+    text, _elements, extractor = media._transcribe_locally(wav(), "audio/wav", "small", wav_path)
+    assert "hello" in text and extractor.startswith("whisper")
+    assert calls[-1]["vad_filter"] is False
+    assert decoded == []  # WAV never goes through PyAV
+
+    media._transcribe_locally(b"ID3mp3bytes", "audio/mpeg", "small", None)
+    assert calls[-1]["source"] == "AV-ARRAY" and calls[-1]["vad_filter"] is False
+    assert len(decoded) == 1
+
+
+def test_the_refusal_names_the_brief_kind_correctly(tmp_path, monkeypatch):
+    from app.ingestion import media
+
+    monkeypatch.setattr(media, "local_transcription_available", lambda: False)
+    reader = MediaReader(settings=settings(tmp_path), provider=TextOnly())
+    assert "an audio brief" in reader.cannot_read("audio/mp4")
+    assert "an image brief" in reader.cannot_read("image/png")

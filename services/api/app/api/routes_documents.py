@@ -231,6 +231,17 @@ def _ingest_upload(
 
     content_hash = context.blobs.hash_bytes(data)
     existing = documents.find_by_hash(user.id, course_id, content_hash)
+    if existing is not None and existing.status not in {"indexed", "partial"}:
+        # The same file failed before (no model for it, say): try again in
+        # its place rather than leaving a second failed row behind.
+        remove_document(
+            context=context,
+            session=documents.session,
+            documents=documents,
+            chunks=chunks,
+            document=existing,
+        )
+        existing = None
     if existing is not None and existing.status in {"indexed", "partial"}:
         # Same bytes, same course: return the document already indexed rather
         # than silently creating a duplicate.
@@ -264,6 +275,10 @@ def _ingest_upload(
     media_reader = None
     if is_image(media_type) or is_audio(media_type):
         media_reader = _media_reader_for(media_type, allow_cloud, context, user, users)
+    elif media_type == "application/pdf":
+        # Only used if the PDF turns out to have no text layer (a scan); the
+        # reader carries the consent decision, and declines without it.
+        media_reader = _media_reader_for("image/png", allow_cloud, context, user, users)
 
     result = ingest_document(
         document=document,

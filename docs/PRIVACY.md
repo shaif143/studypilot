@@ -51,6 +51,7 @@ wherever the backend that the site is configured to talk to stores it.
 | Drafting an assignment guide with a cloud provider | **Yes** — the brief's text and the lecture passages retrieved for it |
 | Uploading an **image** brief | **Yes, if** cloud processing is on and you opt in on the upload — the image is sent to the vision model. Otherwise the upload is refused with a message, never read silently |
 | Uploading an **audio** brief | **No** when the local Whisper model is installed; otherwise **yes** under the same two-part consent — the recording is sent to Gemini |
+| Uploading a **scanned PDF** (no text layer) | **Yes, if** cloud processing is on and you opt in on the upload — each page image is sent to the vision model. Otherwise it stays partly indexed with a note |
 | Images or recordings inside a **folder or archive** upload | Same as above, decided once per batch by the switch in the upload dialog (off unless cloud processing is on in Settings). Declined, they are skipped with a note, never read silently |
 | Connecting Google Drive | **Yes** — a sign-in with Google, in your browser. StudyPilot receives a read-only token; it sends Google nothing of yours |
 | Indexing or opening a file from Drive | Data comes **from** Google to this device (the file's bytes, read and dropped). Nothing is written to Drive |

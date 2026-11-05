@@ -280,6 +280,10 @@ section, element type, bounding box, source text, and the embedding model
 version. The bounding boxes are what make a citation clickable — the reader
 draws them over the rendered PDF.
 
+**Scanned PDFs.** When extraction finds no text on any page and the upload carried a reader whose provider can read images (the consent decision travels with it), each page is rendered at 150 dpi and transcribed by the vision model, up to `max_ocr_pages`; the text replaces the empty extraction in place, so topics, chunks and citations follow the normal path. Without such a reader the document stays partial with a hint.
+
+**Local transcription.** faster-whisper on the CPU, int8. MP3 and M4A are decoded with PyAV here rather than by faster-whisper's own call, which passes an argument newer PyAV releases dropped; the voice-activity filter is off because it needs onnxruntime, which the packaged app does not carry.
+
 ### Image and audio briefs
 
 A photographed brief or a recording cannot be read without a model, so

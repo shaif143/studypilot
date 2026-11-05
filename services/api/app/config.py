@@ -176,6 +176,8 @@ class Settings(BaseSettings):
     #: key into the Keychain.
     token_encryption_key: str = ""
     max_pdf_pages: int = 2000
+    #: Pages of a scanned PDF read with the vision model, per document.
+    max_ocr_pages: int = 40
 
     # --- Model providers -------------------------------------------------
     #: "extractive" is the offline, non-generative default. See docs/DECISIONS.md.

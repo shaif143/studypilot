@@ -23,7 +23,12 @@ from pathlib import Path
 from app.config import Settings
 from app.ingestion.chunking import build_chunks
 from app.ingestion.media import MediaReader, is_audio, is_image, sniff_media_type
-from app.ingestion.pdf import ExtractedDocument, UnreadableDocumentError, extract_pdf
+from app.ingestion.pdf import (
+    ExtractedDocument,
+    PageElement,
+    UnreadableDocumentError,
+    extract_pdf,
+)
 from app.ingestion.ppt import PPT_MEDIA_TYPE, looks_like_ppt, render_ppt_to_pdf
 from app.ingestion.pptx import (
     PPTX_MEDIA_TYPE,
@@ -90,6 +95,81 @@ def validate_upload(filename: str, data: bytes, settings: Settings) -> str:
         "MP3 or M4A audio, and .zip or .rar archives of those. This file does not look like "
         "any of those."
     )
+
+
+_SCAN_HINT = (
+    " With cloud AI processing on and a Claude or Gemini key, StudyPilot reads the "
+    "pages as images instead."
+)
+
+
+def _read_scanned_pages(
+    extracted: ExtractedDocument,
+    source_path: Path,
+    document: Document,
+    settings: Settings,
+    media_reader: MediaReader | None,
+) -> None:
+    """A PDF with no text layer: read each page image with the vision model.
+
+    Only when the caller supplied a reader whose provider can read images —
+    which carries the user's consent — and only up to ``max_ocr_pages``.
+    Without one, the document stays partial with a hint saying what would
+    read it. The page text replaces the empty extraction in place so topics,
+    chunks and citations are built exactly as for a born-digital PDF.
+    """
+    why = media_reader.cannot_read("image/png") if media_reader is not None else "no reader"
+    if why:
+        extracted.warnings = [
+            w + (_SCAN_HINT if "No text" in w else "") for w in extracted.warnings
+        ]
+        return
+    assert media_reader is not None
+    import pymupdf
+
+    limit = min(extracted.page_count, settings.max_ocr_pages)
+    read = 0
+    failures: list[str] = []
+    with pymupdf.open(source_path) as pdf:
+        for page in extracted.pages[:limit]:
+            try:
+                pix = pdf[page.page_number - 1].get_pixmap(dpi=150)
+                text = media_reader.read_page_image(
+                    pix.tobytes("png"), title=document.title, page_number=page.page_number
+                ).strip()
+            except Exception as exc:
+                failures.append(f"page {page.page_number}: {exc}")
+                continue
+            if not text:
+                continue
+            page.text = text
+            first = text.splitlines()[0].strip() if text else ""
+            page.heading = first[:200] if len(first) <= 120 else ""
+            page.elements = [
+                PageElement(
+                    index=0, kind="text", text=text, bbox=[0.0, 0.0, page.width, page.height]
+                )
+            ]
+            read += 1
+    label = media_reader.provider.info.label if media_reader.provider else "a vision model"
+    extracted.warnings = [w for w in extracted.warnings if "No text could be extracted" not in w]
+    if read:
+        extracted.warnings.insert(
+            0,
+            f"This document had no text layer; {read} of {extracted.page_count} pages were "
+            f"read from their images by {label}. Check against the original before relying "
+            "on it.",
+        )
+        extracted.extractor = f"{extracted.extractor}+vision:{media_reader.provider.info.key}"
+    else:
+        extracted.warnings.insert(0, f"{label} returned no text for the scanned pages.")
+    if extracted.page_count > limit:
+        extracted.warnings.append(
+            f"Only the first {limit} scanned pages were read (the limit for one document)."
+        )
+    if failures:
+        extracted.warnings.append("Some pages could not be read: " + "; ".join(failures[:3]))
+    extracted.partial = 0 < extracted.text_pages < extracted.page_count
 
 
 @contextmanager
@@ -206,6 +286,10 @@ def ingest_document(
                     max_pages=settings.max_pdf_pages,
                     preview_sink=preview_sink,
                 )
+                if extracted.text_pages == 0 and extracted.page_count > 0:
+                    _read_scanned_pages(
+                        extracted, Path(source_path), document, settings, media_reader
+                    )
     except (UnreadableDocumentError, UnreadablePresentationError) as exc:
         documents.set_status(document, "failed", str(exc))
         return IngestionResult(
