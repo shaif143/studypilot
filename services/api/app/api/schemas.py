@@ -50,6 +50,7 @@ class SettingsOut(BaseModel):
     model_config = ORM
 
     theme: str
+    preferred_llm_provider: str = ""
     learning_style: str
     explanation_level: str
     assignment_policy: str
@@ -65,6 +66,8 @@ class SettingsOut(BaseModel):
 
 class SettingsUpdate(BaseModel):
     theme: Literal["system", "light", "dark"] | None = None
+    #: "" clears the choice and returns to the installation default.
+    preferred_llm_provider: Literal["", "extractive", "ollama", "anthropic", "gemini"] | None = None
     learning_style: str | None = None
     explanation_level: Literal["simple", "intermediate", "advanced"] | None = None
     assignment_policy: Literal["socratic", "explain", "off"] | None = None
@@ -595,3 +598,21 @@ class AssignmentOut(BaseModel):
 
     document: DocumentOut
     plan: AssignmentPlanOut | None = None
+
+
+# --- provider keys (desktop) ------------------------------------------------
+class ProviderKeyStatusOut(BaseModel):
+    provider: str
+    configured: bool
+    #: Set outside the app (environment); cannot be removed from inside it.
+    from_environment: bool
+
+
+class ProviderKeysOut(BaseModel):
+    #: False on a hosted deployment, where keys belong to the operator.
+    editable: bool
+    keys: list[ProviderKeyStatusOut]
+
+
+class ProviderKeyIn(BaseModel):
+    key: str = Field(min_length=8, max_length=512)

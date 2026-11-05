@@ -185,14 +185,36 @@ export function SettingsScreen() {
                       <p className="mt-1 text-[0.75rem] leading-relaxed text-[var(--text-secondary)]">
                         {provider.detail}
                       </p>
+                      {provider.available && !active ? (
+                        <Button
+                          size="sm"
+                          className="mt-2"
+                          loading={update.isPending}
+                          onClick={() => update.mutate({ preferred_llm_provider: provider.key })}
+                        >
+                          Use this provider
+                        </Button>
+                      ) : null}
+                      {active && settings.data?.preferred_llm_provider ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="mt-2"
+                          loading={update.isPending}
+                          onClick={() => update.mutate({ preferred_llm_provider: '' })}
+                        >
+                          Back to the default
+                        </Button>
+                      ) : null}
                     </li>
                   );
                 })}
               </ul>
               <Callout tone="info" className="mt-3" icon={<Info size={14} />}>
-                The provider is chosen by backend configuration, not in the browser, so API keys
-                never reach the app bundle. Set <code>STUDYPILOT_LLM_PROVIDER</code> and the
-                matching key in the backend environment. See <code>docs/ARCHITECTURE.md</code>.
+                Pick the provider that answers for you here. Keys for cloud providers are set
+                where the engine runs — on a hosted site, by whoever operates it — and never
+                reach this app. Cloud providers also need <em>Allow cloud AI processing</em>
+                below.
               </Callout>
             </Card>
 

@@ -92,6 +92,10 @@ class UserSettings(Base, TimestampMixin):
     #: Guidance policy for the assignment coach: "socratic" | "explain" | "off".
     assignment_policy: Mapped[str] = mapped_column(String(16), default="socratic")
     quiz_checkpoint_slides: Mapped[int] = mapped_column(Integer, default=5)
+    #: The generation provider this user chose in Settings. Empty means the
+    #: installation's default (STUDYPILOT_LLM_PROVIDER). Needed on the desktop,
+    #: where there is no environment to configure the default in.
+    preferred_llm_provider: Mapped[str] = mapped_column(String(32), default="")
 
     # Privacy / consent. All default to the most private option.
     allow_cloud_processing: Mapped[bool] = mapped_column(Boolean, default=False)

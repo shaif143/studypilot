@@ -58,6 +58,8 @@ export interface UserSettings {
   learning_style: string;
   explanation_level: ExplanationLevel;
   assignment_policy: AssignmentPolicy;
+  /** The user's chosen generation provider; empty means the installation default. */
+  preferred_llm_provider: string;
   quiz_checkpoint_slides: number;
   allow_cloud_processing: boolean;
   allow_cloud_vision: boolean;
@@ -543,4 +545,19 @@ export interface AssignmentPlan {
 export interface Assignment {
   document: DocumentSummary;
   plan: AssignmentPlan | null;
+}
+
+// --- provider keys (desktop) --------------------------------------------------
+
+export interface ProviderKeyStatus {
+  provider: string;
+  configured: boolean;
+  /** Set outside the app; cannot be removed from inside it. */
+  from_environment: boolean;
+}
+
+export interface ProviderKeys {
+  /** False on a hosted deployment, where keys belong to the operator. */
+  editable: boolean;
+  keys: ProviderKeyStatus[];
 }

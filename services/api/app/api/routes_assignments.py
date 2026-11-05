@@ -112,7 +112,12 @@ def draft_plan(
     user_settings = users.settings(user.id)
 
     settings = context.settings
-    requested = body.provider or settings.assignment_provider or None
+    requested = (
+        body.provider
+        or settings.assignment_provider
+        or user_settings.preferred_llm_provider
+        or None
+    )
     if requested is None and settings.llm_provider == "extractive":
         # The user asked for the strongest model for assignments; when an
         # Anthropic key is present and nothing is pinned, prefer it.

@@ -22,6 +22,7 @@ import type {
   PageDetail,
   PageSummary,
   Platform,
+  ProviderKeys,
   ProvidersResponse,
   QuizGenerateRequest,
   Recommendation,
@@ -309,6 +310,13 @@ export class StudyPilotClient {
     if (!response.ok) throw new ApiError(`Could not load ${path}`, response.status);
     return URL.createObjectURL(await response.blob());
   }
+
+  // --- provider keys (desktop) ------------------------------------------
+  providerKeys = () => this.request<ProviderKeys>('/api/keys');
+  setProviderKey = (provider: string, key: string) =>
+    this.request<ProviderKeys>(`/api/keys/${provider}`, { method: 'POST', body: { key } });
+  deleteProviderKey = (provider: string) =>
+    this.request<ProviderKeys>(`/api/keys/${provider}`, { method: 'DELETE' });
 
   // --- assignment guides ----------------------------------------------
   assignments = (courseId: string) =>

@@ -9,6 +9,7 @@
 import { ApiError } from '@studypilot/api-client';
 import type {
   Assignment,
+  ProviderKeys,
   AssignmentPlan,
   AuthStatus,
   AnswerResponse,
@@ -71,6 +72,7 @@ export const keys = {
   mastery: (courseId?: string) => ['mastery', courseId ?? 'all'] as const,
   recommendations: (courseId?: string) => ['recommendations', courseId ?? 'all'] as const,
   attention: (documentId: string) => ['attention', documentId] as const,
+  providerKeys: ['providerKeys'] as const,
   assignments: (courseId: string) => ['assignments', courseId] as const,
   assignmentPlan: (documentId: string) => ['assignments', 'plan', documentId] as const,
 };
@@ -648,6 +650,39 @@ export function useSetStepApproval(courseId: string) {
     onSuccess: (plan) => {
       queryClient.setQueryData(keys.assignmentPlan(plan.document_id), plan);
       void queryClient.invalidateQueries({ queryKey: keys.assignments(courseId) });
+    },
+  });
+}
+
+
+// --- provider keys (desktop) --------------------------------------------------
+export function useProviderKeys() {
+  const client = useClient();
+  return useQuery<ProviderKeys>({ queryKey: keys.providerKeys, queryFn: () => client.providerKeys() });
+}
+
+export function useSetProviderKey() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ provider, key }: { provider: string; key: string }) =>
+      client.setProviderKey(provider, key),
+    onSuccess: (result) => {
+      queryClient.setQueryData(keys.providerKeys, result);
+      // The provider's availability changed, so the catalogue must be re-read.
+      void queryClient.invalidateQueries({ queryKey: keys.providers });
+    },
+  });
+}
+
+export function useDeleteProviderKey() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (provider: string) => client.deleteProviderKey(provider),
+    onSuccess: (result) => {
+      queryClient.setQueryData(keys.providerKeys, result);
+      void queryClient.invalidateQueries({ queryKey: keys.providers });
     },
   });
 }

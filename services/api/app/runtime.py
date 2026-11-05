@@ -49,6 +49,14 @@ class RuntimeContext:
         database = database or Database.from_settings(settings)
         database.create_all()
 
+        # Keys the user typed into the desktop app, kept in its data directory.
+        # Loaded into the environment so providers need know nothing about it.
+        from app import secrets
+
+        loaded = secrets.load_into_environment(settings)
+        if loaded:
+            log.info("provider_keys_loaded", extra={"providers": loaded})
+
         # Loud, specific, and at boot: a hosted instance on an ephemeral disk
         # looks perfectly healthy right up until the first upload disappears.
         for warning in settings.configuration_warnings():

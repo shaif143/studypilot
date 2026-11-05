@@ -66,6 +66,9 @@ def resolve_provider(
     """
     warnings: list[str] = []
     consent = bool(user_settings.allow_cloud_processing and allow_cloud_request)
+    # Precedence: this request's explicit choice, then the user's choice in
+    # Settings, then the installation default.
+    requested = requested or user_settings.preferred_llm_provider or None
     try:
         return get_llm_provider(settings, cloud_consent=consent, requested=requested), warnings
     except ConsentRequiredError as exc:
