@@ -56,12 +56,15 @@ STUDYPILOT_API_TOKEN=smoke-test \
 SMOKE_PID=$!
 trap 'kill $SMOKE_PID 2>/dev/null || true; rm -rf "$SMOKE_DIR"' EXIT
 
-for _ in $(seq 1 60); do
+# A one-file bundle unpacks ~180 MB and imports PyMuPDF, the speech model
+# and the vector store before it listens; a cold start on a busy machine
+# can take over a minute, which is not a failure.
+for _ in $(seq 1 180); do
   if curl -fsS http://127.0.0.1:8799/healthz >/dev/null 2>&1; then
     echo "    liveness OK"
     break
   fi
-  sleep 0.5
+  sleep 1
 done
 
 if ! curl -fsS http://127.0.0.1:8799/healthz >/dev/null 2>&1; then
