@@ -35,6 +35,8 @@ import type {
   Message,
   Note,
   NoteMode,
+  NoteSaveRequest,
+  NoteSaved,
   PageDetail,
   PageSummary,
   ProvidersResponse,
@@ -866,12 +868,17 @@ export function useLocalFolders() {
     queryFn: async () => {
       const result = await client.localFolders();
       const previous = queryClient.getQueryData<LocalFolders>(keys.localFolders);
+      const running = result.links.some(
+        (link) => link.scan && ['queued', 'running'].includes(link.scan.state),
+      );
       // A scan that just finished changed the library; re-read it once.
       const finishedNow = result.links.some((link) => {
         const was = previous?.links.find((p) => p.id === link.id)?.scan?.state;
         return link.scan?.state === 'done' && was !== undefined && was !== 'done';
       });
+      // While it runs, rows go from queued to indexed one by one: keep the list live.
       if (finishedNow) afterFolderScan(queryClient);
+      else if (running) void queryClient.invalidateQueries({ queryKey: ['documents'] });
       return result;
     },
     // Poll while any scan is running; otherwise sit still.
@@ -909,5 +916,12 @@ export function useUnlinkLocalFolder() {
       queryClient.setQueryData(keys.localFolders, result);
       afterFolderScan(queryClient);
     },
+  });
+}
+
+export function useSaveNote() {
+  const client = useClient();
+  return useMutation<NoteSaved, Error, { noteId: string } & NoteSaveRequest>({
+    mutationFn: ({ noteId, ...body }) => client.saveNote(noteId, body),
   });
 }

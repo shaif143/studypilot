@@ -2025,8 +2025,14 @@
             "title": "Account Email",
             "type": "string"
           },
+          "can_write": {
+            "default": false,
+            "title": "Can Write",
+            "type": "boolean"
+          },
           "client_source": {
             "enum": [
+              "bundled",
               "settings",
               "environment",
               "none"
@@ -2383,6 +2389,11 @@
             "title": "Error",
             "type": "string"
           },
+          "phase": {
+            "default": "documents",
+            "title": "Phase",
+            "type": "string"
+          },
           "state": {
             "title": "State",
             "type": "string"
@@ -2671,6 +2682,46 @@
           "updated_at"
         ],
         "title": "NoteOut",
+        "type": "object"
+      },
+      "NoteSaveRequest": {
+        "properties": {
+          "link_id": {
+            "title": "Link Id",
+            "type": "string"
+          },
+          "target": {
+            "enum": [
+              "local",
+              "drive"
+            ],
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "link_id"
+        ],
+        "title": "NoteSaveRequest",
+        "type": "object"
+      },
+      "NoteSavedOut": {
+        "properties": {
+          "location": {
+            "title": "Location",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "location"
+        ],
+        "title": "NoteSavedOut",
         "type": "object"
       },
       "NoteUpdate": {
@@ -9767,6 +9818,107 @@
           }
         },
         "summary": "Update Note",
+        "tags": [
+          "notes"
+        ]
+      }
+    },
+    "/api/notes/{note_id}/save": {
+      "post": {
+        "description": "Write the note as Markdown next to the material it came from.\n\nInto \"StudyPilot Notes\" under a folder linked on this Mac, or the same\nsubfolder of a linked Drive folder. Nothing else in either folder is\ntouched, and the file is overwritten on a second save.",
+        "operationId": "save_note_api_notes__note_id__save_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "note_id",
+            "required": true,
+            "schema": {
+              "title": "Note Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-studypilot-token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Studypilot-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteSaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteSavedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Note",
         "tags": [
           "notes"
         ]

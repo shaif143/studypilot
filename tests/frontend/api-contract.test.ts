@@ -122,6 +122,7 @@ describe('API contract', () => {
     ['notes', () => client.notes()],
     ['note', () => client.note('n1')],
     ['updateNote', () => client.updateNote('n1', { title: 't' })],
+    ['saveNote', () => client.saveNote('n1', { target: 'local', link_id: 'l1' })],
     ['deleteNote', () => client.deleteNote('n1')],
     ['dashboard', () => client.dashboard()],
     ['mastery', () => client.mastery()],

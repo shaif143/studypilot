@@ -191,3 +191,42 @@ def test_hidden_and_unreadable_entries_are_left_out(course_folder: Path):
     assert ".DS_Store" not in names and "L2/notes.txt" not in names
     assert names == ["L1/figure.png", "L1/lecture.pdf", "L2/deck.pptx"]
     assert [f.relative for f in local_folders.list_files(course_folder, recursive=False)] == []
+
+
+def test_documents_are_read_before_media_and_the_folder_is_listed_at_once(
+    client: TestClient, course, course_folder: Path
+):
+    from app.storage.models import LocalFolderLink
+
+    files = local_folders.list_files(course_folder, recursive=True)
+    ordered = local_folders.order_for_indexing(
+        files, LocalFolderLink(path=str(course_folder), read_media=True)
+    )
+    assert [f.relative for f in ordered] == ["L1/lecture.pdf", "L2/deck.pptx", "L1/figure.png"]
+    # Without consent the image is not even queued.
+    silent = LocalFolderLink(path=str(course_folder), read_media=False)
+    assert [f.relative for f in files if local_folders.will_index(f, silent)] == [
+        "L1/lecture.pdf",
+        "L2/deck.pptx",
+    ]
+
+
+def test_a_note_is_saved_into_a_notes_subfolder_and_not_indexed_back(
+    client: TestClient, course, course_folder: Path
+):
+    link = _link(client, course, course_folder)
+    note = client.post("/api/notes/generate", json={"course_id": course["id"], "mode": "concept"})
+    assert note.status_code == 201, note.text
+    saved = client.post(
+        f"/api/notes/{note.json()['id']}/save", json={"target": "local", "link_id": link["id"]}
+    )
+    assert saved.status_code == 200, saved.text
+    path = Path(saved.json()["location"])
+    assert path.parent == course_folder.resolve() / "StudyPilot Notes" and path.suffix == ".md"
+    assert path.read_text(encoding="utf-8") == note.json()["body_markdown"]
+    # The app's own notes folder is never swept up as lecture material.
+    rescan = client.post(f"/api/local-folders/{link['id']}/scan?wait=true").json()
+    assert "StudyPilot Notes" not in str(
+        [d["source_ref"] for d in client.get("/api/documents").json()]
+    )
+    assert rescan["scan"]["counts"].get("indexed", 0) == 0

@@ -689,7 +689,7 @@ function GoogleDriveCard() {
     <Card>
       <SectionHeading
         title="Google Drive"
-        description="Link a Drive folder to a course. Files stay in Drive: StudyPilot reads each one to build its search index, and opens it from Drive when you read it. Read-only access; nothing is written to your Drive."
+        description="Like mounting Drive in Colab: connect once, then link Drive folders to courses. Files stay in Drive — StudyPilot reads them to build its index and opens them from Drive — and your notes can be saved back into a linked folder, under a StudyPilot Notes subfolder. Nothing else in your Drive is touched."
         action={
           status?.connected ? (
             <Button
@@ -733,10 +733,16 @@ function GoogleDriveCard() {
             {platform.kind === 'desktop' ? ', with its key in the macOS Keychain' : ''}. Disconnect
             revokes it at Google; documents already indexed stay.
           </p>
+          {!status.can_write ? (
+            <Callout tone="caution" icon={<AlertTriangle size={14} />}>
+              This connection was made read-only, so notes cannot be saved to Drive yet.
+              Disconnect and connect again to allow it.
+            </Callout>
+          ) : null}
         </div>
       ) : (
         <div className="mt-3 space-y-3">
-          {status.editable ? (
+          {status.editable && status.client_source !== 'bundled' ? (
             <>
               <details className="rounded-[var(--radius-control)] border border-[var(--border-subtle)] px-3 py-2 text-[0.8125rem]">
                 <summary className="cursor-pointer font-medium text-[var(--text-primary)]">

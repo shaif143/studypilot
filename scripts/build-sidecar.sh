@@ -12,6 +12,21 @@ fi
 TRIPLE="aarch64-apple-darwin"
 OUT="apps/desktop/src-tauri/binaries"
 
+# The app's Google OAuth client (and nothing else) from .env.local, so the
+# build can ship it and no user has to type one. Never echoed.
+if [[ -f .env.local ]]; then
+  while IFS= read -r line; do
+    case "$line" in
+      GOOGLE_OAUTH_CLIENT_ID=*|GOOGLE_OAUTH_CLIENT_SECRET=*) export "${line%%#*}" ;;
+    esac
+  done < .env.local
+fi
+if [[ -n "${GOOGLE_OAUTH_CLIENT_ID:-}" && -n "${GOOGLE_OAUTH_CLIENT_SECRET:-}" ]]; then
+  echo "==> A Google OAuth client is set; it will be bundled"
+else
+  echo "==> No GOOGLE_OAUTH_CLIENT_ID/SECRET in .env.local; Drive will ask for one in Settings"
+fi
+
 echo "==> Building the backend with PyInstaller"
 rm -rf services/api/build services/api/dist
 (cd services/api && ../../.venv/bin/python -m PyInstaller --noconfirm --clean sidecar.spec)

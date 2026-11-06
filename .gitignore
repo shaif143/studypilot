@@ -46,3 +46,7 @@ apps/desktop/src-tauri/gen/schemas/
 # Playwright
 test-results/
 playwright-report/
+
+# The app's own Google OAuth client, bundled at build time from .env.local
+services/api/app/resources/google_client.json
+services/api/build/

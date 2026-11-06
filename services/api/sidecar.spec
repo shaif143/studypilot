@@ -42,6 +42,22 @@ for package in (
     binaries += package_binaries
     hiddenimports += package_hidden
 
+# The app's own Google OAuth client, so no user ever types one: taken from
+# the build environment (scripts/build-sidecar.sh exports it from .env.local)
+# and shipped as a data file the backend reads at startup. Absent, Drive
+# stays available through the Settings fields.
+import json
+import os
+
+_client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+_client_secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+if _client_id and _client_secret:
+    os.makedirs("build", exist_ok=True)
+    with open("build/google_client.json", "w", encoding="utf-8") as handle:
+        json.dump({"client_id": _client_id, "client_secret": _client_secret}, handle)
+    datas.append(("build/google_client.json", "."))
+    print("==> Bundling the app's Google OAuth client")
+
 # uvicorn resolves its protocol and loop implementations by name at runtime.
 hiddenimports += collect_submodules("uvicorn")
 hiddenimports += [

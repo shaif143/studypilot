@@ -757,12 +757,16 @@ class DriveLinkOut(BaseModel):
 class GoogleDriveStatusOut(BaseModel):
     #: An OAuth client is set up on this installation.
     configured: bool
-    #: Where that client comes from: "settings" (typed into the desktop app),
-    #: "environment" (the operator's), or "none".
-    client_source: Literal["settings", "environment", "none"]
+    #: Where that client comes from: "bundled" (shipped with the app, nothing
+    #: to type), "settings" (typed into the desktop app), "environment" (the
+    #: operator's), or "none".
+    client_source: Literal["bundled", "settings", "environment", "none"]
     #: The desktop app lets the user enter the client; a hosted site does not.
     editable: bool
     connected: bool
+    #: The connection may write (newer connections); an older read-only one
+    #: has to be made again before notes can be saved to Drive.
+    can_write: bool = False
     account_email: str = ""
     links: list[DriveLinkOut] = Field(default_factory=list)
     #: What the app keeps for a Drive file. Always the index alone.
@@ -830,6 +834,8 @@ class DriveImportOut(BaseModel):
 class LocalFolderScanOut(BaseModel):
     #: queued | running | done | failed
     state: str
+    #: "documents" or "media": the slow part (images, recordings) comes last.
+    phase: str = "documents"
     done: int = 0
     total: int = 0
     current: str = ""
@@ -865,3 +871,16 @@ class LocalFoldersOut(BaseModel):
     #: False on a hosted deployment, which has no file system of the user's.
     available: bool
     links: list[LocalFolderLinkOut] = Field(default_factory=list)
+
+
+# --- saving a note next to the material --------------------------------------------
+class NoteSaveRequest(BaseModel):
+    #: "local" (a folder linked on this Mac) or "drive" (a linked Drive folder).
+    target: Literal["local", "drive"]
+    link_id: str
+
+
+class NoteSavedOut(BaseModel):
+    target: str
+    #: The file's path on this Mac, or its Drive link.
+    location: str

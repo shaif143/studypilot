@@ -52,8 +52,17 @@ AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 API_URL = "https://www.googleapis.com/drive/v3"
-#: The one scope the app asks for. Listing and reading; never writing.
-SCOPES = ("https://www.googleapis.com/auth/drive.readonly",)
+#: Full Drive access, like mounting Drive in Colab: the app reads the folders
+#: the student links and writes its notes back into them. Everything it
+#: writes goes under a "StudyPilot Notes" subfolder of a linked folder.
+SCOPES = ("https://www.googleapis.com/auth/drive",)
+WRITE_SCOPE = "https://www.googleapis.com/auth/drive"
+UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files"
+NOTES_FOLDER_NAME = "StudyPilot Notes"
+#: Where a build puts the app's own OAuth client, so no user ever types one.
+#: PyInstaller unpacks data files next to `sys._MEIPASS`; a source checkout
+#: can keep one at app/resources/google_client.json (gitignored).
+BUNDLED_CLIENT_FILE = "google_client.json"
 
 FOLDER_MIME = "application/vnd.google-apps.folder"
 #: Google-native formats: no bytes of their own, exported as PDF on read.
@@ -122,9 +131,51 @@ class OAuthClient:
             client_secret=os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "").strip(),
         )
 
+    @classmethod
+    def from_bundle(cls) -> OAuthClient:
+        """The client the build shipped, if any."""
+        for candidate in bundled_client_candidates():
+            try:
+                data = json.loads(candidate.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            client = cls(
+                client_id=str(data.get("client_id", "")).strip(),
+                client_secret=str(data.get("client_secret", "")).strip(),
+            )
+            if client.configured:
+                return client
+        return cls()
+
+    @classmethod
+    def resolve(cls) -> tuple[OAuthClient, str]:
+        """The client to use and where it came from: "environment", "bundled" or "none"."""
+        client = cls.from_environment()
+        if client.configured:
+            return client, "environment"
+        client = cls.from_bundle()
+        if client.configured:
+            return client, "bundled"
+        return cls(), "none"
+
     @property
     def configured(self) -> bool:
         return bool(self.client_id and self.client_secret)
+
+
+def bundled_client_candidates() -> list[Path]:
+    """Places a shipped client file may be, most specific first."""
+    import sys
+
+    found: list[Path] = []
+    override = os.environ.get("STUDYPILOT_GOOGLE_CLIENT_FILE")
+    if override:
+        found.append(Path(override))
+    bundle_root = getattr(sys, "_MEIPASS", None)
+    if bundle_root:
+        found.append(Path(bundle_root) / BUNDLED_CLIENT_FILE)
+    found.append(Path(__file__).resolve().parents[1] / "resources" / BUNDLED_CLIENT_FILE)
+    return found
 
 
 def new_state() -> str:
@@ -171,6 +222,10 @@ class Tokens:
     @property
     def expired(self) -> bool:
         return time.time() >= self.expires_at - REFRESH_MARGIN_SECONDS
+
+    @property
+    def can_write(self) -> bool:
+        return WRITE_SCOPE in self.scope.split()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -516,6 +571,93 @@ class DriveClient:
                 if len(found) >= max_files:
                     break
         return found
+
+    def _post(self, url: str, **kwargs: Any) -> httpx.Response:
+        headers = {**self._headers, **kwargs.pop("headers", {})}
+        try:
+            response = self._http.request(
+                kwargs.pop("method", "POST"), url, headers=headers, **kwargs
+            )
+        except httpx.HTTPError as exc:
+            raise DriveError(f"Could not reach Google Drive: {exc}") from exc
+        if response.status_code == 401:
+            raise DriveNotConnectedError(
+                "Google no longer accepts this connection. Connect Google Drive again."
+            )
+        if response.status_code == 403:
+            raise DriveError(
+                "Google Drive refused to write. Reconnect Google Drive to allow saving "
+                "(the earlier connection was read-only).",
+                status=403,
+            )
+        if response.status_code >= 400:
+            raise DriveError(
+                f"Google Drive answered: {_error_detail(response)}",
+                status=502 if response.status_code >= 500 else 400,
+            )
+        return response
+
+    def find_child(self, folder_id: str, name: str, *, folder: bool = False) -> DriveFile | None:
+        """A direct child by exact name, or None."""
+        safe = name.replace("\\", "\\\\").replace("'", "\\'")
+        query = f"'{folder_id}' in parents and name = '{safe}' and trashed = false"
+        if folder:
+            query += f" and mimeType = '{FOLDER_MIME}'"
+        data = self._get(
+            "/files",
+            {
+                "q": query,
+                "fields": f"files({_FILE_FIELDS})",
+                "pageSize": 5,
+                "supportsAllDrives": "true",
+                "includeItemsFromAllDrives": "true",
+            },
+        ).json()
+        items = data.get("files", [])
+        return _file_from(items[0]) if items else None
+
+    def ensure_folder(self, parent_id: str, name: str) -> DriveFile:
+        """A subfolder by name, created if missing."""
+        existing = self.find_child(parent_id, name, folder=True)
+        if existing is not None:
+            return existing
+        response = self._post(
+            f"{API_URL}/files",
+            params={"fields": _FILE_FIELDS, "supportsAllDrives": "true"},
+            json={"name": name, "mimeType": FOLDER_MIME, "parents": [parent_id]},
+        )
+        return _file_from(response.json())
+
+    def write_file(self, folder_id: str, name: str, data: bytes, mime_type: str) -> DriveFile:
+        """Create or overwrite a file by name inside a folder."""
+        metadata = json.dumps({"name": name})
+        existing = self.find_child(folder_id, name)
+        if existing is None:
+            metadata = json.dumps({"name": name, "parents": [folder_id]})
+            url = f"{UPLOAD_URL}?uploadType=multipart&fields={_FILE_FIELDS}&supportsAllDrives=true"
+            method = "POST"
+        else:
+            url = (
+                f"{UPLOAD_URL}/{existing.id}?uploadType=multipart&fields={_FILE_FIELDS}"
+                "&supportsAllDrives=true"
+            )
+            method = "PATCH"
+        boundary = "studypilot-" + _secrets.token_hex(8)
+        body = (
+            (
+                f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"
+                f"{metadata}\r\n--{boundary}\r\nContent-Type: {mime_type}\r\n\r\n"
+            ).encode()
+            + data
+            + f"\r\n--{boundary}--".encode()
+        )
+        response = self._post(
+            url,
+            method=method,
+            content=body,
+            headers={**self._headers, "Content-Type": f"multipart/related; boundary={boundary}"},
+        )
+        return _file_from(response.json())
 
     def fetch(self, file: DriveFile, *, max_bytes: int) -> bytes:
         """The file's bytes, exported as PDF for Google-native formats.

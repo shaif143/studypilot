@@ -667,11 +667,13 @@ export interface DriveLink {
 export interface GoogleDriveStatus {
   /** An OAuth client is set up on this installation. */
   configured: boolean;
-  /** Where that client came from. */
-  client_source: 'settings' | 'environment' | 'none';
+  /** Where that client came from: "bundled" means the app ships its own and nothing is typed. */
+  client_source: 'bundled' | 'settings' | 'environment' | 'none';
   /** The desktop lets the user enter the client; a hosted site does not. */
   editable: boolean;
   connected: boolean;
+  /** The connection may write; an older read-only one must be made again to save notes. */
+  can_write: boolean;
   account_email: string;
   links: DriveLink[];
   /** What is kept here for a Drive file: only ever the search index. */
@@ -740,6 +742,8 @@ export interface DriveImportResult {
 
 export interface LocalFolderScan {
   state: 'queued' | 'running' | 'done' | 'failed';
+  /** Documents are read first; images and recordings, the slow part, last. */
+  phase: 'documents' | 'media';
   done: number;
   total: number;
   current: string;
@@ -771,4 +775,15 @@ export interface LocalFolderLinkInput {
   path: string;
   recursive?: boolean;
   read_media?: boolean;
+}
+
+export interface NoteSaveRequest {
+  target: 'local' | 'drive';
+  link_id: string;
+}
+
+export interface NoteSaved {
+  target: string;
+  /** The file's path on this Mac, or its Drive link. */
+  location: string;
 }

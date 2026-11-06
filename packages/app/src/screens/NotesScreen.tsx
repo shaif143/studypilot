@@ -23,7 +23,7 @@ import {
   Tabs,
   Textarea,
 } from '@studypilot/ui';
-import { Download, NotebookPen, Pencil, Sparkles, Trash2 } from 'lucide-react';
+import { Download, FolderInput, NotebookPen, Pencil, Sparkles, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { ErrorPanel, PageBody, PageHeader } from '../components/AppShell';
@@ -31,6 +31,9 @@ import { GroundedAnswer } from '../components/GroundedAnswer';
 import { ProviderNotice } from '../components/ProviderNotice';
 import {
   describeError,
+  useGoogleDrive,
+  useLocalFolders,
+  useSaveNote,
   useCourses,
   useDeleteNote,
   useDocuments,
@@ -237,6 +240,7 @@ export function NotesScreen() {
                           >
                             <Download size={14} />
                           </Button>
+                          <SaveToFolder note={selected} />
                           <Button
                             size="sm"
                             variant="ghost"
@@ -330,5 +334,78 @@ export function NotesScreen() {
         />
       </PageBody>
     </>
+  );
+}
+
+/**
+ * Save a note back next to the material: into "StudyPilot Notes" under a
+ * folder linked on this Mac, or under a linked Drive folder. Only offered
+ * when the note's course has such a folder.
+ */
+function SaveToFolder({ note }: { note: Note }) {
+  const local = useLocalFolders();
+  const drive = useGoogleDrive();
+  const save = useSaveNote();
+  const [choice, setChoice] = useState('');
+  const [saved, setSaved] = useState<string | null>(null);
+
+  const options: Array<{ value: string; label: string }> = [
+    ...(local.data?.links ?? [])
+      .filter((link) => link.course_id === note.course_id)
+      .map((link) => ({
+        value: `local:${link.id}`,
+        label: `This Mac: …/${link.path.split('/').filter(Boolean).slice(-1)[0]}/StudyPilot Notes`,
+      })),
+    ...(drive.data?.connected && drive.data.can_write ? drive.data.links : [])
+      .filter((link) => link.course_id === note.course_id)
+      .map((link) => ({
+        value: `drive:${link.id}`,
+        label: `Google Drive: ${link.folder_name}/StudyPilot Notes`,
+      })),
+  ];
+  if (options.length === 0) return null;
+  const selected = choice || options[0]!.value;
+
+  return (
+    <div className="flex items-center gap-1">
+      {options.length > 1 ? (
+        <Select
+          aria-label="Where to save"
+          className="h-7 max-w-[14rem] text-[0.75rem]"
+          value={selected}
+          onChange={(event) => setChoice(event.target.value)}
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </Select>
+      ) : null}
+      <Button
+        size="sm"
+        variant="ghost"
+        icon={<FolderInput size={14} />}
+        loading={save.isPending}
+        title={options.find((o) => o.value === selected)?.label}
+        onClick={() => {
+          const [target, linkId] = selected.split(':') as ['local' | 'drive', string];
+          save.mutate(
+            { noteId: note.id, target, link_id: linkId },
+            { onSuccess: (result) => setSaved(result.location) },
+          );
+        }}
+      >
+        Save to folder
+      </Button>
+      {saved ? (
+        <span className="max-w-[16rem] truncate text-[0.6875rem] text-[var(--signal-grounded)]" title={saved}>
+          Saved: {saved}
+        </span>
+      ) : null}
+      {save.error ? (
+        <span className="text-[0.6875rem] text-[var(--signal-danger)]">{describeError(save.error)}</span>
+      ) : null}
+    </div>
   );
 }

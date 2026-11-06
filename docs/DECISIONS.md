@@ -470,6 +470,27 @@ than shown stale.
 
 ---
 
+## 30. Drive is mounted, not configured; folders are listed first and read after
+
+**Decision.** The build ships the app's own Google OAuth client and asks for
+the full `drive` scope; the user clicks Connect and nothing else. A linked
+Mac folder is listed in the Library within a second and read in the
+background, documents first.
+
+**Why.** The user compared the app to Colab's Drive mount and to opening a
+folder in Claude Code, and the comparison was right on both counts. Colab
+needs no client ID from its users because Google registered Colab's; the
+same is true here once the app's publisher registers one and the build
+carries it. Read-only access made "mount" a half-truth, and saving notes
+next to the material is the natural thing to write. As for speed, an editor
+opens a folder instantly because it reads files on demand; a tutor that
+cites passages needs an index, which has to be built once. What can be
+instant is the listing, and what can be ordered is the work: a 60-slide deck
+takes a second, a scanned page or a recording takes a model call, so the
+slow files go last and the library is usable while they run.
+
+---
+
 ## 25. Deferred deliberately
 
 | Deferred | Reason |

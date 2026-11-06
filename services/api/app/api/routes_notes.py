@@ -4,8 +4,17 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.deps import ContextDep, NotesDep, SessionDep, UserDep, UsersDep, require_token
-from app.api.schemas import NoteGenerateRequest, NoteOut, NoteUpdate
+from app.api.deps import (
+    ContextDep,
+    DriveDep,
+    LocalFoldersDep,
+    NotesDep,
+    SessionDep,
+    UserDep,
+    UsersDep,
+    require_token,
+)
+from app.api.schemas import NoteGenerateRequest, NoteOut, NoteSavedOut, NoteSaveRequest, NoteUpdate
 from app.learning.notes import NoMaterialError, generate_note, persist_note
 
 router = APIRouter(prefix="/api/notes", tags=["notes"], dependencies=[Depends(require_token)])
@@ -67,3 +76,48 @@ def update_note(note_id: str, payload: NoteUpdate, user: UserDep, notes: NotesDe
 @router.delete("/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_note(note_id: str, user: UserDep, notes: NotesDep) -> None:
     notes.delete(user.id, note_id)
+
+
+@router.post("/{note_id}/save", response_model=NoteSavedOut)
+def save_note(
+    note_id: str,
+    payload: NoteSaveRequest,
+    context: ContextDep,
+    user: UserDep,
+    notes: NotesDep,
+    folders: LocalFoldersDep,
+    drive: DriveDep,
+) -> NoteSavedOut:
+    """Write the note as Markdown next to the material it came from.
+
+    Into "StudyPilot Notes" under a folder linked on this Mac, or the same
+    subfolder of a linked Drive folder. Nothing else in either folder is
+    touched, and the file is overwritten on a second save.
+    """
+    note = notes.get(user.id, note_id)
+    if payload.target == "local":
+        from app.ingestion.local_folders import FolderError, write_note_to_folder
+
+        link = folders.link(user.id, payload.link_id)
+        try:
+            path = write_note_to_folder(link, note.title, note.body_markdown)
+        except FolderError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        return NoteSavedOut(target="local", location=str(path))
+
+    from app.integrations import drive_import
+    from app.integrations import google_drive as gd
+
+    link = drive.link(user.id, payload.link_id)
+    try:
+        location = drive_import.save_note_to_drive(
+            context,
+            drive,
+            user.id,
+            folder_id=link.folder_id,
+            title=note.title,
+            markdown=note.body_markdown,
+        )
+    except gd.DriveError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    return NoteSavedOut(target="drive", location=location)

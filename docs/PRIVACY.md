@@ -31,7 +31,7 @@ Nothing leaves the device until a cloud provider is both enabled in Settings
 | Vector index | `…/StudyPilot/vectors/` |
 | API token | `…/StudyPilot/api_token` (mode `0600`) |
 | Cloud provider API keys entered in Settings | The **macOS Keychain** (service `StudyPilot`), encrypted and unlocked with your login — never a plain file. Only sent to that provider, with the text you ask about. If no keychain is usable, a `0600` file in the data directory, and Settings says so. |
-| Google Drive sign-in | The refresh token is in the database **encrypted**; the key that unlocks it is in the Keychain. Read-only scope. Disconnect revokes it at Google. |
+| Google Drive sign-in | The refresh token is in the database **encrypted**; the key that unlocks it is in the Keychain. Full Drive scope, used to read the folders you link and to write notes into a `StudyPilot Notes` subfolder of one — nothing else. Disconnect revokes it at Google. |
 | Documents from a **linked folder on this Mac** | **Not copied.** Only their index is stored; the file is read from its own path when opened, and only while the folder stays linked |
 | Documents linked from Google Drive | **Not stored.** Only their text index (pages, topics, chunks, vectors) is here; the file is read from Drive when you open it. |
 
@@ -55,7 +55,8 @@ wherever the backend that the site is configured to talk to stores it.
 | Uploading a **scanned PDF** (no text layer) | **Yes, if** cloud processing is on and you opt in on the upload — each page image is sent to the vision model. Otherwise it stays partly indexed with a note |
 | Images or recordings inside a **folder or archive** upload | Same as above, decided once per batch by the switch in the upload dialog (off unless cloud processing is on in Settings). Declined, they are skipped with a note, never read silently |
 | Connecting Google Drive | **Yes** — a sign-in with Google, in your browser. StudyPilot receives a read-only token; it sends Google nothing of yours |
-| Indexing or opening a file from Drive | Data comes **from** Google to this device (the file's bytes, read and dropped). Nothing is written to Drive |
+| Indexing or opening a file from Drive | Data comes **from** Google to this device (the file's bytes, read and dropped) |
+| Saving a note to a Drive folder | **Yes** — that note's Markdown, into `StudyPilot Notes` under the linked folder, only when you press Save |
 | Telemetry | Never — none is collected or transmitted |
 
 Each provider declares `sends_data_off_device` in code, and the Settings screen

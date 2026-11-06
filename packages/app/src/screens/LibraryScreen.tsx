@@ -1287,9 +1287,9 @@ function DriveImportDialog({
 function scanSentence(link: LocalFolderLink): string {
   const scan = link.scan;
   if (scan && (scan.state === 'queued' || scan.state === 'running')) {
-    return scan.total
-      ? `Indexing ${Math.min(scan.done + 1, scan.total)} of ${scan.total}${scan.current ? `: ${scan.current}` : ''}`
-      : 'Reading the folder…';
+    if (!scan.total) return 'Reading the folder…';
+    const what = scan.phase === 'media' ? 'images and recordings' : 'documents';
+    return `Indexing ${Math.min(scan.done + 1, scan.total)} of ${scan.total} (${what})${scan.current ? `: ${scan.current}` : ''}`;
   }
   if (scan?.state === 'failed') return `The last scan failed: ${scan.error}`;
   if (link.last_scanned_at) {

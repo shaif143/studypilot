@@ -30,6 +30,8 @@ import type {
   Message,
   Note,
   NoteMode,
+  NoteSaveRequest,
+  NoteSaved,
   PageDetail,
   PageSummary,
   Platform,
@@ -496,6 +498,8 @@ export class StudyPilotClient {
   notes = (courseId?: string) =>
     this.request<Note[]>('/api/notes', { query: { course_id: courseId } });
   note = (id: string) => this.request<Note>(`/api/notes/${id}`);
+  saveNote = (id: string, body: NoteSaveRequest) =>
+    this.request<NoteSaved>(`/api/notes/${id}/save`, { method: 'POST', body });
   updateNote = (id: string, patch: { title?: string; body_markdown?: string }) =>
     this.request<Note>(`/api/notes/${id}`, { method: 'PATCH', body: patch });
   deleteNote = (id: string) => this.request<void>(`/api/notes/${id}`, { method: 'DELETE' });

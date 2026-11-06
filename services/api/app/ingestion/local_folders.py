@@ -50,7 +50,7 @@ MEDIA_SUFFIXES = frozenset(
 INDEXABLE_SUFFIXES = DOCUMENT_SUFFIXES | MEDIA_SUFFIXES
 MAX_FILES_PER_SCAN = 500
 #: Folders no student wants indexed, however the files inside are named.
-_SKIP_DIRS = {"node_modules", ".git", "__MACOSX", ".Trash", "Library"}
+_SKIP_DIRS = {"node_modules", ".git", "__MACOSX", ".Trash", "Library", "StudyPilot Notes"}
 
 #: Builds the consent-gated reader for a media type, on the scan's own session.
 MediaReaderFactory = Callable[[str, Session], MediaReader]
@@ -122,6 +122,9 @@ def list_files(root: Path, *, recursive: bool) -> list[FolderFile]:
 @dataclass
 class ScanProgress:
     state: str = "queued"  # queued | running | done | failed
+    #: "documents" while PDFs and decks are read, "media" once images and
+    #: recordings start; the slow part comes last.
+    phase: str = "documents"
     done: int = 0
     total: int = 0
     current: str = ""
@@ -132,6 +135,7 @@ class ScanProgress:
     def to_dict(self) -> dict[str, object]:
         return {
             "state": self.state,
+            "phase": self.phase,
             "done": self.done,
             "total": self.total,
             "current": self.current,
@@ -180,24 +184,24 @@ def scan_folder(
         try:
             link = folders.link(user_id, link_id)
             root = resolve_folder(link.path)
-            files = list_files(root, recursive=link.recursive)
+            files = order_for_indexing(list_files(root, recursive=link.recursive), link)
             progress.state = "running"
             progress.total = len(files)
             existing = folders.documents_from_folder(user_id, link.course_id)
             seen: set[str] = set()
             refusals: dict[str, str] = {}
-            for index, file in enumerate(files):
-                progress.done = index
-                progress.current = file.relative
+
+            # Phase one, in a moment: a row for every file that will be read,
+            # so the Library lists the whole folder at once as "queued" and
+            # the rows fill in as the scan reaches them.
+            queued: dict[str, object] = {}
+            for file in files:
                 key = str(file.path)
-                seen.add(key)
                 previous = existing.get(key)
-                if (
-                    previous is not None
-                    and previous.source_version == file.version
+                if previous is not None and (
+                    previous.source_version == file.version
                     and previous.status in {"indexed", "partial"}
                 ):
-                    _count(progress, "unchanged")
                     continue
                 if previous is not None:
                     remove_document(
@@ -207,12 +211,46 @@ def scan_folder(
                         chunks=chunks,
                         document=previous,
                     )
-                    session.commit()
+                    existing.pop(key, None)
+                if will_index(file, link):
+                    queued[key] = documents.create(
+                        user_id=link.user_id,
+                        course_id=link.course_id,
+                        title=file.path.stem[:512],
+                        original_filename=file.path.name[:512],
+                        media_type="application/octet-stream",
+                        content_hash="",
+                        byte_size=file.size,
+                        kind="lecture",
+                        status="pending",
+                        status_detail="Queued; this folder is being indexed.",
+                        source="local_folder",
+                        source_ref=key,
+                        source_version=file.version,
+                        extraction_meta={"folder_path": file.relative},
+                    )
+            session.commit()
+
+            # Phase two: read them, documents before images and recordings.
+            for index, file in enumerate(files):
+                progress.done = index
+                progress.current = file.relative
+                progress.phase = "media" if is_media_file(file) else "documents"
+                key = str(file.path)
+                seen.add(key)
+                row = queued.get(key)
+                if row is None:
+                    if key in existing:
+                        _count(progress, "unchanged")
+                    else:
+                        _count(progress, "skipped")
+                    continue
                 status = _index_file(
                     context,
                     session,
                     link,
                     file,
+                    row,
                     documents=documents,
                     chunks=chunks,
                     topics=topics,
@@ -248,11 +286,26 @@ def scan_folder(
     return progress
 
 
+def is_media_file(file: FolderFile) -> bool:
+    return file.path.suffix.lower() in MEDIA_SUFFIXES
+
+
+def will_index(file: FolderFile, link: LocalFolderLink) -> bool:
+    """Documents always; images and recordings only with the link's consent."""
+    return not is_media_file(file) or bool(link.read_media)
+
+
+def order_for_indexing(files: list[FolderFile], link: LocalFolderLink) -> list[FolderFile]:
+    """Documents first (seconds each), then the media a model reads (minutes)."""
+    return sorted(files, key=lambda f: (is_media_file(f), f.relative))
+
+
 def _index_file(
     context: RuntimeContext,
     session: Session,
     link: LocalFolderLink,
     file: FolderFile,
+    document,
     *,
     documents: DocumentRepository,
     chunks: ChunkRepository,
@@ -269,6 +322,7 @@ def _index_file(
     """
     settings = context.settings
     if file.size > settings.max_upload_bytes:
+        documents.set_status(document, "failed", "Larger than the upload limit.")
         return "skipped"
     name = file.path.name
     is_media = file.path.suffix.lower() in MEDIA_SUFFIXES
@@ -279,14 +333,17 @@ def _index_file(
         data = file.path.read_bytes()
         if is_media:
             if not link.read_media or media_reader_for is None:
+                documents.set_status(document, "failed", "Images and recordings were not included.")
                 return "skipped"
             name, data = normalise_image(name, data)
             media = sniff_media_type(data, name) or ""
             if not (is_image(media) or is_audio(media)):
+                documents.set_status(document, "failed", "Not a readable image or recording.")
                 return "skipped"
             if media not in refusals:
                 refusals[media] = media_reader_for(media, session).cannot_read(media)
             if refusals[media]:
+                documents.set_status(document, "failed", refusals[media])
                 return "skipped"
             reader = media_reader_for(media, session)
             source_bytes, source_path = data, None
@@ -295,24 +352,15 @@ def _index_file(
             # Only used if the PDF turns out to be a scan with no text layer.
             reader = media_reader_for("image/png", session)
         content_hash = context.blobs.hash_bytes(data)
-    except (UnsupportedFileError, OSError):
+    except (UnsupportedFileError, OSError) as exc:
+        documents.set_status(document, "failed", str(exc)[:500])
         return "skipped"
     del data
 
-    document = documents.create(
-        user_id=link.user_id,
-        course_id=link.course_id,
-        title=file.path.stem[:512],
-        original_filename=name[:512],
-        media_type=media_type,
-        content_hash=content_hash,
-        byte_size=file.size,
-        kind="lecture",
-        status="pending",
-        source="local_folder",
-        source_ref=str(file.path),
-        source_version=file.version,
-    )
+    document.original_filename = name[:512]
+    document.media_type = media_type
+    document.content_hash = content_hash
+    document.status_detail = ""
     result = ingest_document(
         document=document,
         settings=settings,
@@ -364,3 +412,30 @@ def read_in_place(folders: LocalFolderRepository, user_id: str, path: str) -> by
     if not target.is_file():
         raise FolderError("The file has moved or been deleted. Rescan the folder.")
     return target.read_bytes()
+
+
+# --- writing back ----------------------------------------------------------------------
+NOTES_FOLDER_NAME = "StudyPilot Notes"
+
+
+def safe_filename(title: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in " -_()." else " " for ch in title).strip()
+    cleaned = " ".join(cleaned.split())
+    return (cleaned or "notes")[:120]
+
+
+def write_note_to_folder(link: LocalFolderLink, title: str, markdown: str) -> Path:
+    """Save a note as Markdown under "StudyPilot Notes" inside the linked folder.
+
+    The one thing the app writes into a folder of the student's, in a
+    subfolder of its own, so a rescan can tell its own files from theirs.
+    """
+    root = resolve_folder(link.path)
+    target_dir = root / NOTES_FOLDER_NAME
+    try:
+        target_dir.mkdir(exist_ok=True)
+        target = target_dir / f"{safe_filename(title)}.md"
+        target.write_text(markdown, encoding="utf-8")
+    except OSError as exc:
+        raise FolderError(f"Could not write into the folder: {exc}") from exc
+    return target

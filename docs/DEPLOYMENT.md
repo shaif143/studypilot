@@ -411,9 +411,12 @@ width and meaning — so re-upload your documents afterwards.
 
 ## Google Drive on a hosted site
 
-The desktop app asks the user for a Google OAuth client once (Settings →
-Google Drive) and keeps it in the Keychain. A hosted site cannot do that —
-the client belongs to whoever runs the site — so the operator provides it:
+The desktop build ships the app's own Google OAuth client when
+`GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` are in `.env.local`
+at build time (a *Desktop app* client; create it once in Google Cloud
+Console with the Drive API enabled), so users only press Connect; without
+them, Settings asks for the client. A hosted site's client belongs to
+whoever runs the site, so the operator provides it:
 
 1. In Google Cloud Console, enable the **Google Drive API** and create an
    OAuth client of type **Web application**.
@@ -431,7 +434,7 @@ STUDYPILOT_TOKEN_ENCRYPTION_KEY=<random, 32+ chars>   # encrypts stored tokens
 
 `STUDYPILOT_WEB_ORIGIN` defaults to the first CORS origin, and the encryption
 key to the JWT secret, so only the first two are strictly new. The scope is
-`drive.readonly`; while the consent screen is in "Testing" each user must be
+`drive` (read, plus writing notes into a `StudyPilot Notes` subfolder); while the consent screen is in "Testing" each user must be
 listed as a test user, and Google shows an "unverified app" notice until the
 app is verified. Files are never copied to the server: only their search
 index is stored, and the reader streams each file from Drive.

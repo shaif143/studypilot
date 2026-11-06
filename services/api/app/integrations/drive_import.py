@@ -47,7 +47,7 @@ MAX_FILES_PER_RUN = 300
 
 # --- configuration -------------------------------------------------------------
 def oauth_client(settings: Settings) -> gd.OAuthClient:
-    client = gd.OAuthClient.from_environment()
+    client, _source = gd.OAuthClient.resolve()
     if client.configured:
         return client
     if settings.is_hosted:
@@ -62,8 +62,9 @@ def oauth_client(settings: Settings) -> gd.OAuthClient:
 
 def client_source(settings: Settings) -> str:
     """Where the OAuth client came from, for the status report."""
-    if not gd.OAuthClient.from_environment().configured:
-        return "none"
+    _client, source = gd.OAuthClient.resolve()
+    if source != "environment":
+        return source
     if settings.is_hosted:
         return "environment"
     status = secrets.status(settings)
@@ -374,6 +375,37 @@ def sync_link(
     )
     drive.record_sync(link, run.counts)
     return run
+
+
+def connection_can_write(settings: Settings, drive: DriveRepository, user_id: str) -> bool:
+    """Whether the stored connection carries the write scope (older ones were read-only)."""
+    row = drive.connection(user_id)
+    if row is None or not row.token_ciphertext:
+        return False
+    return gd.WRITE_SCOPE in (row.scope or "").split()
+
+
+def save_note_to_drive(
+    context: RuntimeContext,
+    drive: DriveRepository,
+    user_id: str,
+    *,
+    folder_id: str,
+    title: str,
+    markdown: str,
+) -> str:
+    """Write a note as Markdown into "StudyPilot Notes" under a linked folder. Returns a link."""
+    name = safe_filename(title) + ".md"
+    with ConnectedDrive(context.settings, drive, user_id) as client:
+        notes = client.ensure_folder(folder_id, gd.NOTES_FOLDER_NAME)
+        written = client.write_file(notes.id, name, markdown.encode("utf-8"), "text/markdown")
+    return f"https://drive.google.com/file/d/{written.id}/view"
+
+
+def safe_filename(title: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in " -_()." else " " for ch in title).strip()
+    cleaned = " ".join(cleaned.split())
+    return (cleaned or "notes")[:120]
 
 
 def fetch_from_drive(

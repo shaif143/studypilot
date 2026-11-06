@@ -318,8 +318,12 @@ A `.pptx`/`.ppt` keeps the PDF rendered from it, and a GIF/BMP/TIFF is
 indexed from its converted bytes, because those are what the reader and
 the vision model need.
 
-A scan runs in a thread with its own session, one at a time, and publishes
-progress (done/total/current file) that the Library polls every 1.5 s. A
+A scan runs in a thread with its own session, one at a time, in two phases.
+First a `pending` row is written for every file that will be read, so the
+Library lists the whole folder within a second as "Queued"; then the files
+are read, documents (PDF, decks: seconds each) before images and recordings
+(a model call each), and each row turns "Indexed" as it is reached. The
+Library polls progress (phase, done/total, current file) every 1.5 s. A
 rescan compares each file's version with the stored one: unchanged files
 are left alone, changed ones are removed and re-read, deleted ones removed.
 `/documents/{id}/file` reads a linked file from disk only while its path
@@ -336,6 +340,17 @@ Settings → Connect  ──►  Google consent (PKCE, drive.readonly)  ──�
 the backend's own port (desktop) or the hosted API's registered URL
 ```
 
+* **The app's own client.** `scripts/build-sidecar.sh` takes
+  `GOOGLE_OAUTH_CLIENT_ID/SECRET` from `.env.local` and the PyInstaller spec
+  ships them as `google_client.json` inside the sidecar, so a user never
+  types one: Settings shows a single Connect button, as Colab does. Without
+  a bundled client the Settings fields remain. A *Desktop app* client's
+  secret is not confidential by Google's definition, which is why shipping
+  it is the documented arrangement.
+* **Scope.** `drive` (read and write): the app reads the folders the
+  student links and writes notes back into a `StudyPilot Notes` subfolder of
+  one, and nothing else. A connection made under the earlier read-only scope
+  is reported as such and must be made again before saving.
 * **Sign-in.** `app/integrations/google_drive.py` speaks OAuth 2.0 with PKCE
   and the four Drive calls the app needs (`about`, `files.list`, `files.get`,
   `files.export`). No Google SDK: they are plain HTTPS through `httpx`. The
@@ -363,6 +378,9 @@ the backend's own port (desktop) or the hosted API's registered URL
   passes it straight through. The reader therefore needs the connection to
   be live; without it the route answers 409 and says so, while the index —
   search, citations, page text — keeps working.
+* **Writing.** `write_file` creates or overwrites a file by name inside a
+  folder (multipart upload), `ensure_folder` makes the notes subfolder once.
+  The only writer today is "Save to folder" on a note.
 * **Sync.** A linked folder (`drive_links`) is re-walked on "Sync now": a file
   whose `modifiedTime` moved is removed and read again, a new file is indexed,
   and a document whose file is no longer in the folder is removed with its

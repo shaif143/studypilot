@@ -53,10 +53,11 @@ def _status(context: ContextDep, drive: DriveDep, user_id: str) -> GoogleDriveSt
     settings = context.settings
     connection = drive.connection(user_id)
     return GoogleDriveStatusOut(
-        configured=gd.OAuthClient.from_environment().configured,
+        configured=gd.OAuthClient.resolve()[0].configured,
         client_source=drive_import.client_source(settings),  # type: ignore[arg-type]
         editable=not settings.is_hosted,
         connected=connection is not None and bool(connection.token_ciphertext),
+        can_write=drive_import.connection_can_write(settings, drive, user_id),
         account_email=connection.account_email if connection else "",
         links=[DriveLinkOut.model_validate(link) for link in drive.links(user_id)],
     )

@@ -12,6 +12,7 @@ token is refreshed without the user noticing.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -125,15 +126,31 @@ class FakeGoogle:
             return httpx.Response(401, json={"error": {"message": "Invalid Credentials"}})
         path = request.url.path
         params = request.url.params
+        if path.startswith("/upload/drive/v3/files"):
+            return self._upload(request)
+        if path == "/drive/v3/files" and request.method == "POST":
+            meta = json.loads(request.content)
+            file_id = f"made-{len(self.files) + 1:04d}"
+            self.files[file_id] = {
+                "name": meta["name"],
+                "mimeType": meta["mimeType"],
+                "parents": meta.get("parents", []),
+            }
+            return httpx.Response(200, json=self._meta(file_id))
         if path == "/drive/v3/about":
             return httpx.Response(200, json={"user": {"emailAddress": "student@example.ac.uk"}})
         if path == "/drive/v3/files":
             query = params.get("q", "")
             parent = query.split("'")[1] if "'" in query else ""
+            wanted_name = None
+            if "name = '" in query:
+                wanted_name = query.split("name = '")[1].split("'")[0]
             items = [
                 self._meta(file_id)
                 for file_id, meta in self.files.items()
                 if parent in meta.get("parents", [])
+                and (wanted_name is None or meta["name"] == wanted_name)
+                and ("mimeType = '" not in query or meta["mimeType"] == gd.FOLDER_MIME)
             ]
             return httpx.Response(200, json={"files": items})
         if path.startswith("/drive/v3/files/"):
@@ -149,6 +166,28 @@ class FakeGoogle:
                 return httpx.Response(200, content=meta["content"])
             return httpx.Response(200, json=self._meta(file_id))
         return httpx.Response(404, json={"error": {"message": f"no route {path}"}})
+
+    def _upload(self, request: httpx.Request) -> httpx.Response:
+        """Multipart related: a JSON part then the bytes."""
+        boundary = request.headers["content-type"].split("boundary=")[1]
+        parts = request.content.split(f"--{boundary}".encode())
+        meta = json.loads(parts[1].split(b"\r\n\r\n", 1)[1].strip())
+        content = parts[2].split(b"\r\n\r\n", 1)[1].rstrip(b"\r\n")
+        existing_id = request.url.path.removeprefix("/upload/drive/v3/files").strip("/")
+        if request.method == "PATCH" and existing_id:
+            self.files[existing_id]["content"] = content
+            self.files[existing_id]["modifiedTime"] = "2026-11-06T00:00:00.000Z"
+            return httpx.Response(200, json=self._meta(existing_id))
+        file_id = f"made-{len(self.files) + 1:04d}"
+        self.files[file_id] = {
+            "name": meta["name"],
+            "mimeType": "text/markdown",
+            "parents": meta.get("parents", []),
+            "content": content,
+            "modifiedTime": "2026-11-06T00:00:00.000Z",
+            "size": str(len(content)),
+        }
+        return httpx.Response(200, json=self._meta(file_id))
 
     def _meta(self, file_id: str) -> dict:
         meta = self.files[file_id]
@@ -186,7 +225,7 @@ def _course(client: TestClient) -> str:
 
 
 # --- the sign-in ----------------------------------------------------------------
-def test_the_consent_request_is_pkce_bound_read_only_and_on_the_loopback(
+def test_the_consent_request_is_pkce_bound_drive_scoped_and_on_the_loopback(
     client: TestClient, google: FakeGoogle, monkeypatch
 ):
     opened: list[str] = []
@@ -206,7 +245,7 @@ def test_the_consent_request_is_pkce_bound_read_only_and_on_the_loopback(
     url = urlparse(response.json()["auth_url"])
     query = {k: v[0] for k, v in parse_qs(url.query).items()}
     assert url.netloc == "accounts.google.com"
-    assert query["scope"] == "https://www.googleapis.com/auth/drive.readonly"
+    assert query["scope"] == "https://www.googleapis.com/auth/drive"
     assert query["code_challenge_method"] == "S256" and len(query["code_challenge"]) >= 40
     assert query["access_type"] == "offline" and query["prompt"] == "consent"
     assert query["redirect_uri"].startswith("http://127.0.0.1:")
@@ -490,3 +529,78 @@ def test_hosted_redirects_use_the_public_urls(tmp_path):
     # Without the explicit settings the proxy headers decide.
     bare = Settings(data_dir=tmp_path, deployment_mode="hosted", jwt_secret="s" * 40)
     assert drive_import.redirect_uri_for(bare, request).startswith("https://internal:10000/")
+
+
+# --- read and write, like a mounted Drive --------------------------------------------
+def test_the_scope_asked_for_allows_writing_and_the_status_says_so(
+    client: TestClient, google: FakeGoogle
+):
+    started = client.post("/api/integrations/google/connect", json={"open_browser": False})
+    query = {k: v[0] for k, v in parse_qs(urlparse(started.json()["auth_url"]).query).items()}
+    assert query["scope"] == "https://www.googleapis.com/auth/drive"
+    _connect(client)
+    assert client.get("/api/integrations/google").json()["can_write"] is True
+
+
+def test_an_older_read_only_connection_is_reported_as_such(client: TestClient, google: FakeGoogle):
+    google_scope_before = gd.SCOPES
+    _connect(client)
+    with client.app.state.context.database.session() as session:
+        row = session.query(DriveConnection).one()
+        row.scope = "https://www.googleapis.com/auth/drive.readonly"
+        session.commit()
+    assert client.get("/api/integrations/google").json()["can_write"] is False
+    assert google_scope_before == gd.SCOPES
+
+
+def test_a_note_is_saved_into_a_notes_subfolder_of_the_linked_drive_folder(
+    client: TestClient, google: FakeGoogle
+):
+    _connect(client)
+    course_id = _course(client)
+    linked = client.post(
+        "/api/integrations/google/import",
+        json={"course_id": course_id, "folder": FOLDER, "link": True},
+    ).json()["link"]
+    note = client.post("/api/notes/generate", json={"course_id": course_id, "mode": "concept"})
+    assert note.status_code == 201, note.text
+    note_id = note.json()["id"]
+
+    saved = client.post(
+        f"/api/notes/{note_id}/save", json={"target": "drive", "link_id": linked["id"]}
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["location"].startswith("https://drive.google.com/file/d/")
+    # A "StudyPilot Notes" folder was made under the linked folder, the note inside it.
+    notes_folder = next(
+        f
+        for f in google.files.values()
+        if f["name"] == "StudyPilot Notes" and FOLDER in f["parents"]
+    )
+    written = [
+        f for f in google.files.values() if f.get("parents") and f["parents"][0] == notes_id(google)
+    ]
+    assert len(written) == 1 and written[0]["name"].endswith(".md")
+    assert b"#" in written[0]["content"] or written[0]["content"]
+    assert notes_folder["mimeType"] == gd.FOLDER_MIME
+
+    # Saving again overwrites rather than duplicating.
+    client.post(f"/api/notes/{note_id}/save", json={"target": "drive", "link_id": linked["id"]})
+    written = [
+        f for f in google.files.values() if f.get("parents") and f["parents"][0] == notes_id(google)
+    ]
+    assert len(written) == 1
+
+
+def notes_id(google: FakeGoogle) -> str:
+    return next(k for k, f in google.files.items() if f["name"] == "StudyPilot Notes")
+
+
+def test_a_bundled_client_needs_nothing_typed(client: TestClient, tmp_path: Path, monkeypatch):
+    bundle = tmp_path / "google_client.json"
+    bundle.write_text('{"client_id": "client-id-test", "client_secret": "client-secret-test"}')
+    monkeypatch.setenv("STUDYPILOT_GOOGLE_CLIENT_FILE", str(bundle))
+    status = client.get("/api/integrations/google").json()
+    assert status["configured"] is True and status["client_source"] == "bundled"
+    started = client.post("/api/integrations/google/connect", json={"open_browser": False})
+    assert started.status_code == 200 and "client_id=client-id-test" in started.json()["auth_url"]
