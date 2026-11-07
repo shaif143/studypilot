@@ -25,12 +25,12 @@ describe('partitionFiles', () => {
     ]);
     expect(accepted.map(relativePathOf)).toEqual([
       'Lectures/figures/figure.png',
+      'Lectures/old.ppt',
       'Lectures/week-1.pdf',
       'Lectures/week-2.pptx',
     ]);
     expect(rejected.map((r) => [r.file.name, r.reason])).toEqual([
       ['notes.docx', 'Not a supported type.'],
-      ['old.ppt', 'Old .ppt format; save it as .pptx first.'],
       ['empty.pdf', 'Empty file.'],
     ]);
   });

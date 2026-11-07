@@ -55,7 +55,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { useCallback, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { ErrorPanel, PageBody, PageHeader } from '../components/AppShell';
@@ -74,6 +74,7 @@ import {
   useRescanLocalFolder,
   useSettings,
   useUnlinkLocalFolder,
+  useConnectGoogleDrive,
   useSyncDriveLink,
   useUnlinkDriveFolder,
   useUploadArchive,
@@ -1023,7 +1024,11 @@ function DriveImportDialog({
   onClose: () => void;
   onImported: (result: DriveImportResult) => void;
 }) {
-  const drive = useGoogleDrive();
+  const { platform } = useApp();
+  const [waiting, setWaiting] = useState(false);
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
+  const drive = useGoogleDrive({ refetchInterval: open && waiting ? 2000 : false });
+  const connect = useConnectGoogleDrive();
   const importFromDrive = useImportFromDrive();
   const [selectedCourse, setSelectedCourse] = useState(courseId ?? '');
   const [crumbs, setCrumbs] = useState<Crumb[]>([{ id: 'root', name: 'My Drive' }]);
@@ -1033,6 +1038,26 @@ function DriveImportDialog({
   const [keepLinked, setKeepLinked] = useState(true);
 
   const connected = Boolean(drive.data?.connected);
+  // "Waiting" ends the moment the status says connected; the folder list then loads by itself.
+  const pending = waiting && !connected;
+  useEffect(() => {
+    if (!pending) return;
+    const timer = window.setTimeout(() => setWaiting(false), 3 * 60_000);
+    return () => window.clearTimeout(timer);
+  }, [pending]);
+
+  const beginConnect = async () => {
+    const desktop = platform.kind === 'desktop';
+    try {
+      const started = await connect.mutateAsync(desktop);
+      setAuthUrl(started.auth_url);
+      setWaiting(true);
+      if (!desktop) window.location.assign(started.auth_url);
+    } catch {
+      // connect.error is rendered below.
+    }
+  };
+
   const current = crumbs[crumbs.length - 1] ?? { id: 'root', name: 'My Drive' };
   const listing = useDriveFiles(current.id, open && connected);
   const effectiveCourse = selectedCourse || courseId || courses[0]?.id || '';
@@ -1087,8 +1112,8 @@ function DriveImportDialog({
     <Dialog
       open={open}
       onClose={close}
-      title="Import from Google Drive"
-      description="Pick a folder, or files in it. Nothing is copied: StudyPilot reads each file once to index it, and opens it from Drive when you read it."
+      title="Link a Google Drive folder"
+      description="Like mounting Drive in Colab: pick a folder and it is linked to the course. Nothing is copied — StudyPilot reads each file once to index it, opens it from Drive when you read it, and can save your notes back into the folder."
       width="lg"
       footer={
         <>
@@ -1114,16 +1139,46 @@ function DriveImportDialog({
       <div className="space-y-3">
         {drive.isPending ? (
           <Skeleton className="h-16" />
-        ) : !drive.data?.configured || !connected ? (
-          <Callout tone="info" icon={<Cloud size={14} />} title="Connect Google Drive first">
-            {drive.data?.configured
-              ? 'Your Google account is not connected yet. '
-              : 'Google Drive is not set up on this installation yet. '}
+        ) : !drive.data?.configured ? (
+          <Callout tone="info" icon={<Cloud size={14} />} title="Google Drive is not set up yet">
+            This installation has no Google client.{' '}
             <Link to="/settings" className="underline">
               Open Settings → Google Drive
             </Link>
             .
           </Callout>
+        ) : !connected ? (
+          <div className="space-y-3">
+            <Callout tone="info" icon={<Cloud size={14} />} title="Connect your Google account once">
+              A Google sign-in opens in your browser. Allow StudyPilot to see and manage files in
+              your Drive, then come back here: this dialog continues by itself.
+            </Callout>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="primary"
+                icon={<Cloud size={14} />}
+                loading={connect.isPending}
+                disabled={pending}
+                onClick={() => void beginConnect()}
+              >
+                {pending ? 'Waiting for Google…' : 'Connect Google Drive'}
+              </Button>
+              {pending && authUrl ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void platform.openExternal(authUrl)}
+                >
+                  Browser did not open? Open it
+                </Button>
+              ) : null}
+            </div>
+            {connect.error ? (
+              <Callout tone="danger" icon={<AlertTriangle size={14} />}>
+                {describeError(connect.error)}
+              </Callout>
+            ) : null}
+          </div>
         ) : (
           <>
             {courses.length > 1 ? (
