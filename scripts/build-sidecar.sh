@@ -15,7 +15,7 @@ OUT="apps/desktop/src-tauri/binaries"
 # The app's Google OAuth client (and nothing else) from .env.local, so the
 # build can ship it and no user has to type one. Never echoed.
 if [[ -f .env.local ]]; then
-  while IFS= read -r line; do
+  while IFS= read -r line || [[ -n "$line" ]]; do  # the last line may lack a newline
     case "$line" in
       GOOGLE_OAUTH_CLIENT_ID=*|GOOGLE_OAUTH_CLIENT_SECRET=*) export "${line%%#*}" ;;
     esac
