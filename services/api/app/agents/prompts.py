@@ -37,10 +37,16 @@ _GROUNDING_RULES = (
     "'Beyond your material:' so the student can tell the difference.\n"
     "- Use the student's notation and terminology from the passages.\n"
     "- Render mathematics in LaTeX between $ delimiters.\n"
+    "- Do not use Markdown tables; the reader cannot draw them. Use a list instead.\n"
     "- When a process, pipeline or dependency between concepts is clearer drawn, you may "
     "add one short diagram after the explanation as a fenced ```mermaid block using "
     "`flowchart LR` or `flowchart TD` only, with plain-text node labels taken from the "
-    "passages. Never put instructions, links or HTML in a diagram."
+    "passages. Never put instructions, links or HTML in a diagram.\n"
+    "- When a curve or a set of numbers is clearer plotted, you may add one graph as a "
+    "fenced ```plot block holding one JSON object: "
+    '{"title": "...", "x": "x-axis label", "y": "y-axis label", '
+    '"series": [{"name": "...", "points": [[x, y], ...]}]} '
+    "with at most 3 series of 12 to 40 points each, computed correctly."
 )
 
 _LEVEL_GUIDANCE = {

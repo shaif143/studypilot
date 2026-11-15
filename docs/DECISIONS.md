@@ -491,6 +491,28 @@ slow files go last and the library is usable while they run.
 
 ---
 
+## 31. A slide's explanation may go beyond the slide, and says where it does
+
+**Decision.** The study view's explanation is allowed to use background
+knowledge, in teaching slides of kind `background` or `example` that the
+reader labels *Beyond the slide*. Video links are searches built by the
+backend from the model's phrases. Graphs are number pairs drawn by the app.
+
+**Why.** The tutor's rule — answer only from the passages — is right for a
+question, where the student needs to know what their course says. It is
+wrong for explaining a slide: a slide is a prompt for someone speaking, and
+fully understanding it usually needs something it does not state. Refusing
+to supply that would make the explanation a paraphrase. So the boundary
+moved from "nothing beyond the material" to "nothing beyond the material
+unmarked", which keeps the property that matters: the student can always
+tell the lecturer's content from the model's. The same reasoning rules out
+model-written URLs (a plausible video link that does not exist is worse than
+none) and model-written drawings (data can be validated; markup cannot).
+Markdown tables are forbidden in the prompt rather than rendered: rendering
+them needs another parser extension, and a plain-text grid reads as well.
+
+---
+
 ## 25. Deferred deliberately
 
 | Deferred | Reason |

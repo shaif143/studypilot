@@ -31,9 +31,13 @@ import type {
   Note,
   NoteMode,
   NoteSaveRequest,
+  GuidedPages,
   NoteSaved,
   PageDetail,
   PageSummary,
+  SlideGuide,
+  SlideGuideRequest,
+  SlideGuideStatus,
   Platform,
   ProviderKeys,
   ProvidersResponse,
@@ -503,6 +507,17 @@ export class StudyPilotClient {
   updateNote = (id: string, patch: { title?: string; body_markdown?: string }) =>
     this.request<Note>(`/api/notes/${id}`, { method: 'PATCH', body: patch });
   deleteNote = (id: string) => this.request<void>(`/api/notes/${id}`, { method: 'DELETE' });
+
+  // --- slide guides ----------------------------------------------------
+  slideGuide = (documentId: string, page: number) =>
+    this.request<SlideGuideStatus>(`/api/documents/${documentId}/pages/${page}/guide`);
+  writeSlideGuide = (documentId: string, page: number, body: SlideGuideRequest) =>
+    this.request<SlideGuide>(`/api/documents/${documentId}/pages/${page}/guide`, {
+      method: 'POST',
+      body,
+    });
+  guidedPages = (documentId: string) =>
+    this.request<GuidedPages>(`/api/documents/${documentId}/guides`);
 
   // --- analytics -------------------------------------------------------
   dashboard = () => this.request<Dashboard>('/api/dashboard');

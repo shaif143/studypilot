@@ -40,6 +40,7 @@ from app.api.schemas import (
 )
 from app.ingestion.archives import UnreadableArchiveError, archive_kind, unpack
 from app.ingestion.media import MediaReader, is_audio, is_image, normalise_image, sniff_media_type
+from app.ingestion.originals import OriginalUnavailableError, read_original
 from app.ingestion.pipeline import UnsupportedFileError, ingest_document, validate_upload
 from app.ingestion.removal import remove_document
 from app.storage.files import BlobNotFoundError
@@ -389,34 +390,10 @@ def document_file(
     passed straight through, so the reader needs the connection to be live.
     """
     document = documents.get(user.id, document_id)
-    rendered = (document.extraction_meta or {}).get("rendered_pdf", "")
-    filename = document.original_filename
     try:
-        if rendered:
-            data = context.blobs.read_asset(rendered)
-            filename = f"{Path(filename).stem}.pdf"
-        elif document.source == "google_drive":
-            from app.integrations.drive_import import fetch_from_drive
-            from app.integrations.google_drive import DriveError
-
-            try:
-                data = fetch_from_drive(context, drive, user.id, document)
-            except DriveError as exc:
-                raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
-        elif document.source == "local_folder":
-            from app.ingestion.local_folders import FolderError, read_in_place
-
-            try:
-                data = read_in_place(folders, user.id, document.source_ref)
-            except FolderError as exc:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-        else:
-            data = context.blobs.read(document.content_hash)
-    except BlobNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="The stored file is missing. Upload it again.",
-        ) from exc
+        data, filename = read_original(context, user.id, document, drive, folders)
+    except OriginalUnavailableError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
     return Response(
         content=data,
         media_type="application/pdf",

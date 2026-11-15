@@ -707,3 +707,35 @@ class LocalFolderLink(Base, TimestampMixin):
     read_media: Mapped[bool] = mapped_column(Boolean, default=False)
     last_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     last_summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class SlideGuide(Base, TimestampMixin):
+    """The teaching slides written for one page of a document.
+
+    Written once by a model and kept, so reopening a slide is instant and
+    costs nothing. One per page: a regeneration replaces it. Removed with the
+    document it explains.
+    """
+
+    __tablename__ = "slide_guides"
+    __table_args__ = (
+        UniqueConstraint("document_id", "page_number", name="uq_slide_guides_doc_page"),
+        Index("ix_slide_guides_user", "user_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"))
+    document_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("documents.id", ondelete="CASCADE")
+    )
+    page_number: Mapped[int] = mapped_column(Integer)
+    #: The explanation depth it was written at: "simple" | "intermediate" | "advanced".
+    level: Mapped[str] = mapped_column(String(16), default="intermediate")
+    #: [{"kind", "title", "markdown"}], in reading order.
+    cards: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    #: Search phrases for finding a lecture video; links are built from them.
+    video_queries: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    generated_by: Mapped[str] = mapped_column(String(64), default="")
+    model: Mapped[str] = mapped_column(String(64), default="")
+    #: True when the model was shown the slide as an image, not only its text.
+    saw_image: Mapped[bool] = mapped_column(Boolean, default=False)

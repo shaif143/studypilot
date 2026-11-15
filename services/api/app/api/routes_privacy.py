@@ -24,6 +24,7 @@ from app.api.deps import (
     NotesDep,
     SessionDep,
     SessionsDep,
+    SlideGuidesDep,
     UserDep,
     UsersDep,
     require_token,
@@ -51,6 +52,7 @@ def export_data(
     assessments: AssessmentsDep,
     notes: NotesDep,
     mastery: MasteryDep,
+    guides: SlideGuidesDep,
 ) -> ExportResponse:
     """Everything stored about this profile, as JSON.
 
@@ -129,6 +131,10 @@ def export_data(
         mastery=[
             {column.name: getattr(estimate, column.name) for column in estimate.__table__.columns}
             for estimate in mastery.list(user.id)
+        ],
+        slide_guides=[
+            {column.name: getattr(guide, column.name) for column in guide.__table__.columns}
+            for guide in guides.list(user.id)
         ],
         note=(
             "Uploaded files are stored on this device under the data directory and are "

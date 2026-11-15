@@ -304,6 +304,8 @@ export interface MessageMeta {
   query_class?: string;
   evidence_sufficient?: boolean;
   warnings?: string[];
+  /** The slide the question was asked on. */
+  page?: number;
 }
 
 export interface Message {
@@ -786,4 +788,58 @@ export interface NoteSaved {
   target: string;
   /** The file's path on this Mac, or its Drive link. */
   location: string;
+}
+
+// --- slide guides -----------------------------------------------------------
+export type GuideCardKind =
+  | 'overview'
+  | 'explanation'
+  | 'equation'
+  | 'visual'
+  | 'example'
+  | 'background';
+
+/** One teaching slide written for a page of a lecture. */
+export interface GuideCard {
+  kind: GuideCardKind | string;
+  title: string;
+  markdown: string;
+  /** True when the content is the model's own rather than the slide's. */
+  beyond_slide: boolean;
+}
+
+/** A search link built by the backend; never an address a model wrote. */
+export interface VideoLink {
+  title: string;
+  url: string;
+}
+
+export interface SlideGuide {
+  document_id: string;
+  page_number: number;
+  cards: GuideCard[];
+  videos: VideoLink[];
+  /** "llm:<provider>" when a model wrote it, "source_outline" for the slide's own text. */
+  generated_by: string;
+  model: string;
+  level: ExplanationLevel | string;
+  saw_image: boolean;
+  /** False for the slide's own text, which is not kept. */
+  saved: boolean;
+  warnings: string[];
+  updated_at: string | null;
+}
+
+export interface SlideGuideStatus {
+  guide: SlideGuide | null;
+}
+
+export interface SlideGuideRequest {
+  allow_cloud?: boolean;
+  regenerate?: boolean;
+  level?: ExplanationLevel | null;
+}
+
+export interface GuidedPages {
+  pages: number[];
 }

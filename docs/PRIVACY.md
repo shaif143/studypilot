@@ -49,6 +49,7 @@ wherever the backend that the site is configured to talk to stores it.
 | Asking a question with Ollama | No |
 | Generating quizzes, flashcards or notes without an AI model | No |
 | Asking a question with Anthropic or Gemini enabled **and** opted into | **Yes** — the question and the retrieved passages |
+| Opening a slide in the study view with a cloud provider enabled **and** opted into | **Yes** — that slide's text and an image of that slide, once; the explanation is then kept here and reopening sends nothing. With no cloud provider, nothing leaves and the slide's own text is shown |
 | Drafting an assignment guide with a cloud provider | **Yes** — the brief's text and the lecture passages retrieved for it |
 | Uploading an **image** brief | **Yes, if** cloud processing is on and you opt in on the upload — the image is sent to the vision model. Otherwise the upload is refused with a message, never read silently |
 | Uploading an **audio** brief | **No** when the local Whisper model is installed; otherwise **yes** under the same two-part consent — the recording is sent to Gemini |
@@ -99,7 +100,7 @@ diagnosed without exposing material.
 
 | Control | Where | Effect |
 | --- | --- | --- |
-| Export everything | Settings → Your data | Full JSON: profile, settings, courses, documents, conversations, flashcards, assessments, notes, mastery |
+| Export everything | Settings → Your data | Full JSON: profile, settings, courses, documents, conversations, flashcards, assessments, notes, mastery, slide explanations |
 | Delete everything | Settings → Your data | Hard-deletes the profile, every row, the vector index, the sparse index and all stored files |
 | Delete one document | Lecture Library | Removes the file, its previews and every index entry derived from it |
 | Delete one course | My Courses | Cascades to its documents, topics and indexes |

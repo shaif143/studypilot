@@ -10,13 +10,14 @@
  */
 import type { Citation } from '@studypilot/shared';
 import type { Root, Text } from 'mdast';
-import { memo, useMemo } from 'react';
+import { isValidElement, memo, useMemo } from 'react';
 import Markdown from 'react-markdown';
 import rehypeKatex from 'rehype-katex';
 import remarkMath from 'remark-math';
 import { visit } from 'unist-util-visit';
 
 import { MermaidDiagram } from './MermaidDiagram';
+import { PlotChart } from './PlotChart';
 
 const CITATION_PATTERN = /\[(\d{1,2})\]/g;
 const CITE_PREFIX = '#sp-cite-';
@@ -84,12 +85,26 @@ export const GroundedAnswer = memo(function GroundedAnswer({
         remarkPlugins={[remarkMath, remarkCitations]}
         rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
         components={{
+          pre({ children, ...rest }) {
+            // A fence that becomes a picture is not code: drop the <pre> around
+            // it, or the diagram inherits a code block's background and font.
+            const child = Array.isArray(children) ? children[0] : children;
+            const fence = isValidElement<{ className?: string }>(child)
+              ? child.props.className
+              : undefined;
+            if (fence === 'language-mermaid' || fence === 'language-plot') return <>{children}</>;
+            return <pre {...rest}>{children}</pre>;
+          },
           code({ className: codeClass, children, ...rest }) {
             // A ```mermaid fence becomes a drawn diagram; every other code
             // block is left as code. Mermaid runs in strict mode (see the
             // component), so the model's text can only ever produce a picture.
             if (codeClass === 'language-mermaid') {
               return <MermaidDiagram code={String(children).trim()} title="Diagram" />;
+            }
+            // A ```plot fence is data for a line chart, parsed and never evaluated.
+            if (codeClass === 'language-plot') {
+              return <PlotChart source={String(children).trim()} />;
             }
             return (
               <code className={codeClass} {...rest}>

@@ -1,4 +1,4 @@
-/** Course management: create, edit, archive and delete courses. */
+/** Course management: create, edit and delete courses. Opening one shows its slides. */
 import type { Course } from '@studypilot/shared';
 import {
   Button,
@@ -76,7 +76,7 @@ export function CoursesScreen() {
                 <SectionHeading
                   title={
                     <Link
-                      to={`/library?course=${course.id}`}
+                      to={`/courses/${course.id}`}
                       className="hover:text-[var(--text-accent)] hover:underline"
                     >
                       {course.title}
@@ -114,7 +114,7 @@ export function CoursesScreen() {
                   </div>
                 </dl>
                 <div className="mt-auto flex gap-2 pt-3">
-                  <Link to={`/library?course=${course.id}`} className="flex-1">
+                  <Link to={`/courses/${course.id}`} className="flex-1">
                     <Button size="sm" className="w-full">
                       Open
                     </Button>

@@ -208,7 +208,9 @@ def _make_generate(deps: GraphDependencies):
             user=user,
             question=state.get("student_question") or "",
             evidence=snippets,
-            max_output_tokens=1200 if mode == "explain" else 900,
+            # Room for an answer that ends in a diagram or a plotted curve: at
+            # 900 tokens an answer that was asked to plot stopped mid-sentence.
+            max_output_tokens=900 if mode == "assignment" else 2200,
             temperature=0.1 if mode == "assignment" else 0.2,
         )
 

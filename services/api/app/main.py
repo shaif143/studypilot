@@ -28,6 +28,7 @@ from app.api import (
     routes_courses,
     routes_documents,
     routes_flashcards,
+    routes_guides,
     routes_health,
     routes_integrations,
     routes_local_folders,
@@ -157,6 +158,7 @@ def create_app(
     app.include_router(routes_settings.router)
     app.include_router(routes_courses.router)
     app.include_router(routes_documents.router)
+    app.include_router(routes_guides.router)
     app.include_router(routes_tutor.router)
     app.include_router(routes_assignments.router)
     app.include_router(routes_assessment.router)

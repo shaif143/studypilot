@@ -47,7 +47,9 @@ This is an honest list. Everything marked ✅ was built, run and tested; see
 | PPTX import | ✅ python-pptx reads the deck, PyMuPDF lays each slide out as a PDF page at the shapes' real positions (text, tables, pictures, speaker notes); the reader, highlights and topics then work exactly as for a PDF |
 | Concept map | ✅ Per course: topics as a graph (stated prerequisites + lecture order), coloured by your quiz results, with "start here" — built by code, drawn with Mermaid in strict mode |
 | Check my attempt | ✅ Paste your work on a plan step; the coach names the error, cites the slide, gives one hint — level rises each time you ask, decided by code — and never writes the answer |
-| Diagrams in answers | ✅ The tutor may add a short Mermaid flowchart; rendered as a picture, never executed |
+| Diagrams and graphs in answers | ✅ The tutor may add a short Mermaid flowchart or a plotted curve (a ` ```plot ` block of number pairs); both are rendered as pictures from data, never executed |
+| Slide study view | ✅ My Courses → **Open** lists every lecture's slides as thumbnails; a slide opens with a written explanation on two thirds of the screen — one or more teaching slides with the equations unpacked, a diagram or graph where it helps, a worked example, and lecture-video searches — and the lecturer's original on the other third, with an **Ask** prompt along the bottom. Written once per slide (the model is shown the slide itself) and kept; anything not on the slide is labelled *Beyond the slide* |
+| Dashboard | ✅ Courses fold into one accordion row; *What to do next* is colour-coded by how pressing each step is (urgent, soon, routine, on track), with the label as well as the colour |
 | Camera-based attention tracking | ❌ Interface and simulated data only — see [`docs/PRIVACY.md`](docs/PRIVACY.md) |
 | Federated learning | ❌ Design only — see [`research/federated_learning/`](research/federated_learning/) |
 | Knowledge graph / Graph RAG | ❌ Schema supports prerequisites; no graph store |
@@ -128,8 +130,8 @@ credentials are configured.
 npm run check
 ```
 
-Runs the TypeScript typecheck, ESLint, 104 frontend unit tests, Ruff, and 337
-backend tests. The 11 PostgreSQL integration tests need a database:
+Runs the TypeScript typecheck, ESLint, 131 frontend unit tests, Ruff, and 374
+backend tests. The 15 PostgreSQL integration tests need a database:
 
 ```bash
 npm run pg:up && npm run api:test:pg

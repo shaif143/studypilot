@@ -37,6 +37,7 @@ from app.storage.repositories import (
     MasteryRepository,
     NoteRepository,
     SessionRepository,
+    SlideGuideRepository,
     TopicRepository,
     UserRepository,
 )
@@ -284,6 +285,13 @@ def local_folders(session: SessionDep) -> LocalFolderRepository:
 
 
 LocalFoldersDep = Annotated[LocalFolderRepository, Depends(local_folders)]
+
+
+def slide_guides(session: SessionDep) -> SlideGuideRepository:
+    return SlideGuideRepository(session)
+
+
+SlideGuidesDep = Annotated[SlideGuideRepository, Depends(slide_guides)]
 
 
 PlansDep = Annotated[AssignmentPlanRepository, Depends(plans)]

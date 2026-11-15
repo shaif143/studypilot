@@ -19,6 +19,7 @@ import { AnalyticsScreen } from './screens/AnalyticsScreen';
 import { AssessmentScreen } from './screens/AssessmentScreen';
 import { AssignmentsScreen } from './screens/AssignmentsScreen';
 import { ConceptMapScreen } from './screens/ConceptMapScreen';
+import { CourseSlidesScreen } from './screens/CourseSlidesScreen';
 import { CoursesScreen } from './screens/CoursesScreen';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { FlashcardsScreen } from './screens/FlashcardsScreen';
@@ -27,6 +28,7 @@ import { NotesScreen } from './screens/NotesScreen';
 import { ReaderScreen } from './screens/ReaderScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { SignInScreen } from './screens/SignInScreen';
+import { SlideStudyScreen } from './screens/SlideStudyScreen';
 import { TutorScreen } from './screens/TutorScreen';
 
 function createQueryClient(): QueryClient {
@@ -66,6 +68,8 @@ export function StudyPilotApp({ platform }: StudyPilotAppProps) {
             <Routes>
               <Route path="/" element={<DashboardScreen />} />
               <Route path="/courses" element={<CoursesScreen />} />
+              <Route path="/courses/:courseId" element={<CourseSlidesScreen />} />
+              <Route path="/study/:documentId" element={<SlideStudyScreen />} />
               <Route path="/courses/:courseId/assignments" element={<AssignmentsScreen />} />
               <Route path="/courses/:courseId/map" element={<ConceptMapScreen />} />
               <Route path="/library" element={<LibraryScreen />} />

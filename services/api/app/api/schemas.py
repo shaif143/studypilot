@@ -605,6 +605,8 @@ class ExportResponse(BaseModel):
     assessments: list[dict[str, Any]]
     notes: list[dict[str, Any]]
     mastery: list[dict[str, Any]]
+    #: Teaching slides written for pages of the user's lectures.
+    slide_guides: list[dict[str, Any]] = Field(default_factory=list)
     note: str
 
 
@@ -884,3 +886,55 @@ class NoteSavedOut(BaseModel):
     target: str
     #: The file's path on this Mac, or its Drive link.
     location: str
+
+
+# --- slide guides -----------------------------------------------------------
+class GuideCardOut(BaseModel):
+    #: "overview" | "explanation" | "equation" | "visual" | "example" | "background"
+    kind: str
+    title: str
+    markdown: str
+    #: True when the content is the model's own rather than the slide's.
+    beyond_slide: bool = False
+
+
+class VideoLinkOut(BaseModel):
+    title: str
+    url: str
+
+
+class SlideGuideOut(BaseModel):
+    document_id: str
+    page_number: int
+    cards: list[GuideCardOut]
+    #: Search links built from the model's phrases; never a model-written address.
+    videos: list[VideoLinkOut] = Field(default_factory=list)
+    #: "llm:<provider>" when a model wrote it, "source_outline" for the slide's own text.
+    generated_by: str
+    model: str = ""
+    level: str = "intermediate"
+    saw_image: bool = False
+    #: False for the slide's own text, which is not kept: opening the slide again asks again.
+    saved: bool = True
+    warnings: list[str] = Field(default_factory=list)
+    updated_at: datetime | None = None
+
+
+class SlideGuideStatusOut(BaseModel):
+    """What is already written for a page, without writing anything."""
+
+    guide: SlideGuideOut | None = None
+
+
+class SlideGuideRequest(BaseModel):
+    #: Second half of the consent gate; the first is the stored setting.
+    allow_cloud: bool = False
+    #: Write it again even though one is kept.
+    regenerate: bool = False
+    level: Literal["simple", "intermediate", "advanced"] | None = None
+
+
+class GuidedPagesOut(BaseModel):
+    """Which pages of a document already have teaching slides."""
+
+    pages: list[int] = Field(default_factory=list)

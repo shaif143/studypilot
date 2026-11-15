@@ -174,7 +174,7 @@ def run_turn(
 
     # --- persist the student's turn before running the graph -------------
     if question:
-        sessions.add_message(learning_session.id, "user", question, {"mode": mode})
+        sessions.add_message(learning_session.id, "user", question, {"mode": mode, "page": page})
 
     result_state = dict(graph.invoke(state))
     warnings = provider_warnings + list(result_state.get("warnings") or [])
@@ -190,6 +190,8 @@ def run_turn(
             "generative": bool(result_state.get("generative")),
             "abstained": bool(result_state.get("abstained")),
             "mode": mode,
+            # Which slide the question was asked on, so a slide can show its own questions.
+            "page": page,
             "query_class": result_state.get("query_class", ""),
             "evidence_sufficient": bool(result_state.get("evidence_sufficient", False)),
             "input_tokens": result_state.get("input_tokens"),

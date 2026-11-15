@@ -183,8 +183,8 @@ test('a whole folder is uploaded at once and Google Drive is offered, not faked'
 
   // --- Drive: the app offers the connection and says what is missing -----------
   await page.getByRole('button', { name: 'Google Drive' }).click();
-  await expect(page.getByText('Connect Google Drive first')).toBeVisible();
-  await expect(page.getByText('not set up on this installation')).toBeVisible();
+  await expect(page.getByText('Google Drive is not set up yet')).toBeVisible();
+  await expect(page.getByText('This installation has no Google client')).toBeVisible();
   await page.getByRole('button', { name: 'Close' }).click();
 
   await page.goto('/settings');
@@ -193,4 +193,48 @@ test('a whole folder is uploaded at once and Google Drive is offered, not faked'
   await expect(page.getByText('OAuth client ID', { exact: true }).last()).toBeVisible();
   // No client, no Connect button: nothing claims to work that cannot.
   await expect(page.getByRole('button', { name: 'Connect Google Drive' })).toHaveCount(0);
+});
+
+test('a course opens as slides, a slide opens explained beside its original', async ({ page }) => {
+  // --- the dashboard keeps only the courses, folded ---------------------------
+  await page.goto('/');
+  await expect(page.getByText('Indexed passages')).toHaveCount(0);
+  await expect(page.getByText('Cards due')).toHaveCount(0);
+  const accordion = page.getByRole('button', { name: /^Courses/ });
+  await expect(accordion).toHaveAttribute('aria-expanded', 'false');
+  await accordion.click();
+  await expect(accordion).toHaveAttribute('aria-expanded', 'true');
+  // The panel the button controls, not "Continue studying", which names the course too.
+  const panel = page.locator(`[id="${await accordion.getAttribute('aria-controls')}"]`);
+  await panel.getByRole('link', { name: /Deep Learning/ }).first().click();
+  await expect(page).toHaveURL(/\/courses\/[0-9a-f]+$/);
+
+  // --- Open on a course card lands on the same slide list ----------------------
+  await page.goto('/courses');
+  await page.getByRole('link', { name: 'Open', exact: true }).first().click();
+  await expect(page).toHaveURL(/\/courses\/[0-9a-f]+$/);
+  await expect(page.getByText(/slides\. Open a slide to have it explained/)).toBeVisible();
+  const padding = page.getByRole('link', { name: /Padding/ }).first();
+  await expect(padding).toBeVisible({ timeout: 30_000 });
+  await padding.click();
+  await expect(page).toHaveURL(/\/study\/[0-9a-f]+\?page=4/);
+
+  // --- the study view: explanation, original, and the prompt -------------------
+  await expect(page.getByLabel('Original slide')).toBeVisible();
+  await expect(page.getByLabel('Slide', { exact: true })).toHaveValue('4');
+  // No model in this run, so what comes back is the slide's own text, said to be that.
+  await expect(page.getByText(/slide’s own text|slide's own text/).first()).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByText('Overview').first()).toBeVisible();
+
+  await page.getByLabel('Ask about this slide').fill('Why is padding necessary?');
+  await page.getByRole('button', { name: 'Ask', exact: true }).click();
+  await expect(page.getByText('Your questions on this slide')).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('button.sp-citation').first()).toBeVisible({ timeout: 60_000 });
+
+  // --- arrows turn slides; the question stays with the slide it was asked on ---
+  await page.getByRole('button', { name: 'Next slide' }).click();
+  await expect(page).toHaveURL(/page=5/);
+  await expect(page.getByText('Your questions on this slide')).toHaveCount(0);
 });

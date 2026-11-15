@@ -484,6 +484,55 @@ The frontend's `MermaidDiagram` loads Mermaid on first use with
 component renders a ```` ```mermaid ```` fence in a tutor answer. A diagram is
 a picture; one that does not parse is shown as its text with a plain message.
 
+## Slide study view
+
+Opening a course (`/courses/:id`) lists its lectures as folding sections of
+slide thumbnails. The thumbnails are drawn in the browser from the document's
+own file — one fetch per open lecture, each slide rendered when it scrolls
+into view — because a document read in place (a linked folder, Drive) has no
+stored previews to serve.
+
+A slide opens at `/study/:documentId?page=n`: two thirds of the screen is the
+explanation, one third the original page (`PdfPageView`, the reader's own
+component), and an Ask prompt runs along the bottom.
+
+`app/learning/slide_guide.py` writes the explanation. The model receives the
+slide's extracted text, the headings either side of it, the course and
+lecture titles and — when the provider reads images — the page itself rendered
+to PNG, so figures and typeset equations are read rather than guessed from
+the text layer. It replies in a delimited format (`=== SLIDE | kind | title
+===` blocks, then `=== VIDEOS ===`), not JSON: a backslash in `\frac` inside
+a JSON string is exactly what models get wrong. The parser is tolerant — a
+reply with no header is one slide, an unknown kind is an explanation — and
+strips any link the model wrote.
+
+Three rules are enforced in code rather than asked for:
+
+- **Kinds separate the slide from what was added.** `background` and
+  `example` slides are the model's own; the API marks them `beyond_slide` and
+  the reader labels them.
+- **No model-written links.** The model supplies search phrases; the backend
+  builds YouTube *search* URLs from them. An invented video address is a dead
+  link; a search always leads somewhere.
+- **Pictures are data.** A ```` ```mermaid ```` fence is drawn by Mermaid in
+  strict mode; a ```` ```plot ```` fence is a JSON object of number pairs,
+  validated field by field in `lib/plot.ts` and drawn as an SVG line chart
+  (`PlotChart`). Nothing in either is evaluated, and one that does not parse
+  is shown as its text.
+
+Guides are stored in `slide_guides`, one per page, and returned from then on;
+`POST …/guide` with `regenerate` replaces one. `GET …/guide` never calls a
+model. Without a generative provider the response is the slide's own text,
+said to be that and **not stored**, so choosing a model later gets the slide
+explained the next time it is opened. The consent gate is the tutor's: the
+stored setting and the flag on the request, both.
+
+The Ask prompt is the existing tutor graph in question mode with the page
+attached; each message records the page it was asked on (`meta.page`), which
+is how a slide shows its own questions rather than the whole deck's
+conversation. The client waits for a 600 ms dwell before requesting a guide,
+so flicking through a deck does not send every slide to a model.
+
 ## Prompt-injection posture
 
 Uploaded lecture text is untrusted input and is treated as such:

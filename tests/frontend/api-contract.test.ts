@@ -143,6 +143,9 @@ describe('API contract', () => {
     ['linkLocalFolder', () => client.linkLocalFolder({ course_id: 'c1', path: '/x' })],
     ['rescanLocalFolder', () => client.rescanLocalFolder('l1')],
     ['unlinkLocalFolder', () => client.unlinkLocalFolder('l1')],
+    ['slideGuide', () => client.slideGuide('d1', 3)],
+    ['writeSlideGuide', () => client.writeSlideGuide('d1', 3, { allow_cloud: true })],
+    ['guidedPages', () => client.guidedPages('d1')],
   ])('%s calls a route the backend actually exposes', async (_name, invoke) => {
     const { path, method } = await record(invoke);
     expect(

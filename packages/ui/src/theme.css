@@ -80,6 +80,11 @@
   --signal-info: oklch(0.55 0.11 230);
   --signal-info-bg: oklch(0.96 0.03 230);
 
+  /* Chart series, in fixed order; checked for colour-blind separation on this surface. */
+  --plot-series-1: #2a78d6;
+  --plot-series-2: #eb6834;
+  --plot-series-3: #1baf7a;
+
   --shadow-card: 0 1px 2px oklch(0.2 0.01 275 / 0.05), 0 1px 3px oklch(0.2 0.01 275 / 0.06);
   --shadow-raised: 0 4px 12px oklch(0.2 0.01 275 / 0.08), 0 1px 3px oklch(0.2 0.01 275 / 0.06);
   --shadow-overlay: 0 16px 48px oklch(0.2 0.01 275 / 0.18);
@@ -112,6 +117,10 @@
   --signal-danger-bg: oklch(0.29 0.06 25);
   --signal-info: oklch(0.74 0.11 230);
   --signal-info-bg: oklch(0.27 0.05 230);
+
+  --plot-series-1: #3987e5;
+  --plot-series-2: #d95926;
+  --plot-series-3: #199e70;
 
   --shadow-card: 0 1px 2px oklch(0 0 0 / 0.3);
   --shadow-raised: 0 4px 14px oklch(0 0 0 / 0.4);
@@ -146,6 +155,10 @@
     --signal-danger-bg: oklch(0.29 0.06 25);
     --signal-info: oklch(0.74 0.11 230);
     --signal-info-bg: oklch(0.27 0.05 230);
+
+    --plot-series-1: #3987e5;
+    --plot-series-2: #d95926;
+    --plot-series-3: #199e70;
 
     --shadow-card: 0 1px 2px oklch(0 0 0 / 0.3);
     --shadow-raised: 0 4px 14px oklch(0 0 0 / 0.4);

@@ -244,7 +244,7 @@ export function TutorPanel({
   );
 }
 
-function TurnView({
+export function TurnView({
   message,
   onCitationClick,
 }: {

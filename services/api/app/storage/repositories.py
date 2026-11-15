@@ -37,6 +37,7 @@ from app.storage.models import (
     Page,
     Question,
     QuestionResponse,
+    SlideGuide,
     Topic,
     User,
     UserSettings,
@@ -978,3 +979,50 @@ class LocalFolderRepository:
             if target == root or root in target.parents:
                 return True
         return False
+
+
+class SlideGuideRepository:
+    """Teaching slides written for a page. Ownership rides on the document."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, user_id: str, document_id: str, page_number: int) -> SlideGuide | None:
+        return self.session.scalar(
+            select(SlideGuide).where(
+                SlideGuide.user_id == user_id,
+                SlideGuide.document_id == document_id,
+                SlideGuide.page_number == page_number,
+            )
+        )
+
+    def list(self, user_id: str) -> list[SlideGuide]:
+        return list(
+            self.session.scalars(
+                select(SlideGuide)
+                .where(SlideGuide.user_id == user_id)
+                .order_by(SlideGuide.document_id, SlideGuide.page_number)
+            )
+        )
+
+    def pages_with_guides(self, user_id: str, document_id: str) -> list[int]:
+        return list(
+            self.session.scalars(
+                select(SlideGuide.page_number)
+                .where(SlideGuide.user_id == user_id, SlideGuide.document_id == document_id)
+                .order_by(SlideGuide.page_number)
+            )
+        )
+
+    def save(
+        self, user_id: str, document_id: str, page_number: int, **values: object
+    ) -> SlideGuide:
+        """Insert, or replace the one already written for this page."""
+        row = self.get(user_id, document_id, page_number)
+        if row is None:
+            row = SlideGuide(user_id=user_id, document_id=document_id, page_number=page_number)
+            self.session.add(row)
+        for key, value in values.items():
+            setattr(row, key, value)
+        self.session.flush()
+        return row

@@ -16,6 +16,7 @@ import type {
   DriveImportResult,
   DriveListing,
   GoogleDriveStatus,
+  GuidedPages,
   LocalFolderLink,
   LocalFolderLinkInput,
   LocalFolders,
@@ -43,6 +44,9 @@ import type {
   QuizGenerateRequest,
   Recommendation,
   ResponseInput,
+  SlideGuide,
+  SlideGuideRequest,
+  SlideGuideStatus,
   Topic,
   UploadResult,
   UserSettings,
@@ -73,6 +77,8 @@ export const keys = {
   pages: (id: string) => ['documents', id, 'pages'] as const,
   page: (id: string, page: number) => ['documents', id, 'pages', page] as const,
   documentTopics: (id: string) => ['documents', id, 'topics'] as const,
+  slideGuide: (id: string, page: number) => ['documents', id, 'pages', page, 'guide'] as const,
+  guidedPages: (id: string) => ['documents', id, 'guides'] as const,
   sessions: ['sessions'] as const,
   session: (id: string) => ['sessions', id] as const,
   messages: (id: string) => ['sessions', id, 'messages'] as const,
@@ -923,5 +929,61 @@ export function useSaveNote() {
   const client = useClient();
   return useMutation<NoteSaved, Error, { noteId: string } & NoteSaveRequest>({
     mutationFn: ({ noteId, ...body }) => client.saveNote(noteId, body),
+  });
+}
+
+// --- slide guides -----------------------------------------------------------
+
+/**
+ * The teaching slides kept for a page. Reading never calls a model.
+ *
+ * Never stale: a guide only changes when this session writes one, and the
+ * mutation below puts the result here itself. A refetch on window focus would
+ * otherwise replace an unsaved outline with "nothing written" and ask again.
+ */
+export function useSlideGuide(documentId: string | undefined, page: number) {
+  const client = useClient();
+  return useQuery<SlideGuideStatus>({
+    queryKey: keys.slideGuide(documentId ?? '', page),
+    queryFn: () => client.slideGuide(documentId as string, page),
+    enabled: Boolean(documentId) && page > 0,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+/**
+ * Write (or rewrite) the teaching slides for one page.
+ *
+ * Keyed by the page, so a slide that is still being written when the reader
+ * moves on finishes in the background and lands in the cache, and
+ * `useIsMutating` with the same key says whether *this* slide is the one
+ * being written.
+ */
+export const slideGuideMutationKey = (documentId: string, page: number) =>
+  ['slide-guide', documentId, page] as const;
+
+export function useWriteSlideGuide(documentId: string | undefined, page: number) {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  const id = documentId ?? '';
+  return useMutation<SlideGuide, Error, SlideGuideRequest>({
+    mutationKey: slideGuideMutationKey(id, page),
+    mutationFn: (request) => client.writeSlideGuide(id, page, request),
+    onSuccess: (guide) => {
+      queryClient.setQueryData<SlideGuideStatus>(keys.slideGuide(id, page), { guide });
+      if (guide.saved) {
+        void queryClient.invalidateQueries({ queryKey: keys.guidedPages(id) });
+      }
+    },
+  });
+}
+
+/** Which pages of a document already have teaching slides. */
+export function useGuidedPages(documentId: string | undefined, enabled = true) {
+  const client = useClient();
+  return useQuery<GuidedPages>({
+    queryKey: keys.guidedPages(documentId ?? ''),
+    queryFn: () => client.guidedPages(documentId as string),
+    enabled: Boolean(documentId) && enabled,
   });
 }
