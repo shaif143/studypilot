@@ -5,14 +5,40 @@
  * screen says so and offers the next step, rather than showing a chart of
  * invented progress.
  */
-import { actionLabel, formatRelativeTime, masteryLabel } from '@studypilot/shared';
-import { Badge, Button, Card, EmptyState, ProgressBar, SectionHeading, Skeleton } from '@studypilot/ui';
-import { BookMarked, FileText, GraduationCap, Layers, Upload } from 'lucide-react';
+import {
+  actionLabel,
+  formatRelativeTime,
+  masteryLabel,
+  recommendationUrgency,
+  urgencyLabel,
+  type Urgency,
+} from '@studypilot/shared';
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ProgressBar,
+  SectionHeading,
+  Skeleton,
+  type Tone,
+} from '@studypilot/ui';
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  GraduationCap,
+  Repeat,
+  Upload,
+} from 'lucide-react';
+import { useId, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { ErrorPanel, PageBody, PageHeader } from '../components/AppShell';
 import { ProviderNotice } from '../components/ProviderNotice';
-import { describeError, useDashboard } from '../hooks/queries';
+import { describeError, useCourses, useDashboard } from '../hooks/queries';
 
 export function DashboardScreen() {
   const navigate = useNavigate();
@@ -52,32 +78,7 @@ export function DashboardScreen() {
           <div className="space-y-5">
             <ProviderNotice />
 
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <StatCard
-                icon={<GraduationCap size={15} />}
-                label="Courses"
-                value={data.course_count}
-              />
-              <StatCard
-                icon={<FileText size={15} />}
-                label="Documents"
-                value={data.document_count}
-                detail={`${data.page_count} pages`}
-              />
-              <StatCard
-                icon={<Layers size={15} />}
-                label="Indexed passages"
-                value={data.indexed_chunk_count}
-                detail="searchable"
-              />
-              <StatCard
-                icon={<BookMarked size={15} />}
-                label="Cards due"
-                value={data.due_flashcards}
-                detail={`${data.upcoming_reviews} within 7 days`}
-                to="/flashcards"
-              />
-            </div>
+            <CoursesAccordion count={data.course_count} />
 
             {data.document_count === 0 ? (
               <EmptyState
@@ -103,29 +104,50 @@ export function DashboardScreen() {
                     Answer a quiz and recommendations will appear here.
                   </p>
                 ) : (
-                  <ul className="mt-3 space-y-2">
-                    {data.recommendations.map((item) => (
-                      <li
-                        key={`${item.action}-${item.topic_slug}`}
-                        className="flex items-start justify-between gap-3 rounded-[var(--radius-control)] border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 py-2"
-                      >
-                        <div className="min-w-0">
-                          <p className="text-[0.8125rem] font-medium text-[var(--text-primary)]">
-                            {actionLabel(item.action)}
-                            {item.topic_name ? (
-                              <span className="font-normal text-[var(--text-secondary)]">
-                                {' '}
-                                — {item.topic_name}
-                              </span>
-                            ) : null}
-                          </p>
-                          <p className="mt-0.5 text-[0.75rem] leading-relaxed text-[var(--text-secondary)]">
-                            {item.reason}
-                          </p>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+                  <>
+                    <UrgencyLegend
+                      present={new Set(
+                        data.recommendations.map((item) => recommendationUrgency(item.priority)),
+                      )}
+                    />
+                    <ul className="mt-3 space-y-2">
+                      {data.recommendations.map((item) => {
+                        const urgency = recommendationUrgency(item.priority);
+                        const style = URGENCY_STYLE[urgency];
+                        return (
+                          <li
+                            key={`${item.action}-${item.topic_slug}`}
+                            data-urgency={urgency}
+                            className="flex items-start gap-3 rounded-[var(--radius-control)] border px-3 py-2"
+                            style={{
+                              background: style.background,
+                              borderColor: style.border,
+                              borderLeftWidth: 3,
+                              borderLeftColor: style.signal,
+                            }}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[0.8125rem] font-medium text-[var(--text-primary)]">
+                                {actionLabel(item.action)}
+                                {item.topic_name ? (
+                                  <span className="font-normal text-[var(--text-secondary)]">
+                                    {' '}
+                                    — {item.topic_name}
+                                  </span>
+                                ) : null}
+                              </p>
+                              <p className="mt-0.5 text-[0.75rem] leading-relaxed text-[var(--text-secondary)]">
+                                {item.reason}
+                              </p>
+                            </div>
+                            <Badge tone={style.tone} icon={style.icon} className="shrink-0">
+                              {urgencyLabel(urgency)}
+                            </Badge>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </>
                 )}
               </Card>
 
@@ -262,38 +284,138 @@ export function DashboardScreen() {
   );
 }
 
-function StatCard({
-  icon,
-  label,
-  value,
-  detail,
-  to,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  detail?: string;
-  to?: string;
-}) {
-  const content = (
-    <Card className="h-full">
-      <div className="flex items-center gap-1.5 text-[var(--text-secondary)]">
-        {icon}
-        <span className="text-[0.75rem] font-medium">{label}</span>
-      </div>
-      <p className="mt-1.5 text-2xl font-semibold tabular-nums tracking-[-0.02em] text-[var(--text-primary)]">
-        {value}
-      </p>
-      {detail ? (
-        <p className="mt-0.5 text-[0.75rem] text-[var(--text-muted)]">{detail}</p>
+/**
+ * Colour for how pressing a step is. Tints, not saturated fills: an urgent row
+ * is reddish, not red, and the label and icon say it too, so the meaning never
+ * rests on colour alone.
+ */
+const URGENCY_STYLE: Record<
+  Urgency,
+  { tone: Tone; signal: string; background: string; border: string; icon: React.ReactNode }
+> = {
+  urgent: {
+    tone: 'danger',
+    signal: 'var(--signal-danger)',
+    background: 'var(--signal-danger-bg)',
+    border: 'color-mix(in oklch, var(--signal-danger) 28%, transparent)',
+    icon: <AlertTriangle size={11} />,
+  },
+  soon: {
+    tone: 'caution',
+    signal: 'var(--signal-caution)',
+    background: 'var(--signal-caution-bg)',
+    border: 'color-mix(in oklch, var(--signal-caution) 28%, transparent)',
+    icon: <Clock size={11} />,
+  },
+  routine: {
+    tone: 'info',
+    signal: 'var(--signal-info)',
+    background: 'var(--signal-info-bg)',
+    border: 'color-mix(in oklch, var(--signal-info) 28%, transparent)',
+    icon: <Repeat size={11} />,
+  },
+  on_track: {
+    tone: 'grounded',
+    signal: 'var(--signal-grounded)',
+    background: 'var(--signal-grounded-bg)',
+    border: 'color-mix(in oklch, var(--signal-grounded) 28%, transparent)',
+    icon: <Check size={11} />,
+  },
+};
+
+const URGENCY_ORDER: Urgency[] = ['urgent', 'soon', 'routine', 'on_track'];
+
+function UrgencyLegend({ present }: { present: Set<Urgency> }) {
+  return (
+    <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.6875rem] text-[var(--text-muted)]">
+      {URGENCY_ORDER.filter((urgency) => present.has(urgency)).map((urgency) => (
+        <span key={urgency} className="flex items-center gap-1">
+          <span
+            aria-hidden
+            className="inline-block h-2 w-2 rounded-full"
+            style={{ background: URGENCY_STYLE[urgency].signal }}
+          />
+          {urgencyLabel(urgency)}
+        </span>
+      ))}
+    </p>
+  );
+}
+
+/**
+ * The courses, folded away until asked for.
+ *
+ * Closed it is one line with the count; open it lists every course, and each
+ * row opens that course's slides.
+ */
+function CoursesAccordion({ count }: { count: number }) {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const courses = useCourses();
+
+  return (
+    <Card padded={false}>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-3 rounded-[var(--radius-card)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface-hover)]"
+      >
+        <GraduationCap size={16} className="shrink-0 text-[var(--text-secondary)]" />
+        <span className="text-[0.875rem] font-semibold text-[var(--text-primary)]">Courses</span>
+        <span className="text-[0.8125rem] tabular-nums text-[var(--text-secondary)]">{count}</span>
+        <span className="ml-auto text-[0.75rem] text-[var(--text-muted)]">
+          {open ? 'Hide' : 'Show'}
+        </span>
+        <ChevronDown
+          size={16}
+          className={`shrink-0 text-[var(--text-secondary)] transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {open ? (
+        <div id={panelId} className="border-t border-[var(--border-subtle)] px-2 py-2">
+          {courses.isPending ? (
+            <Skeleton className="m-2 h-10" />
+          ) : courses.isError ? (
+            <p className="px-2 py-2 text-[0.8125rem] text-[var(--text-secondary)]">
+              {describeError(courses.error)}
+            </p>
+          ) : courses.data.length === 0 ? (
+            <p className="px-2 py-2 text-[0.8125rem] text-[var(--text-secondary)]">
+              No courses yet.{' '}
+              <Link to="/courses" className="text-[var(--text-accent)] hover:underline">
+                Create one
+              </Link>
+              .
+            </p>
+          ) : (
+            <ul>
+              {courses.data.map((course) => (
+                <li key={course.id}>
+                  <Link
+                    to={`/courses/${course.id}`}
+                    className="flex items-center gap-3 rounded-[var(--radius-control)] px-2.5 py-2 transition-colors hover:bg-[var(--surface-hover)]"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[0.8125rem] font-medium text-[var(--text-primary)]">
+                        {course.title}
+                      </span>
+                      <span className="block truncate text-[0.75rem] text-[var(--text-secondary)]">
+                        {[course.code, `${course.document_count} lectures`, `${course.page_count} slides`]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
+                    </span>
+                    <ChevronRight size={15} className="shrink-0 text-[var(--text-muted)]" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       ) : null}
     </Card>
-  );
-  return to ? (
-    <Link to={to} className="block transition-transform hover:-translate-y-px">
-      {content}
-    </Link>
-  ) : (
-    content
   );
 }

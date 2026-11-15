@@ -14,6 +14,8 @@ import {
   humaniseSlug,
   masteryLabel,
   provenanceLabel,
+  recommendationUrgency,
+  urgencyLabel,
 } from '@studypilot/shared';
 import { describe, expect, it } from 'vitest';
 
@@ -82,6 +84,20 @@ describe('labels', () => {
     expect(actionLabel('review_flashcards')).toBe('Review due flashcards');
     // An action with no mapping is humanised rather than shown as a raw slug.
     expect(actionLabel('unmapped_action')).toBe('Unmapped action');
+  });
+
+  it('grades how pressing a recommended step is from the rule that fired', () => {
+    // The priorities are the backend's: a weak prerequisite, a weak topic, too
+    // little evidence, a topic that is close, cards due, a solid topic.
+    expect(recommendationUrgency(30)).toBe('urgent');
+    expect(recommendationUrgency(25)).toBe('urgent');
+    expect(recommendationUrgency(18)).toBe('soon');
+    expect(recommendationUrgency(15)).toBe('soon');
+    expect(recommendationUrgency(12)).toBe('routine');
+    expect(recommendationUrgency(10)).toBe('routine');
+    expect(recommendationUrgency(5)).toBe('on_track');
+    expect(urgencyLabel('urgent')).toBe('Urgent');
+    expect(urgencyLabel('on_track')).toBe('On track');
   });
 
   it('humanises topic slugs', () => {

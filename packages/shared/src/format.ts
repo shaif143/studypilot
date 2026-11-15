@@ -81,6 +81,36 @@ export function actionLabel(action: string): string {
   return ACTION_LABELS[action] ?? humaniseSlug(action.replace(/_/g, '-'));
 }
 
+/**
+ * How pressing a recommended step is, for colour-coding the list.
+ *
+ * Read from the rule's own priority rather than from its name, so a rule added
+ * on the backend is coloured correctly without a change here:
+ *   urgent   a weak topic, or a weak prerequisite under one (priority >= 25)
+ *   soon     a topic with too little evidence to judge (15-24)
+ *   routine  cards due, or a topic that is close (8-14)
+ *   on_track nothing to fix
+ */
+export type Urgency = 'urgent' | 'soon' | 'routine' | 'on_track';
+
+export function recommendationUrgency(priority: number): Urgency {
+  if (priority >= 25) return 'urgent';
+  if (priority >= 15) return 'soon';
+  if (priority >= 8) return 'routine';
+  return 'on_track';
+}
+
+const URGENCY_LABELS: Record<Urgency, string> = {
+  urgent: 'Urgent',
+  soon: 'Soon',
+  routine: 'Routine',
+  on_track: 'On track',
+};
+
+export function urgencyLabel(urgency: Urgency): string {
+  return URGENCY_LABELS[urgency];
+}
+
 const MASTERY_LABELS: Record<string, string> = {
   unknown: 'Not enough evidence',
   weak: 'Needs work',
