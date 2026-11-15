@@ -49,6 +49,10 @@ fi
 echo "==> Smoke-testing the bundled backend"
 SMOKE_DIR="$(mktemp -d)"
 trap 'rm -rf "$SMOKE_DIR"' EXIT
+# No real Keychain: a freshly built, unsigned binary is not yet trusted by the
+# items the installed app saved, so reading them blocks on an access prompt
+# and the smoke test times out with nobody at the keyboard. It needs no keys.
+PYTHON_KEYRING_BACKEND=keyring.backends.fail.Keyring \
 STUDYPILOT_DATA_DIR="$SMOKE_DIR" \
 STUDYPILOT_PORT=8799 \
 STUDYPILOT_API_TOKEN=smoke-test \
