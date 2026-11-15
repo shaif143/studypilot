@@ -110,6 +110,43 @@ describe('GroundedAnswer', () => {
     expect(screen.queryByRole('button', { name: '1' })).toBeNull();
   });
 
+  it('draws a Markdown table, with a citation inside a cell still working', async () => {
+    const onCitationClick = vi.fn();
+    const { container } = render(
+      <GroundedAnswer
+        markdown={[
+          '| Padding | Output width |',
+          '| :-- | --: |',
+          '| valid | 3 |',
+          '| same [1] | 5 |',
+        ].join('\n')}
+        citations={[citation()]}
+        onCitationClick={onCitationClick}
+      />,
+    );
+
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(screen.getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      'Padding',
+      'Output width',
+    ]);
+    expect(screen.getAllByRole('row')).toHaveLength(3);
+    expect(screen.getByRole('cell', { name: '5' })).toHaveStyle({ textAlign: 'right' });
+    // A wide table scrolls in its own box rather than widening the answer.
+    expect(container.querySelector('.sp-table-scroll > table')).not.toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: '1' }));
+    expect(onCitationClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a single tilde as a tilde', () => {
+    const { container } = render(
+      <GroundedAnswer markdown="It takes ~5 ms on a laptop and ~2 ms on a GPU~." citations={[]} />,
+    );
+    expect(container.querySelector('del')).toBeNull();
+    expect(container.textContent).toContain('~5 ms');
+  });
+
   it('renders an empty answer without crashing', () => {
     const { container } = render(<GroundedAnswer markdown="" citations={[]} />);
     expect(container.querySelector('.sp-prose')).not.toBeNull();

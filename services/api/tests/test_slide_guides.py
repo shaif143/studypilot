@@ -112,6 +112,25 @@ def test_a_reply_without_the_format_is_still_one_slide():
     assert slide_guide.parse_guide("   ") == ([], [])
 
 
+def test_a_table_in_a_teaching_slide_is_kept_as_written():
+    table = "| Padding | Width |\n| :-- | --: |\n| valid | 3 |\n| same | 5 |"
+    cards, _ = slide_guide.parse_guide(
+        f"=== SLIDE | explanation | Valid against same ===\nCompare:\n\n{table}\n"
+    )
+
+    assert len(cards) == 1
+    assert cards[0].title == "Valid against same"
+    assert table in cards[0].markdown
+
+
+def test_the_prompts_allow_a_table():
+    from app.agents import prompts
+
+    assert "Markdown table" in slide_guide.SYSTEM
+    assert "cannot draw" not in slide_guide.SYSTEM
+    assert "cannot draw" not in prompts._GROUNDING_RULES
+
+
 def test_an_unknown_kind_is_an_explanation_and_slides_are_capped():
     many = "\n".join(f"=== SLIDE | wisdom | Part {i} ===\nBody {i}." for i in range(9))
     cards, _ = slide_guide.parse_guide(many)

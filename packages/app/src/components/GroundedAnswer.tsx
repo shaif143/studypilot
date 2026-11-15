@@ -13,6 +13,7 @@ import type { Root, Text } from 'mdast';
 import { isValidElement, memo, useMemo } from 'react';
 import Markdown from 'react-markdown';
 import rehypeKatex from 'rehype-katex';
+import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import { visit } from 'unist-util-visit';
 
@@ -82,7 +83,9 @@ export const GroundedAnswer = memo(function GroundedAnswer({
   return (
     <div className={className ? `sp-prose ${className}` : 'sp-prose'}>
       <Markdown
-        remarkPlugins={[remarkMath, remarkCitations]}
+        // GFM is here for tables. A single tilde stays a tilde: course text
+        // writes "~5 ms" far more often than it strikes anything through.
+        remarkPlugins={[[remarkGfm, { singleTilde: false }], remarkMath, remarkCitations]}
         rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
         components={{
           pre({ children, ...rest }) {
@@ -94,6 +97,15 @@ export const GroundedAnswer = memo(function GroundedAnswer({
               : undefined;
             if (fence === 'language-mermaid' || fence === 'language-plot') return <>{children}</>;
             return <pre {...rest}>{children}</pre>;
+          },
+          table({ children }) {
+            // A wide table scrolls inside its own box instead of pushing the
+            // whole answer sideways.
+            return (
+              <div className="sp-table-scroll">
+                <table>{children}</table>
+              </div>
+            );
           },
           code({ className: codeClass, children, ...rest }) {
             // A ```mermaid fence becomes a drawn diagram; every other code

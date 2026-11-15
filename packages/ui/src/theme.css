@@ -281,20 +281,40 @@
     text-decoration: underline;
     text-underline-offset: 2px;
   }
+  .sp-table-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-control);
+  }
   .sp-prose table {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.875em;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
   }
   .sp-prose th,
   .sp-prose td {
-    border: 1px solid var(--border-subtle);
-    padding: 0.45em 0.6em;
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 0.5em 0.75em;
     text-align: left;
+    vertical-align: top;
+  }
+  .sp-prose th + th,
+  .sp-prose td + td {
+    border-left: 1px solid var(--border-subtle);
+  }
+  .sp-prose tbody tr:last-child td {
+    border-bottom: 0;
   }
   .sp-prose th {
     background: var(--surface-sunken);
     font-weight: 600;
+    white-space: nowrap;
+  }
+  /* A grid of values written as a table has a header row with nothing in it. */
+  .sp-prose thead:not(:has(th:not(:empty))) {
+    display: none;
   }
   .sp-prose hr {
     border: 0;
