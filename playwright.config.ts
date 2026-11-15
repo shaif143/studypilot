@@ -25,6 +25,12 @@ const apiEnv = {
   STUDYPILOT_LLM_PROVIDER: 'extractive',
   STUDYPILOT_EMBEDDING_PROVIDER: 'hash',
   STUDYPILOT_LOG_LEVEL: 'WARNING',
+  // Never the real Keychain: a test run must not read the developer's own API
+  // keys (the Drive spec asserts that no client is configured), and on a Mac
+  // whose keys were saved by the packaged app the read blocks on an access
+  // prompt until someone clicks it. With no usable keyring the backend falls
+  // back to a key file inside the throw-away data directory.
+  PYTHON_KEYRING_BACKEND: 'keyring.backends.fail.Keyring',
 };
 
 export default defineConfig({
