@@ -371,6 +371,8 @@ export interface QuizGenerateRequest {
   kind?: AssessmentKind;
   time_limit_seconds?: number | null;
   allow_cloud?: boolean;
+  /** Follow the course's past papers. Omitted means "if they have been analysed". */
+  exam_style?: boolean | null;
 }
 
 export interface ResponseInput {
@@ -743,7 +745,9 @@ export interface DriveImportResult {
 // --- folders on this Mac ----------------------------------------------------
 
 export interface LocalFolderScan {
-  state: 'queued' | 'running' | 'done' | 'failed';
+  state: 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+  /** Asked to stop; it finishes the file it is on first. */
+  stopping?: boolean;
   /** Documents are read first; images and recordings, the slow part, last. */
   phase: 'documents' | 'media';
   done: number;
@@ -797,7 +801,9 @@ export type GuideCardKind =
   | 'equation'
   | 'visual'
   | 'example'
-  | 'background';
+  | 'background'
+  | 'in_class'
+  | 'check';
 
 /** One teaching slide written for a page of a lecture. */
 export interface GuideCard {
@@ -824,6 +830,8 @@ export interface SlideGuide {
   model: string;
   level: ExplanationLevel | string;
   saw_image: boolean;
+  /** True when the class transcript was in front of the model too. */
+  used_transcript?: boolean;
   /** False for the slide's own text, which is not kept. */
   saved: boolean;
   warnings: string[];
@@ -840,6 +848,115 @@ export interface SlideGuideRequest {
   level?: ExplanationLevel | null;
 }
 
+/** A whole lecture being explained in the background. */
+export interface GuideJob {
+  state: 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+  total: number;
+  done: number;
+  written: number;
+  failed: number;
+  error: string;
+  /** Asked to stop; slides already with the model are still coming back. */
+  stopping: boolean;
+}
+
 export interface GuidedPages {
   pages: number[];
+  page_count?: number;
+  job?: GuideJob | null;
+  has_transcript?: boolean;
+}
+
+export interface ExplainAllRequest {
+  allow_cloud?: boolean;
+  level?: ExplanationLevel | null;
+  /** Also rewrite the slides already explained. */
+  regenerate?: boolean;
+}
+
+/** What was said in the class a lecture's slides were shown in. Never its text. */
+export interface Transcript {
+  document_id: string;
+  filename: string;
+  word_count: number;
+  updated_at: string | null;
+}
+
+export interface TranscriptStatus {
+  transcript: Transcript | null;
+}
+
+/** The student's own note on one slide. */
+export interface SlideNote {
+  document_id: string;
+  page_number: number;
+  text: string;
+  updated_at: string | null;
+}
+
+export interface SlideNoteListItem extends SlideNote {
+  document_title: string;
+  course_id: string;
+}
+
+// --- past papers --------------------------------------------------------------
+export interface ExamPaper {
+  document_id: string;
+  title: string;
+  page_count: number;
+  status: string;
+}
+
+export interface ExamSection {
+  name: string;
+  instructions: string;
+  questions: number;
+  marks_each: number;
+  form: string;
+}
+
+export interface ExamTopicForecast {
+  topic: string;
+  /** 0 to 1. Never 1: a forecast, not a promise. */
+  likelihood: number;
+  pattern: string;
+  /** Question references it was drawn from, like "2022 Q3(b)". */
+  appearances: string[];
+  typical_marks: number;
+  form: string;
+  rationale: string;
+  next_variation: string;
+}
+
+export interface ExamProfileBody {
+  papers_read: Array<{ title: string; year: string; questions: number }>;
+  format: {
+    style: 'mcq' | 'written' | 'mixed';
+    summary: string;
+    duration_minutes: number;
+    total_marks: number;
+    sections: ExamSection[];
+  };
+  question_mix: Record<string, number>;
+  command_words: string[];
+  topics: ExamTopicForecast[];
+  patterns: string[];
+  marking_habits: string[];
+  advice: string[];
+  confidence: 'low' | 'medium' | 'high';
+  caveat: string;
+}
+
+export interface ExamProfile {
+  course_id: string;
+  papers: ExamPaper[];
+  /** Null until the papers have been analysed. */
+  profile: ExamProfileBody | null;
+  /** "llm:<provider>" when a model analysed the papers, "counted" for the format only. */
+  generated_by: string;
+  model: string;
+  /** True when papers were added, removed or changed since the analysis. */
+  stale: boolean;
+  warnings: string[];
+  updated_at: string | null;
 }

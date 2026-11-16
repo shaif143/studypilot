@@ -24,6 +24,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { ErrorPanel, PageBody, PageHeader } from '../components/AppShell';
+import { ExamStyleNotice, useExamStyleAvailable } from '../components/ExamStyleNotice';
 import { ProviderNotice } from '../components/ProviderNotice';
 import { QuizRunner } from '../components/QuizRunner';
 import {
@@ -60,6 +61,7 @@ export function AssessmentScreen({ kind }: { kind: AssessmentKind }) {
   const [selectedKinds, setSelectedKinds] = useState<QuestionKind[]>(['mcq', 'short_answer']);
   const [timeLimitMinutes, setTimeLimitMinutes] = useState(kind === 'mock_exam' ? 60 : 0);
   const [activeId, setActiveId] = useState<string | null>(params.get('assessment'));
+  const [examStyle, setExamStyle] = useState(true);
 
   const documents = useDocuments(courseId || undefined);
   const active = useAssessment(activeId ?? undefined);
@@ -68,6 +70,8 @@ export function AssessmentScreen({ kind }: { kind: AssessmentKind }) {
   const cloudAllowed = settings.data?.allow_cloud_processing ?? false;
   const activeProvider = providers.data?.llm.find((p) => p.key === providers.data?.active_llm);
   const needsCloudOptIn = Boolean(activeProvider?.sends_data_off_device);
+  const examAvailable = useExamStyleAvailable(effectiveCourse || undefined);
+  const followingExam = examAvailable && examStyle;
 
   const run = async () => {
     if (!effectiveCourse) return;
@@ -81,6 +85,7 @@ export function AssessmentScreen({ kind }: { kind: AssessmentKind }) {
       kind,
       time_limit_seconds: timeLimitMinutes > 0 ? timeLimitMinutes * 60 : null,
       allow_cloud: cloudAllowed && needsCloudOptIn,
+      exam_style: examAvailable ? examStyle : null,
     });
     setActiveId(assessment.id);
     setParams({ assessment: assessment.id }, { replace: true });
@@ -237,6 +242,14 @@ export function AssessmentScreen({ kind }: { kind: AssessmentKind }) {
                   </Field>
                 </div>
 
+                <ExamStyleNotice
+                  className="mt-3"
+                  courseId={effectiveCourse || undefined}
+                  enabled={examStyle}
+                  onChange={setExamStyle}
+                />
+
+                {followingExam ? null : (
                 <Field className="mt-3" label="Question types">
                   <div className="flex flex-wrap gap-2">
                     {QUESTION_KINDS.map((option) => {
@@ -281,6 +294,7 @@ export function AssessmentScreen({ kind }: { kind: AssessmentKind }) {
                     })}
                   </div>
                 </Field>
+                )}
 
                 {!providers.data?.active_is_generative ? (
                   <Callout tone="neutral" className="mt-3" icon={<AlertTriangle size={14} />}>

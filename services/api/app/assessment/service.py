@@ -16,6 +16,7 @@ from typing import Any
 from app.agents.service import resolve_provider
 from app.assessment.generator import GeneratedQuestion, QuestionGenerator, build_blueprint
 from app.assessment.grading import grade_response
+from app.learning import exam_analysis, exam_service
 from app.learning.mastery import recommend_action, schedule_review, update_mastery
 from app.rag.retriever import RetrievedChunk
 from app.runtime import RuntimeContext
@@ -61,8 +62,15 @@ def _gather_evidence(
     page_from: int | None,
     page_to: int | None,
     limit: int,
+    exam_profile: dict[str, Any] | None = None,
 ) -> list[RetrievedChunk]:
-    """Collect candidate passages for generation, scoped to what the user owns."""
+    """Collect candidate passages for generation, scoped to what the user owns.
+
+    With an exam profile the passages are this year's teaching only — never the
+    past papers themselves — and most of them are about the topics the exam is
+    likely to ask, with the rest spread across the course so nothing taught is
+    left out entirely.
+    """
     chunk_repo = ChunkRepository(db_session)
     course_repo = CourseRepository(db_session)
     course_repo.get(user_id, course_id)  # ownership check
@@ -80,13 +88,47 @@ def _gather_evidence(
     if page_to is not None:
         rows = [row for row in rows if row.page_number <= page_to]
 
+    if exam_profile is not None:
+        paper_ids = {
+            doc.id for doc in exam_service.past_paper_documents(db_session, user_id, course_id)
+        }
+        rows = [row for row in rows if row.document_id not in paper_ids]
+
     # Prefer longer, prose-like passages; they make better questions.
     rows = [row for row in rows if len(row.text) >= 120]
-    rows.sort(key=lambda row: (row.page_number, row.ordinal))
+    rows.sort(key=lambda row: (row.document_id, row.page_number, row.ordinal))
+
+    def spread(candidates: list[Any], count: int) -> list[Any]:
+        # Even spread across the selection rather than its first N pages.
+        if count <= 0:
+            return []
+        if len(candidates) <= count:
+            return list(candidates)
+        step = len(candidates) / count
+        return [candidates[int(index * step)] for index in range(count)]
+
     if len(rows) > limit:
-        # Even spread across the selected range rather than the first N pages.
-        step = len(rows) / limit
-        rows = [rows[int(index * step)] for index in range(limit)]
+        if exam_profile is not None and exam_profile.get("topics"):
+            weighted = [
+                (
+                    exam_analysis.exam_weight(
+                        f"{row.section} {row.topic_slug} {row.text}", exam_profile
+                    ),
+                    row,
+                )
+                for row in rows
+            ]
+            likely = [
+                row for weight, row in sorted(weighted, key=lambda item: -item[0]) if weight > 0
+            ]
+            focus = likely[: max(1, int(limit * 0.7))]
+            chosen = {row.id for row in focus}
+            rest = spread([row for row in rows if row.id not in chosen], limit - len(focus))
+            rows = sorted(
+                focus + rest, key=lambda row: (row.document_id, row.page_number, row.ordinal)
+            )
+        else:
+            rows = spread(rows, limit)
 
     titles: dict[str, str] = {}
     from app.storage.repositories import DocumentRepository
@@ -136,7 +178,15 @@ def generate_assessment(
     topic_weights: dict[str, float] | None,
     allow_cloud: bool,
     user_settings: UserSettings,
+    exam_style: bool | None = None,
 ) -> GenerationOutcome:
+    # Follow the course's past papers whenever they have been analysed, unless
+    # this request says not to.
+    exam_profile = (
+        exam_service.usable_profile(db_session, user_id, course_id)
+        if exam_style is not False
+        else None
+    )
     evidence = _gather_evidence(
         context=context,
         db_session=db_session,
@@ -147,7 +197,10 @@ def generate_assessment(
         page_from=page_from,
         page_to=page_to,
         limit=max(question_count * 4, 24),
+        exam_profile=exam_profile,
     )
+    if exam_profile is not None:
+        kinds = exam_analysis.kinds_from_profile(exam_profile)
     if not evidence:
         raise NoMaterialError(
             "There is no indexed text in that selection yet. Upload a PDF with "
@@ -172,7 +225,18 @@ def generate_assessment(
     generator_name = "source_derived"
 
     if provider.info.generative:
-        generated = generator.from_llm(evidence, blueprint=blueprint, provider=provider)
+        exam_brief = ""
+        avoid: list[str] = []
+        if exam_profile is not None:
+            papers = exam_service.load_papers(db_session, user_id, course_id)
+            exam_brief = exam_analysis.style_brief(
+                exam_profile, sample=exam_analysis.paper_sample(papers)
+            )
+            avoid = exam_service.earlier_prompts(db_session, user_id, course_id)
+            blueprint["exam_style"] = True
+        generated = generator.from_llm(
+            evidence, blueprint=blueprint, provider=provider, exam_brief=exam_brief, avoid=avoid
+        )
         generator_name = f"llm:{provider.info.key}"
         if not generated:
             warnings.append(
@@ -180,6 +244,7 @@ def generate_assessment(
                 "directly from your material instead."
             )
             generator_name = "source_derived"
+            blueprint.pop("exam_style", None)
 
     if not generated:
         generated = generator.from_source(evidence, blueprint=blueprint)
@@ -198,6 +263,8 @@ def generate_assessment(
     assessments = AssessmentRepository(db_session)
     total_marks = sum(question.marks for question in generated)
     title = _assessment_title(kind, topic_slug, document_id, db_session, user_id)
+    if blueprint.get("exam_style"):
+        title = f"Exam-style {title[0].lower()}{title[1:]}"
     assessment = assessments.create(
         user_id=user_id,
         course_id=course_id,
@@ -430,6 +497,7 @@ def generate_flashcards(
     count: int,
     allow_cloud: bool,
     user_settings: UserSettings,
+    exam_style: bool | None = None,
 ) -> tuple[list[Flashcard], list[str]]:
     """Create flashcards from indexed material.
 
@@ -438,6 +506,11 @@ def generate_flashcards(
     produce ``past_paper`` — that value only comes from a document the student
     uploaded and labelled as a past paper.
     """
+    exam_profile = (
+        exam_service.usable_profile(db_session, user_id, course_id)
+        if exam_style is not False
+        else None
+    )
     evidence = _gather_evidence(
         context=context,
         db_session=db_session,
@@ -448,6 +521,7 @@ def generate_flashcards(
         page_from=page_from,
         page_to=page_to,
         limit=max(count * 3, 20),
+        exam_profile=exam_profile,
     )
     if not evidence:
         raise NoMaterialError("There is no indexed text in that selection yet.")
@@ -459,10 +533,36 @@ def generate_flashcards(
     warnings.extend(provider_warnings)
 
     generator = QuestionGenerator()
-    blueprint = build_blueprint(question_count=count, kinds=["short_answer"])
+    # A card follows the exam's own form: where the paper is multiple choice,
+    # the card shows the options and its back names the right one.
+    card_kinds = ["short_answer"]
+    if exam_profile is not None:
+        mix = exam_profile.get("question_mix") or {}
+        if float(mix.get("mcq", 0.0)) >= 0.5:
+            card_kinds = ["mcq"]
+    blueprint = build_blueprint(question_count=count, kinds=card_kinds)
     generated: list[GeneratedQuestion] = []
     if provider.info.generative:
-        generated = generator.from_llm(evidence, blueprint=blueprint, provider=provider)
+        exam_brief = ""
+        if exam_profile is not None:
+            exam_brief = exam_analysis.style_brief(
+                exam_profile,
+                sample=exam_analysis.paper_sample(
+                    exam_service.load_papers(db_session, user_id, course_id), budget=2500
+                ),
+            )
+        generated = generator.from_llm(
+            evidence,
+            blueprint=blueprint,
+            provider=provider,
+            exam_brief=exam_brief,
+            avoid=[
+                card.front
+                for card in FlashcardRepository(db_session).list(user_id, course_id=course_id)
+            ][-40:]
+            if exam_brief
+            else None,
+        )
     if not generated:
         generated = generator.from_source(evidence, blueprint=blueprint)
         if not provider.info.generative:
@@ -479,8 +579,8 @@ def generate_flashcards(
             course_id=course_id,
             document_id=document_id,
             topic_slug=question.topic_slug,
-            front=question.prompt,
-            back=question.expected_answer or question.explanation,
+            front=_card_front(question),
+            back=_card_back(question),
             difficulty=question.difficulty,
             provenance=question.provenance,
             source_page=question.source_page,
@@ -492,6 +592,26 @@ def generate_flashcards(
     ]
     FlashcardRepository(db_session).add_all(cards)
     return cards, warnings
+
+
+def _card_front(question: GeneratedQuestion) -> str:
+    if question.kind == "mcq" and question.options:
+        letters = "ABCDEF"
+        options = "\n".join(
+            f"{letters[index]}. {option}" for index, option in enumerate(question.options)
+        )
+        return f"{question.prompt}\n\n{options}"
+    return question.prompt
+
+
+def _card_back(question: GeneratedQuestion) -> str:
+    answer = question.expected_answer or question.explanation
+    if question.kind == "mcq" and question.options and question.correct_option is not None:
+        letter = "ABCDEF"[question.correct_option]
+        answer = f"{letter}. {question.options[question.correct_option]}"
+        if question.explanation:
+            answer = f"{answer}\n\n{question.explanation}"
+    return answer
 
 
 def review_flashcard(*, db_session: Any, user_id: str, card_id: str, rating: int) -> Flashcard:

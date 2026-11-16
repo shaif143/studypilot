@@ -45,6 +45,12 @@ export interface MermaidDiagramProps {
   /** Accessible description of what the diagram shows. */
   title?: string;
   className?: string;
+  /**
+   * Draw on a light sheet in both themes. Diagram types other than a
+   * flowchart put dark text straight on the background, which would vanish
+   * on the dark surface.
+   */
+  paper?: boolean;
 }
 
 interface RenderOutcome {
@@ -53,7 +59,7 @@ interface RenderOutcome {
   error: string;
 }
 
-export function MermaidDiagram({ code, title, className }: MermaidDiagramProps) {
+export function MermaidDiagram({ code, title, className, paper }: MermaidDiagramProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // Keyed by the code it describes, so a new `code` is "loading" without a
   // synchronous state reset inside the effect.
@@ -112,7 +118,15 @@ export function MermaidDiagram({ code, title, className }: MermaidDiagramProps) 
           Drawing the diagram…
         </p>
       ) : null}
-      <div ref={containerRef} className="overflow-x-auto" data-testid="mermaid-diagram" />
+      <div
+        ref={containerRef}
+        className={
+          paper && state === 'ready'
+            ? 'overflow-x-auto rounded-[var(--radius-card)] bg-[#fbfbfd] p-3'
+            : 'overflow-x-auto'
+        }
+        data-testid="mermaid-diagram"
+      />
     </div>
   );
 }

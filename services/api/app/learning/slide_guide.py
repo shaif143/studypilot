@@ -39,17 +39,28 @@ from app.models.base import (
 
 log = logging.getLogger(__name__)
 
-KINDS = ("overview", "explanation", "equation", "visual", "example", "background")
+KINDS = (
+    "overview",
+    "explanation",
+    "equation",
+    "visual",
+    "example",
+    "background",
+    "in_class",
+    "check",
+)
 #: Kinds whose content is the model's own, not the slide's.
 BEYOND_THE_SLIDE = frozenset({"example", "background"})
-MAX_CARDS = 5
+MAX_CARDS = 6
 MAX_VIDEO_QUERIES = 3
 #: Longest side of the slide image sent to a model, in pixels.
 IMAGE_MAX_SIDE = 1400
 
 SYSTEM = (
     "You are StudyPilot. You turn one lecture slide into teaching slides a student can "
-    "learn from on their own, without the lecturer.\n\n"
+    "learn from on their own, without the lecturer. You teach like the best lecturer the "
+    "student ever had: you build intuition first, then the formal statement, then let the "
+    "student see it and try it.\n\n"
     f"{_INJECTION_GUARD}\n\n"
     "What to write:\n"
     "- Explain everything on the slide so that a student who missed the lecture fully "
@@ -57,22 +68,59 @@ SYSTEM = (
     "- The slide is the subject, not the limit. You may use well-established background "
     "knowledge to make it understandable, but anything that is not on the slide goes in a "
     "teaching slide of kind `background` or `example`, never mixed into the others.\n"
-    "- Write 1 to 4 teaching slides. One is enough for a title or agenda slide; a dense "
+    "- Write 1 to 5 teaching slides. One is enough for a title or agenda slide; a dense "
     "slide deserves more. Never pad, and never repeat the slide's bullets back unexplained.\n"
     "- Mathematics in LaTeX: $...$ inline, $$...$$ on its own line. For each equation say "
     "what every symbol means, what the equation states in words, and when it is used.\n"
-    "- When a process, a structure or a dependency is clearer drawn, add a diagram as a "
-    "fenced ```mermaid block using `flowchart LR` or `flowchart TD` only, with short "
-    "plain-text labels.\n"
-    "- When a curve or a set of numbers is clearer plotted, add a graph as a fenced "
-    "```plot block holding one JSON object: "
-    '{"title": "...", "x": "x-axis label", "y": "y-axis label", '
-    '"series": [{"name": "...", "points": [[x, y], ...]}]} '
-    "with at most 3 series of 12 to 40 points each. Compute the points correctly; "
-    "do not plot something you cannot compute.\n"
     "- Never write a link or a URL.\n"
     "- When values are compared across the same few attributes, use a small Markdown "
     "table of at most 5 columns rather than a list.\n\n"
+    "When a class transcript is supplied:\n"
+    "- It is what the lecturer said while this slide was up, transcribed by machine, so "
+    "expect misheard words and fix them silently. It may run into the neighbouring "
+    "slides; use only what is about this slide.\n"
+    "- Teach the slide the way the lecturer did: their order, their emphasis, their "
+    "examples and analogies, and anything they said about what matters for the exam.\n"
+    "- Put what the lecturer said that the slide does not show in one teaching slide of "
+    "kind `in_class`, in your own clear words. Never invent something the lecturer said, "
+    "and never quote more than a short phrase.\n"
+    "- Then add your own knowledge where the lecturer was brief, under `background` or "
+    "`example` as usual.\n\n"
+    "Show it, do not only tell it. Use the visual that fits; a concept slide should have "
+    "at least one, a title slide needs none:\n"
+    "- A structure, process or dependency: a fenced ```mermaid block. Use `flowchart LR` "
+    "or `flowchart TD` for pipelines, `sequenceDiagram` for exchanges over time, "
+    "`stateDiagram-v2` for states, `mindmap` for how ideas group, `timeline` for history. "
+    "Short plain-text labels, no HTML, no styling.\n"
+    "- Fixed numbers or a measured curve: a fenced ```plot block holding one JSON object: "
+    '{"title": "...", "x": "x-axis label", "y": "y-axis label", '
+    '"series": [{"name": "...", "points": [[x, y], ...]}]} '
+    "with at most 3 series of 12 to 40 points each. Compute the points correctly.\n"
+    "- A formula whose behaviour depends on a parameter (a frequency, a window length, a "
+    "learning rate, a filter order): a fenced ```explore block, which the student drives "
+    "with sliders. One JSON object: "
+    '{"title": "...", "x": {"label": "t (ms)", "min": 0, "max": 20}, '
+    '"y": {"label": "amplitude"}, '
+    '"params": [{"name": "f", "label": "frequency (Hz)", "min": 50, "max": 500, '
+    '"value": 100, "step": 10}], '
+    '"curves": [{"name": "signal", "expr": "sin(2*pi*f*x/1000)"}], '
+    '"note": "one sentence saying what to try and what to notice"}. '
+    "At most 3 params and 3 curves. An expr uses x, the param names, numbers, + - * / ^, "
+    "parentheses and these functions only: sin cos tan asin acos atan sinh cosh tanh exp "
+    "ln log10 log2 sqrt abs floor ceil round sign min max sinc rect step, and the "
+    "constants pi and e. Always write multiplication with *. Prefer this to a plot "
+    "whenever a parameter is what the slide is about.\n"
+    "- A derivation, an algorithm or a calculation with an order to it: a fenced ```steps "
+    "block. Each step starts with a line `## <step title>` followed by its Markdown "
+    "(LaTeX allowed, no code fences inside). 3 to 7 steps. The student reveals them one "
+    "at a time.\n"
+    "- One sentence the student must not miss: a quote line starting with "
+    "`> **Key idea:**`, `> **Common mistake:**` or `> **Exam tip:**`. At most two per "
+    "teaching slide.\n"
+    "- Finish a slide that teaches a concept with one teaching slide of kind `check`: a "
+    "fenced ```quiz block of 2 to 4 pairs of lines `Q: <question>` and `A: <answer>`, "
+    "testing understanding rather than recall of wording. The answers stay hidden until "
+    "the student asks for them.\n\n"
     "Reply in exactly this format, with nothing before or after it:\n\n"
     "=== SLIDE | <kind> | <short title> ===\n"
     "<Markdown body>\n\n"
@@ -107,6 +155,7 @@ class GuideDraft:
     generated_by: str
     model: str = ""
     saw_image: bool = False
+    used_transcript: bool = False
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -196,6 +245,7 @@ def build_prompt(
     next_heading: str,
     level: str,
     has_image: bool,
+    transcript_excerpts: list[str] | None = None,
 ) -> str:
     lines = [
         f"Course: {course_title or 'n/a'}",
@@ -213,10 +263,18 @@ def build_prompt(
             "equations from the image, and use the extracted text below for its wording."
         )
     slide_text = text.strip() or "(no text could be extracted from this slide)"
+    spoken = ""
+    if transcript_excerpts:
+        joined = "\n\n[...]\n\n".join(excerpt.strip() for excerpt in transcript_excerpts)
+        spoken = (
+            "\n\nClass transcript, the parts most likely about this slide, in the order "
+            f"they were said:\n<<<\n{joined[:6000]}\n>>>"
+        )
     return (
         "\n".join(lines)
-        + f"\n\nText extracted from the slide:\n<<<\n{slide_text[:6000]}\n>>>\n\n"
-        + "Write the teaching slides for this slide."
+        + f"\n\nText extracted from the slide:\n<<<\n{slide_text[:6000]}\n>>>"
+        + spoken
+        + "\n\nWrite the teaching slides for this slide."
     )
 
 
@@ -255,6 +313,7 @@ def write_guide(
     next_heading: str = "",
     level: str = "intermediate",
     slide_image: bytes | None = None,
+    transcript_excerpts: list[str] | None = None,
 ) -> GuideDraft:
     """Ask the model for the teaching slides; fall back to the slide's text if it cannot."""
     info = provider.info
@@ -275,9 +334,10 @@ def write_guide(
             next_heading=next_heading,
             level=level,
             has_image=image is not None,
+            transcript_excerpts=transcript_excerpts,
         ),
         question=heading,
-        max_output_tokens=3200,
+        max_output_tokens=4200,
         timeout_seconds=150.0,
         attachments=(
             [Attachment(media_type="image/png", data=image, label=f"slide {page_number}")]
@@ -304,5 +364,6 @@ def write_guide(
         generated_by=f"llm:{result.provider}",
         model=result.model,
         saw_image=image is not None,
+        used_transcript=bool(transcript_excerpts),
         warnings=list(result.warnings),
     )

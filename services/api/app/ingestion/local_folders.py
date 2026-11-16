@@ -121,7 +121,7 @@ def list_files(root: Path, *, recursive: bool) -> list[FolderFile]:
 # --- progress, for the UI to poll ------------------------------------------------------
 @dataclass
 class ScanProgress:
-    state: str = "queued"  # queued | running | done | failed
+    state: str = "queued"  # queued | running | done | failed | cancelled
     #: "documents" while PDFs and decks are read, "media" once images and
     #: recordings start; the slow part comes last.
     phase: str = "documents"
@@ -131,10 +131,13 @@ class ScanProgress:
     counts: dict[str, int] = field(default_factory=dict)
     error: str = ""
     finished_at: float = 0.0
+    #: Set by a cancel request; the scan stops before its next file.
+    stop: threading.Event = field(default_factory=threading.Event)
 
     def to_dict(self) -> dict[str, object]:
         return {
             "state": self.state,
+            "stopping": self.stop.is_set() and self.state in {"queued", "running"},
             "phase": self.phase,
             "done": self.done,
             "total": self.total,
@@ -153,7 +156,11 @@ def progress_for(link_id: str) -> ScanProgress | None:
     """The current or recently finished scan of a link; finished ones linger five minutes."""
     with _registry_lock:
         found = _progress.get(link_id)
-        if found and found.state in {"done", "failed"} and time.time() - found.finished_at > 300:
+        if (
+            found
+            and found.state in {"done", "failed", "cancelled"}
+            and time.time() - found.finished_at > 300
+        ):
             del _progress[link_id]
             return None
         return found
@@ -233,6 +240,8 @@ def scan_folder(
 
             # Phase two: read them, documents before images and recordings.
             for index, file in enumerate(files):
+                if progress.stop.is_set():
+                    break
                 progress.done = index
                 progress.current = file.relative
                 progress.phase = "media" if is_media_file(file) else "documents"
@@ -259,6 +268,26 @@ def scan_folder(
                 )
                 _count(progress, status)
                 session.commit()
+            if progress.stop.is_set():
+                # Stopped: what was read stays, what was only queued goes. Files
+                # that vanished from the folder are left for the next full scan,
+                # which is the only one that has seen the whole folder.
+                for key, row in queued.items():
+                    if key in seen:
+                        continue
+                    remove_document(
+                        context=context,
+                        session=session,
+                        documents=documents,
+                        chunks=chunks,
+                        document=row,  # type: ignore[arg-type]
+                    )
+                    _count(progress, "cancelled")
+                progress.current = ""
+                folders.record_scan(link, progress.counts)
+                session.commit()
+                progress.state = "cancelled"
+                return progress
             for key, document in existing.items():
                 if key in seen:
                     continue
@@ -283,6 +312,14 @@ def scan_folder(
             progress.error = str(exc)
         finally:
             progress.finished_at = time.time()
+    return progress
+
+
+def cancel_scan(link_id: str) -> ScanProgress | None:
+    """Ask a running scan to stop. It finishes the file it is on first."""
+    progress = progress_for(link_id)
+    if progress is not None and progress.state in {"queued", "running"}:
+        progress.stop.set()
     return progress
 
 

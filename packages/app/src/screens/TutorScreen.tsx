@@ -9,7 +9,7 @@ import { formatRelativeTime } from '@studypilot/shared';
 import { Button, EmptyState, SectionHeading, Select, Skeleton } from '@studypilot/ui';
 import { MessagesSquare, Plus } from 'lucide-react';
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { PageHeader } from '../components/AppShell';
 import { TutorPanel } from '../components/TutorPanel';
@@ -20,7 +20,9 @@ export function TutorScreen() {
   const courses = useCourses();
   const sessions = useSessions(15);
 
-  const [courseId, setCourseId] = useState('');
+  // Reached from a course ("Ask about this course"), which arrives chosen.
+  const [params] = useSearchParams();
+  const [courseId, setCourseId] = useState(params.get('course') ?? '');
   const [sessionId, setSessionId] = useState<string | undefined>();
 
   const effectiveCourse = courseId || courses.data?.[0]?.id || '';
@@ -49,8 +51,8 @@ export function TutorScreen() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
-        title="AI Tutor"
-        description="Grounded in your own course material, with citations you can open."
+        title={`Ask about ${courses.data?.find((c) => c.id === effectiveCourse)?.title ?? 'a course'}`}
+        description="Answers come from this course's own material, with citations you can open."
         actions={
           <>
             <Select
@@ -75,6 +77,14 @@ export function TutorScreen() {
         }
       />
 
+      {effectiveCourse ? (
+        <Link
+          to={`/courses/${effectiveCourse}`}
+          className="border-b border-[var(--border-subtle)] px-6 py-1.5 text-[0.75rem] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+        >
+          ← Back to the course
+        </Link>
+      ) : null}
       <div className="flex min-h-0 flex-1">
         <div className="sp-scroll w-64 shrink-0 overflow-y-auto border-r border-[var(--border-subtle)] px-3 py-3">
           <SectionHeading title="Saved sessions" className="px-1 pb-2" />
@@ -138,7 +148,7 @@ export function TutorScreen() {
             sessionId={sessionId}
             onSessionCreated={setSessionId}
             onCitationClick={(citation) =>
-              navigate(`/read/${citation.document_id}?page=${citation.page_number}`)
+              navigate(`/study/${citation.document_id}?page=${citation.page_number}`)
             }
             courseId={activeSession?.course_id ?? effectiveCourse}
             documentId={activeSession?.document_id ?? undefined}

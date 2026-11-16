@@ -739,3 +739,71 @@ class SlideGuide(Base, TimestampMixin):
     model: Mapped[str] = mapped_column(String(64), default="")
     #: True when the model was shown the slide as an image, not only its text.
     saw_image: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: True when the class transcript was in front of the model too.
+    used_transcript: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class LectureTranscript(Base, TimestampMixin):
+    """What was said in the class a lecture's slides were shown in.
+
+    One per document. It is not indexed for search or cited from: its job is
+    to tell the slide explainer how the lecturer actually taught each slide.
+    Removed with the lecture it belongs to.
+    """
+
+    __tablename__ = "lecture_transcripts"
+    __table_args__ = (
+        UniqueConstraint("document_id", name="uq_lecture_transcripts_document"),
+        Index("ix_lecture_transcripts_user", "user_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"))
+    document_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("documents.id", ondelete="CASCADE")
+    )
+    filename: Mapped[str] = mapped_column(String(512), default="")
+    text: Mapped[str] = mapped_column(Text, default="")
+    word_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class SlideNote(Base, TimestampMixin):
+    """The student's own note on one slide. One per page; an empty note is deleted."""
+
+    __tablename__ = "slide_notes"
+    __table_args__ = (
+        UniqueConstraint("document_id", "page_number", name="uq_slide_notes_doc_page"),
+        Index("ix_slide_notes_user", "user_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"))
+    document_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("documents.id", ondelete="CASCADE")
+    )
+    page_number: Mapped[int] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(Text, default="")
+
+
+class ExamProfile(Base, TimestampMixin):
+    """What a course's past papers say about its exam, and what is likely next.
+
+    One per course, replaced when the papers are analysed again. ``papers``
+    records which papers it was drawn from, so a profile older than the
+    papers can be shown as out of date.
+    """
+
+    __tablename__ = "exam_profiles"
+    __table_args__ = (
+        UniqueConstraint("course_id", name="uq_exam_profiles_course"),
+        Index("ix_exam_profiles_user", "user_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"))
+    course_id: Mapped[str] = mapped_column(String(32), ForeignKey("courses.id", ondelete="CASCADE"))
+    profile: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    papers: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    #: "llm:<provider>" when a model analysed the papers, "counted" for the fallback.
+    generated_by: Mapped[str] = mapped_column(String(64), default="")
+    model: Mapped[str] = mapped_column(String(128), default="")

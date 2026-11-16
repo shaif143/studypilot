@@ -31,6 +31,8 @@ import type {
   Note,
   NoteMode,
   NoteSaveRequest,
+  ExamProfile,
+  ExplainAllRequest,
   GuidedPages,
   NoteSaved,
   PageDetail,
@@ -38,6 +40,9 @@ import type {
   SlideGuide,
   SlideGuideRequest,
   SlideGuideStatus,
+  SlideNote,
+  SlideNoteListItem,
+  TranscriptStatus,
   Platform,
   ProviderKeys,
   ProvidersResponse,
@@ -51,7 +56,7 @@ import type {
 import { ApiError, NetworkError } from './errors';
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   query?: Record<string, string | number | boolean | undefined | null>;
   signal?: AbortSignal;
@@ -283,7 +288,7 @@ export class StudyPilotClient {
   uploadDocument = (
     courseId: string,
     file: File,
-    options: { title?: string; kind?: string; allowCloud?: boolean } = {},
+    options: { title?: string; kind?: string; allowCloud?: boolean; signal?: AbortSignal } = {},
   ) => {
     const form = new FormData();
     form.append('file', file);
@@ -294,7 +299,9 @@ export class StudyPilotClient {
     if (options.allowCloud) form.append('allow_cloud', 'true');
     return this.request<import('@studypilot/shared').UploadResult>(
       `/api/courses/${courseId}/documents`,
-      { method: 'POST', form },
+      // Aborting closes the connection, and the backend does not keep a file
+      // whose sender hung up.
+      { method: 'POST', form, signal: options.signal },
     );
   };
 
@@ -302,7 +309,7 @@ export class StudyPilotClient {
   uploadArchive = (
     courseId: string,
     file: File,
-    options: { kind?: string; allowCloud?: boolean } = {},
+    options: { kind?: string; allowCloud?: boolean; signal?: AbortSignal } = {},
   ) => {
     const form = new FormData();
     form.append('file', file);
@@ -311,9 +318,13 @@ export class StudyPilotClient {
     return this.request<ArchiveUploadResult>(`/api/courses/${courseId}/documents/archive`, {
       method: 'POST',
       form,
+      signal: options.signal,
     });
   };
 
+  /** Say what a document is: a lecture, a past exam paper, an assignment, a textbook. */
+  setDocumentKind = (id: string, kind: string) =>
+    this.request<DocumentSummary>(`/api/documents/${id}`, { method: 'PATCH', body: { kind } });
   deleteDocument = (id: string) =>
     this.request<void>(`/api/documents/${id}`, { method: 'DELETE' });
   pages = (documentId: string) =>
@@ -387,6 +398,8 @@ export class StudyPilotClient {
     this.request<LocalFolderLink>('/api/local-folders', { method: 'POST', body });
   rescanLocalFolder = (linkId: string) =>
     this.request<LocalFolderLink>(`/api/local-folders/${linkId}/scan`, { method: 'POST' });
+  cancelLocalFolderScan = (linkId: string) =>
+    this.request<LocalFolderLink>(`/api/local-folders/${linkId}/cancel`, { method: 'POST' });
   unlinkLocalFolder = (linkId: string) =>
     this.request<LocalFolders>(`/api/local-folders/${linkId}`, { method: 'DELETE' });
 
@@ -473,6 +486,7 @@ export class StudyPilotClient {
     topic_slug?: string | null;
     count?: number;
     allow_cloud?: boolean;
+    exam_style?: boolean | null;
   }) => this.request<Flashcard[]>('/api/flashcards/generate', { method: 'POST', body: request });
   flashcards = (
     query: {
@@ -518,6 +532,51 @@ export class StudyPilotClient {
     });
   guidedPages = (documentId: string) =>
     this.request<GuidedPages>(`/api/documents/${documentId}/guides`);
+  explainAll = (documentId: string, body: ExplainAllRequest) =>
+    this.request<GuidedPages>(`/api/documents/${documentId}/guides/explain-all`, {
+      method: 'POST',
+      body,
+    });
+  stopExplaining = (documentId: string) =>
+    this.request<GuidedPages>(`/api/documents/${documentId}/guides/explain-all`, {
+      method: 'DELETE',
+    });
+
+  // --- class transcripts and slide notes ---------------------------------
+  transcript = (documentId: string) =>
+    this.request<TranscriptStatus>(`/api/documents/${documentId}/transcript`);
+  uploadTranscript = (documentId: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return this.request<TranscriptStatus>(`/api/documents/${documentId}/transcript`, {
+      method: 'PUT',
+      form,
+    });
+  };
+  deleteTranscript = (documentId: string) =>
+    this.request<TranscriptStatus>(`/api/documents/${documentId}/transcript`, {
+      method: 'DELETE',
+    });
+  slideNote = (documentId: string, page: number) =>
+    this.request<SlideNote>(`/api/documents/${documentId}/pages/${page}/note`);
+  slideNotes = (query: { course_id?: string; document_id?: string } = {}) =>
+    this.request<SlideNoteListItem[]>('/api/slide-notes', { query });
+  saveSlideNote = (documentId: string, page: number, text: string) =>
+    this.request<SlideNote>(`/api/documents/${documentId}/pages/${page}/note`, {
+      method: 'PUT',
+      body: { text },
+    });
+
+  // --- past papers --------------------------------------------------------
+  examProfile = (courseId: string) =>
+    this.request<ExamProfile>(`/api/courses/${courseId}/exam-profile`);
+  analysePastPapers = (courseId: string, allowCloud: boolean) =>
+    this.request<ExamProfile>(`/api/courses/${courseId}/exam-profile`, {
+      method: 'POST',
+      body: { allow_cloud: allowCloud },
+    });
+  forgetExamProfile = (courseId: string) =>
+    this.request<ExamProfile>(`/api/courses/${courseId}/exam-profile`, { method: 'DELETE' });
 
   // --- analytics -------------------------------------------------------
   dashboard = () => this.request<Dashboard>('/api/dashboard');

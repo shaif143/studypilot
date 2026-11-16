@@ -50,6 +50,7 @@ import {
   FolderOpen,
   HardDrive,
   RefreshCw,
+  Square,
   Trash2,
   Unlink,
   Upload,
@@ -69,6 +70,7 @@ import {
   useGoogleDrive,
   useImportFromDrive,
   useLinkLocalFolder,
+  useCancelLocalFolderScan,
   useLocalFolders,
   useProviders,
   useRescanLocalFolder,
@@ -161,7 +163,7 @@ export function LibraryScreen() {
   return (
     <>
       <PageHeader
-        title="Lecture Library"
+        title="Course files"
         description={
           canLinkFolders
             ? 'Link a folder on this Mac and it is indexed where it is — nothing copied. Uploads and Google Drive folders work too.'
@@ -219,6 +221,14 @@ export function LibraryScreen() {
         }
       />
       <PageBody>
+        {courseFilter ? (
+          <Link
+            to={`/courses/${courseFilter}`}
+            className="mb-3 inline-block text-[0.75rem] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          >
+            ← Back to the course
+          </Link>
+        ) : null}
         <div className="space-y-4">
           {lastBatch ? (
             <BatchSummary batch={lastBatch} onDismiss={() => setLastBatch(null)} />
@@ -576,6 +586,10 @@ function UploadDialog({
   const [selectedCourse, setSelectedCourse] = useState(courseId ?? '');
   const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState<{ done: number; current: string } | null>(null);
+  // Cancelling closes the connection of the file in flight (the backend then
+  // does not keep it) and stops the rest of the batch from being sent.
+  const abortRef = useRef<AbortController | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   // Consent for a cloud model to read images and recordings in this batch.
   // Starts from the Settings switch; the user can decline for one upload.
   const [allowCloud, setAllowCloud] = useState<boolean | null>(null);
@@ -613,8 +627,15 @@ function UploadDialog({
   const start = async () => {
     if (files.length === 0 || !effectiveCourse) return;
     const entries: UploadEntry[] = [];
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setCancelling(false);
     for (const [index, file] of files.entries()) {
       const label = relativePathOf(file);
+      if (controller.signal.aborted) {
+        entries.push({ file, label, error: 'Cancelled before it was sent.' });
+        continue;
+      }
       setProgress({ done: index, current: label });
       try {
         if (isArchive(file)) {
@@ -624,6 +645,7 @@ function UploadDialog({
             file,
             kind,
             allowCloud: cloudForThisUpload,
+            signal: controller.signal,
           });
           for (const member of unpacked.members) {
             entries.push({
@@ -641,12 +663,21 @@ function UploadDialog({
           title: files.length === 1 ? title.trim() || undefined : titleFor(file),
           kind,
           allowCloud: cloudForThisUpload,
+          signal: controller.signal,
         });
         entries.push({ file, label, result });
       } catch (error) {
-        entries.push({ file, label, error: describeError(error) });
+        entries.push({
+          file,
+          label,
+          error: controller.signal.aborted
+            ? 'Cancelled. This file was not added.'
+            : describeError(error),
+        });
       }
     }
+    abortRef.current = null;
+    setCancelling(false);
     setProgress(null);
     const batch = { entries, rejected };
     reset();
@@ -664,9 +695,22 @@ function UploadDialog({
       width="lg"
       footer={
         <>
-          <Button onClick={close} disabled={busy}>
-            Cancel
-          </Button>
+          {busy ? (
+            <Button
+              variant="danger"
+              icon={<Square size={11} />}
+              disabled={cancelling}
+              onClick={() => {
+                setCancelling(true);
+                abortRef.current?.abort();
+              }}
+              title="Stop now. The file being read is not added, and the rest are not sent."
+            >
+              {cancelling ? 'Cancelling…' : 'Cancel upload'}
+            </Button>
+          ) : (
+            <Button onClick={close}>Cancel</Button>
+          )}
           <Button
             variant="primary"
             loading={busy}
@@ -1139,7 +1183,16 @@ function DriveImportDialog({
       <div className="space-y-3">
         {drive.isPending ? (
           <Skeleton className="h-16" />
-        ) : !drive.data?.configured ? (
+        ) : drive.isError || !drive.data ? (
+          // Not knowing is not the same as "not set up": a status request that
+          // failed while the app was busy used to be reported as a missing
+          // Google client, which sent people to re-enter credentials they had.
+          <ErrorPanel
+            title="Could not check Google Drive"
+            message={`${describeError(drive.error)} Your Google settings are untouched; this is only the status check.`}
+            onRetry={() => void drive.refetch()}
+          />
+        ) : !drive.data.configured ? (
           <Callout tone="info" icon={<Cloud size={14} />} title="Google Drive is not set up yet">
             This installation has no Google client.{' '}
             <Link to="/settings" className="underline">
@@ -1153,6 +1206,11 @@ function DriveImportDialog({
               A Google sign-in opens in your browser. Allow StudyPilot to see and manage files in
               your Drive, then come back here: this dialog continues by itself.
             </Callout>
+            <p className="text-[0.75rem] leading-relaxed text-[var(--text-secondary)]">
+              If Google shows “Access blocked”, your Google Cloud project is still in testing. In
+              Google Cloud Console open Google Auth Platform, then Audience, and add your own
+              Google address under Test users. Then connect again.
+            </p>
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="primary"
@@ -1342,11 +1400,15 @@ function DriveImportDialog({
 function scanSentence(link: LocalFolderLink): string {
   const scan = link.scan;
   if (scan && (scan.state === 'queued' || scan.state === 'running')) {
+    if (scan.stopping) return 'Stopping after the file being read…';
     if (!scan.total) return 'Reading the folder…';
     const what = scan.phase === 'media' ? 'images and recordings' : 'documents';
     return `Indexing ${Math.min(scan.done + 1, scan.total)} of ${scan.total} (${what})${scan.current ? `: ${scan.current}` : ''}`;
   }
   if (scan?.state === 'failed') return `The last scan failed: ${scan.error}`;
+  if (scan?.state === 'cancelled') {
+    return `Stopped after ${scan.done} of ${scan.total}. What was indexed is kept; Rescan picks up the rest.`;
+  }
   if (link.last_scanned_at) {
     return `scanned ${formatRelativeTime(link.last_scanned_at)}: ${countsSentence(link.last_summary)}`;
   }
@@ -1361,6 +1423,7 @@ function LinkedLocalFolders({
   courses: Array<{ id: string; title: string }>;
 }) {
   const rescan = useRescanLocalFolder();
+  const cancel = useCancelLocalFolderScan();
   const unlink = useUnlinkLocalFolder();
   return (
     <Card>
@@ -1392,14 +1455,28 @@ function LinkedLocalFolders({
                     {scanSentence(link)}
                   </p>
                 </div>
-                <Button
-                  size="sm"
-                  icon={<RefreshCw size={13} />}
-                  loading={running || (rescan.isPending && rescan.variables === link.id)}
-                  onClick={() => rescan.mutate(link.id)}
-                >
-                  Rescan
-                </Button>
+                {running ? (
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    icon={<Square size={11} />}
+                    loading={cancel.isPending && cancel.variables === link.id}
+                    disabled={Boolean(link.scan?.stopping)}
+                    onClick={() => cancel.mutate(link.id)}
+                    title="Stop indexing this folder. Files already indexed stay; the rest are left unread."
+                  >
+                    {link.scan?.stopping ? 'Stopping…' : 'Stop'}
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    icon={<RefreshCw size={13} />}
+                    loading={rescan.isPending && rescan.variables === link.id}
+                    onClick={() => rescan.mutate(link.id)}
+                  >
+                    Rescan
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="ghost"

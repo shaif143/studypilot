@@ -25,6 +25,7 @@ import { DashboardScreen } from './screens/DashboardScreen';
 import { FlashcardsScreen } from './screens/FlashcardsScreen';
 import { LibraryScreen } from './screens/LibraryScreen';
 import { NotesScreen } from './screens/NotesScreen';
+import { PastExamsScreen } from './screens/PastExamsScreen';
 import { ReaderScreen } from './screens/ReaderScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { SignInScreen } from './screens/SignInScreen';
@@ -72,6 +73,7 @@ export function StudyPilotApp({ platform }: StudyPilotAppProps) {
               <Route path="/study/:documentId" element={<SlideStudyScreen />} />
               <Route path="/courses/:courseId/assignments" element={<AssignmentsScreen />} />
               <Route path="/courses/:courseId/map" element={<ConceptMapScreen />} />
+              <Route path="/courses/:courseId/exams" element={<PastExamsScreen />} />
               <Route path="/library" element={<LibraryScreen />} />
               <Route path="/read/:documentId" element={<ReaderScreen />} />
               <Route path="/tutor" element={<TutorScreen />} />

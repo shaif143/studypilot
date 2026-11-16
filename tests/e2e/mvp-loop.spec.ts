@@ -56,7 +56,8 @@ test('a student can go from upload to a marked quiz and back', async ({ page }) 
   const citation = page.locator('button.sp-citation').first();
   await expect(citation).toBeVisible({ timeout: 60_000 });
   await citation.click();
-  await expect(page).toHaveURL(/\/read\/.+\?page=\d+/);
+  // A citation opens the cited slide in the study view, explained beside its original.
+  await expect(page).toHaveURL(/\/study\/.+\?page=\d+/);
 
   // --- a quiz, answered and marked ---------------------------------------------
   await page.goto('/quizzes');
@@ -213,7 +214,22 @@ test('a course opens as slides, a slide opens explained beside its original', as
   await page.goto('/courses');
   await page.getByRole('link', { name: 'Open', exact: true }).first().click();
   await expect(page).toHaveURL(/\/courses\/[0-9a-f]+$/);
-  await expect(page.getByText(/slides\. Open a slide to have it explained/)).toBeVisible();
+  await expect(page.getByText(/slides\. Open a lecture, then a slide/)).toBeVisible();
+  // The sidebar is the dashboard, the courses and the study tools: files and
+  // questions are reached from the course they belong to.
+  const nav = page.getByRole('navigation');
+  await expect(nav.getByRole('link', { name: 'Lecture Library' })).toHaveCount(0);
+  await expect(nav.getByRole('link', { name: 'AI Tutor' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Ask about this course' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Past exams' })).toBeVisible();
+
+  // --- a lecture starts folded, with "Explain all slides" beside its arrow -------
+  const lecture = page.getByRole('button', { name: /^Open / }).first();
+  await expect(lecture).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('link', { name: /Padding/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Explain all slides' }).first()).toBeVisible();
+  await lecture.click();
+  await expect(page.getByText('Class video transcription').first()).toBeVisible();
   const padding = page.getByRole('link', { name: /Padding/ }).first();
   await expect(padding).toBeVisible({ timeout: 30_000 });
   await padding.click();
@@ -233,8 +249,34 @@ test('a course opens as slides, a slide opens explained beside its original', as
   await expect(page.getByText('Your questions on this slide')).toBeVisible({ timeout: 60_000 });
   await expect(page.locator('button.sp-citation').first()).toBeVisible({ timeout: 60_000 });
 
+  // --- a note typed under the original is kept with the slide --------------------
+  const note = page.getByRole('textbox', { name: 'Your notes on this slide' });
+  await note.fill('Same padding keeps the size.');
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible({ timeout: 15_000 });
+
+  // --- "Study this" goes straight to practice on this lecture --------------------
+  await page.getByRole('button', { name: 'Study this' }).click();
+  await expect(page.getByRole('menuitem', { name: /Flashcards/ })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: /Mock exam/ })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: /My notes/ })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: /Quiz/ })).toHaveAttribute(
+    'href',
+    /\/quizzes\?course=.+&document=.+&from=4&to=4/,
+  );
+  await page.keyboard.press('Escape');
+
   // --- arrows turn slides; the question stays with the slide it was asked on ---
   await page.getByRole('button', { name: 'Next slide' }).click();
   await expect(page).toHaveURL(/page=5/);
   await expect(page.getByText('Your questions on this slide')).toHaveCount(0);
+  await expect(note).toHaveValue('');
+  await page.getByRole('button', { name: 'Previous slide' }).click();
+  await expect(note).toHaveValue('Same padding keeps the size.');
+
+  // --- past papers have a place of their own in the course ----------------------
+  await page.getByRole('link', { name: /All slides/ }).click();
+  await page.getByRole('link', { name: 'Past exams' }).click();
+  await expect(page).toHaveURL(/\/courses\/[0-9a-f]+\/exams$/);
+  await expect(page.getByRole('heading', { name: 'Past exam papers' })).toBeVisible();
+  await expect(page.getByText('No forecast without papers')).toBeVisible();
 });

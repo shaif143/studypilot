@@ -183,7 +183,7 @@ def test_a_slide_is_explained_once_and_kept(
     assert len(writer.requests) == 1
 
     listed = client.get(f"/api/documents/{indexed_document['document']['id']}/guides").json()
-    assert listed == {"pages": [4]}
+    assert listed["pages"] == [4]
 
 
 def test_regenerating_replaces_the_kept_guide(
@@ -199,7 +199,7 @@ def test_regenerating_replaces_the_kept_guide(
     assert "first time" in writer.requests[-1].user  # the simple-level guidance
     assert client.get(url).json()["guide"]["cards"][0]["title"] == "Second attempt"
     listed = client.get(f"/api/documents/{indexed_document['document']['id']}/guides").json()
-    assert listed == {"pages": [4]}  # replaced, not added
+    assert listed["pages"] == [4]  # replaced, not added
 
 
 def test_a_text_only_model_is_not_sent_the_slide_image(

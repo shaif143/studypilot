@@ -20,8 +20,10 @@ import {
 } from '@studypilot/ui';
 import { BookMarked, Eye, RotateCcw, Sparkles } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { ErrorPanel, PageBody, PageHeader } from '../components/AppShell';
+import { ExamStyleNotice, useExamStyleAvailable } from '../components/ExamStyleNotice';
 import {
   describeError,
   useCourses,
@@ -47,14 +49,18 @@ export function FlashcardsScreen() {
   const generate = useGenerateFlashcards();
   const review = useReviewFlashcard();
 
-  const [courseId, setCourseId] = useState('');
-  const [documentId, setDocumentId] = useState('');
+  // Reached from a slide's "Study this" menu, which arrives with its lecture chosen.
+  const [params] = useSearchParams();
+  const [courseId, setCourseId] = useState(params.get('course') ?? '');
+  const [documentId, setDocumentId] = useState(params.get('document') ?? '');
   const [count, setCount] = useState(10);
+  const [examStyle, setExamStyle] = useState(true);
   const [view, setView] = useState<'review' | 'browse'>('review');
 
   const documents = useDocuments(courseId || undefined);
   const cards = useFlashcards(courseId || undefined, view === 'review');
   const effectiveCourse = courseId || courses.data?.[0]?.id || '';
+  const examAvailable = useExamStyleAvailable(effectiveCourse || undefined);
 
   const [index, setIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
@@ -112,6 +118,12 @@ export function FlashcardsScreen() {
             {generate.error ? (
               <ErrorPanel message={describeError(generate.error)} />
             ) : null}
+            <ExamStyleNotice
+              className="mt-3"
+              courseId={effectiveCourse || undefined}
+              enabled={examStyle}
+              onChange={setExamStyle}
+            />
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Field label="Course">
                 <Select
@@ -166,6 +178,7 @@ export function FlashcardsScreen() {
                       document_id: documentId || null,
                       count,
                       allow_cloud: cloudAllowed && needsCloudOptIn,
+                      exam_style: examAvailable ? examStyle : null,
                     })
                   }
                 >

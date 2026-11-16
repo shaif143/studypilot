@@ -116,6 +116,17 @@ def rescan(
     return _out(folders.link(user.id, link_id))
 
 
+@router.post("/{link_id}/cancel", response_model=LocalFolderLinkOut)
+def cancel_scan(
+    link_id: str, context: ContextDep, user: UserDep, folders: LocalFoldersDep
+) -> LocalFolderLinkOut:
+    """Stop a scan that is running. Files already indexed stay; the rest are not read."""
+    _require_desktop(context)
+    link = folders.link(user.id, link_id)  # ownership
+    local_folders.cancel_scan(link.id)
+    return _out(link)
+
+
 @router.delete("/{link_id}", response_model=LocalFoldersOut)
 def unlink_folder(
     link_id: str, context: ContextDep, user: UserDep, folders: LocalFoldersDep

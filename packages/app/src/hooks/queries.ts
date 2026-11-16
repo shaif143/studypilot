@@ -15,6 +15,8 @@ import type {
   DriveImportRequest,
   DriveImportResult,
   DriveListing,
+  ExamProfile,
+  ExplainAllRequest,
   GoogleDriveStatus,
   GuidedPages,
   LocalFolderLink,
@@ -47,7 +49,10 @@ import type {
   SlideGuide,
   SlideGuideRequest,
   SlideGuideStatus,
+  SlideNote,
+  SlideNoteListItem,
   Topic,
+  TranscriptStatus,
   UploadResult,
   UserSettings,
 } from '@studypilot/shared';
@@ -79,6 +84,9 @@ export const keys = {
   documentTopics: (id: string) => ['documents', id, 'topics'] as const,
   slideGuide: (id: string, page: number) => ['documents', id, 'pages', page, 'guide'] as const,
   guidedPages: (id: string) => ['documents', id, 'guides'] as const,
+  transcript: (id: string) => ['documents', id, 'transcript'] as const,
+  slideNote: (id: string, page: number) => ['documents', id, 'pages', page, 'note'] as const,
+  examProfile: (courseId: string) => ['courses', courseId, 'exam-profile'] as const,
   sessions: ['sessions'] as const,
   session: (id: string) => ['sessions', id] as const,
   messages: (id: string) => ['sessions', id, 'messages'] as const,
@@ -306,10 +314,17 @@ export function useUploadDocument() {
   return useMutation<
     UploadResult,
     Error,
-    { courseId: string; file: File; title?: string; kind?: string; allowCloud?: boolean }
+    {
+      courseId: string;
+      file: File;
+      title?: string;
+      kind?: string;
+      allowCloud?: boolean;
+      signal?: AbortSignal;
+    }
   >({
-    mutationFn: ({ courseId, file, title, kind, allowCloud }) =>
-      client.uploadDocument(courseId, file, { title, kind, allowCloud }),
+    mutationFn: ({ courseId, file, title, kind, allowCloud, signal }) =>
+      client.uploadDocument(courseId, file, { title, kind, allowCloud, signal }),
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({ queryKey: keys.documents(variables.courseId) });
       void queryClient.invalidateQueries({ queryKey: keys.documents(undefined) });
@@ -330,10 +345,10 @@ export function useUploadArchive() {
   return useMutation<
     ArchiveUploadResult,
     Error,
-    { courseId: string; file: File; kind?: string; allowCloud?: boolean }
+    { courseId: string; file: File; kind?: string; allowCloud?: boolean; signal?: AbortSignal }
   >({
-    mutationFn: ({ courseId, file, kind, allowCloud }) =>
-      client.uploadArchive(courseId, file, { kind, allowCloud }),
+    mutationFn: ({ courseId, file, kind, allowCloud, signal }) =>
+      client.uploadArchive(courseId, file, { kind, allowCloud, signal }),
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({ queryKey: keys.documents(variables.courseId) });
       void queryClient.invalidateQueries({ queryKey: keys.documents(undefined) });
@@ -904,6 +919,15 @@ export function useLinkLocalFolder() {
   });
 }
 
+export function useCancelLocalFolderScan() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation<LocalFolderLink, Error, string>({
+    mutationFn: (linkId) => client.cancelLocalFolderScan(linkId),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: keys.localFolders }),
+  });
+}
+
 export function useRescanLocalFolder() {
   const client = useClient();
   const queryClient = useQueryClient();
@@ -978,12 +1002,149 @@ export function useWriteSlideGuide(documentId: string | undefined, page: number)
   });
 }
 
-/** Which pages of a document already have teaching slides. */
+/** True while a lecture's explain-all job is queued or running. */
+export const guideJobActive = (pages: GuidedPages | undefined) =>
+  pages?.job != null && (pages.job.state === 'queued' || pages.job.state === 'running');
+
+/**
+ * Which pages of a document already have teaching slides, and how far an
+ * explain-all job has got. Polls while a job runs, then stops.
+ */
 export function useGuidedPages(documentId: string | undefined, enabled = true) {
   const client = useClient();
   return useQuery<GuidedPages>({
     queryKey: keys.guidedPages(documentId ?? ''),
     queryFn: () => client.guidedPages(documentId as string),
     enabled: Boolean(documentId) && enabled,
+    refetchInterval: (query) => (guideJobActive(query.state.data) ? 2000 : false),
+  });
+}
+
+/** Start explaining every slide of a lecture; the job reports through `useGuidedPages`. */
+export function useExplainAll(documentId: string) {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation<GuidedPages, Error, ExplainAllRequest>({
+    mutationFn: (request) => client.explainAll(documentId, request),
+    onSuccess: (pages) => queryClient.setQueryData(keys.guidedPages(documentId), pages),
+  });
+}
+
+export function useStopExplaining(documentId: string) {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation<GuidedPages, Error, void>({
+    mutationFn: () => client.stopExplaining(documentId),
+    onSuccess: (pages) => queryClient.setQueryData(keys.guidedPages(documentId), pages),
+  });
+}
+
+// --- class transcripts ------------------------------------------------------
+export function useTranscript(documentId: string | undefined, enabled = true) {
+  const client = useClient();
+  return useQuery<TranscriptStatus>({
+    queryKey: keys.transcript(documentId ?? ''),
+    queryFn: () => client.transcript(documentId as string),
+    enabled: Boolean(documentId) && enabled,
+  });
+}
+
+export function useUploadTranscript(documentId: string) {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation<TranscriptStatus, Error, File>({
+    mutationFn: (file) => client.uploadTranscript(documentId, file),
+    onSuccess: (status) => {
+      queryClient.setQueryData(keys.transcript(documentId), status);
+      void queryClient.invalidateQueries({ queryKey: keys.guidedPages(documentId) });
+    },
+  });
+}
+
+export function useDeleteTranscript(documentId: string) {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation<TranscriptStatus, Error, void>({
+    mutationFn: () => client.deleteTranscript(documentId),
+    onSuccess: (status) => {
+      queryClient.setQueryData(keys.transcript(documentId), status);
+      void queryClient.invalidateQueries({ queryKey: keys.guidedPages(documentId) });
+    },
+  });
+}
+
+// --- the student's own note on a slide --------------------------------------
+export function useSlideNote(documentId: string | undefined, page: number) {
+  const client = useClient();
+  return useQuery<SlideNote>({
+    queryKey: keys.slideNote(documentId ?? '', page),
+    queryFn: () => client.slideNote(documentId as string, page),
+    enabled: Boolean(documentId) && page > 0,
+    // Only this screen writes it, and it puts the saved note here itself.
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+/** Every slide note in a course or lecture, for the notes screen. */
+export function useSlideNotes(courseId: string | undefined, documentId: string | undefined) {
+  const client = useClient();
+  return useQuery<SlideNoteListItem[]>({
+    queryKey: ['slide-notes', courseId ?? '', documentId ?? ''],
+    queryFn: () => client.slideNotes({ course_id: courseId, document_id: documentId }),
+    enabled: Boolean(courseId),
+  });
+}
+
+export function useSaveSlideNote(documentId: string | undefined) {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  const id = documentId ?? '';
+  return useMutation<SlideNote, Error, { page: number; text: string }>({
+    mutationFn: ({ page, text }) => client.saveSlideNote(id, page, text),
+    onSuccess: (note) => {
+      queryClient.setQueryData(keys.slideNote(id, note.page_number), note);
+      void queryClient.invalidateQueries({ queryKey: ['slide-notes'] });
+    },
+  });
+}
+
+// --- past papers ------------------------------------------------------------
+export function useExamProfile(courseId: string | undefined) {
+  const client = useClient();
+  return useQuery<ExamProfile>({
+    queryKey: keys.examProfile(courseId ?? ''),
+    queryFn: () => client.examProfile(courseId as string),
+    enabled: Boolean(courseId),
+  });
+}
+
+export function useAnalysePastPapers(courseId: string) {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation<ExamProfile, Error, { allowCloud: boolean }>({
+    mutationFn: ({ allowCloud }) => client.analysePastPapers(courseId, allowCloud),
+    onSuccess: (profile) => queryClient.setQueryData(keys.examProfile(courseId), profile),
+  });
+}
+
+export function useForgetExamProfile(courseId: string) {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation<ExamProfile, Error, void>({
+    mutationFn: () => client.forgetExamProfile(courseId),
+    onSuccess: (profile) => queryClient.setQueryData(keys.examProfile(courseId), profile),
+  });
+}
+
+export function useSetDocumentKind() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation<DocumentSummary, Error, { id: string; kind: string }>({
+    mutationFn: ({ id, kind }) => client.setDocumentKind(id, kind),
+    onSuccess: (document) => {
+      void queryClient.invalidateQueries({ queryKey: ['documents'] });
+      void queryClient.invalidateQueries({ queryKey: keys.examProfile(document.course_id) });
+      void queryClient.invalidateQueries({ queryKey: keys.assignments(document.course_id) });
+    },
   });
 }

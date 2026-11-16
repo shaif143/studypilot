@@ -32,13 +32,16 @@ from app.storage.repositories import (
     CourseRepository,
     DocumentRepository,
     DriveRepository,
+    ExamProfileRepository,
     FlashcardRepository,
     LocalFolderRepository,
     MasteryRepository,
     NoteRepository,
     SessionRepository,
     SlideGuideRepository,
+    SlideNoteRepository,
     TopicRepository,
+    TranscriptRepository,
     UserRepository,
 )
 
@@ -292,6 +295,27 @@ def slide_guides(session: SessionDep) -> SlideGuideRepository:
 
 
 SlideGuidesDep = Annotated[SlideGuideRepository, Depends(slide_guides)]
+
+
+def transcripts(session: SessionDep) -> TranscriptRepository:
+    return TranscriptRepository(session)
+
+
+TranscriptsDep = Annotated[TranscriptRepository, Depends(transcripts)]
+
+
+def slide_notes(session: SessionDep) -> SlideNoteRepository:
+    return SlideNoteRepository(session)
+
+
+SlideNotesDep = Annotated[SlideNoteRepository, Depends(slide_notes)]
+
+
+def exam_profiles(session: SessionDep) -> ExamProfileRepository:
+    return ExamProfileRepository(session)
+
+
+ExamProfilesDep = Annotated[ExamProfileRepository, Depends(exam_profiles)]
 
 
 PlansDep = Annotated[AssignmentPlanRepository, Depends(plans)]

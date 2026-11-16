@@ -19,12 +19,15 @@ from app.api.deps import (
     ContextDep,
     CoursesDep,
     DocumentsDep,
+    ExamProfilesDep,
     FlashcardsDep,
     MasteryDep,
     NotesDep,
     SessionDep,
     SessionsDep,
     SlideGuidesDep,
+    SlideNotesDep,
+    TranscriptsDep,
     UserDep,
     UsersDep,
     require_token,
@@ -53,6 +56,9 @@ def export_data(
     notes: NotesDep,
     mastery: MasteryDep,
     guides: SlideGuidesDep,
+    transcripts: TranscriptsDep,
+    slide_notes: SlideNotesDep,
+    exam_profiles: ExamProfilesDep,
 ) -> ExportResponse:
     """Everything stored about this profile, as JSON.
 
@@ -135,6 +141,18 @@ def export_data(
         slide_guides=[
             {column.name: getattr(guide, column.name) for column in guide.__table__.columns}
             for guide in guides.list(user.id)
+        ],
+        lecture_transcripts=[
+            {column.name: getattr(row, column.name) for column in row.__table__.columns}
+            for row in transcripts.list(user.id)
+        ],
+        slide_notes=[
+            {column.name: getattr(row, column.name) for column in row.__table__.columns}
+            for row in slide_notes.list(user.id)
+        ],
+        exam_profiles=[
+            {column.name: getattr(row, column.name) for column in row.__table__.columns}
+            for row in exam_profiles.list(user.id)
         ],
         note=(
             "Uploaded files are stored on this device under the data directory and are "

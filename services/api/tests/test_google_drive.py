@@ -604,3 +604,29 @@ def test_a_bundled_client_needs_nothing_typed(client: TestClient, tmp_path: Path
     assert status["configured"] is True and status["client_source"] == "bundled"
     started = client.post("/api/integrations/google/connect", json={"open_browser": False})
     assert started.status_code == 200 and "client_id=client-id-test" in started.json()["auth_url"]
+
+
+def test_a_switched_off_drive_api_says_what_to_switch_on():
+    """The sign-in works but the Cloud project never enabled the Drive API."""
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            json={
+                "error": {
+                    "code": 403,
+                    "message": "Google Drive API has not been used in project 123 before "
+                    "or it is disabled. Enable it by visiting the console then retry.",
+                }
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(refuse)) as http:
+        client = gd.DriveClient(http, "token")
+        with pytest.raises(gd.DriveError) as caught:
+            client.account_email()
+    message = str(caught.value)
+    assert "Google Drive API is switched off" in message and "Enable" in message
+    assert caught.value.status == 400
+    # The raw Google sentence, with its project number, is not what the student reads.
+    assert "project 123" not in message

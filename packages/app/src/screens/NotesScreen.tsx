@@ -25,6 +25,7 @@ import {
 } from '@studypilot/ui';
 import { Download, FolderInput, NotebookPen, Pencil, Sparkles, Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import { ErrorPanel, PageBody, PageHeader } from '../components/AppShell';
 import { GroundedAnswer } from '../components/GroundedAnswer';
@@ -41,6 +42,7 @@ import {
   useNotes,
   useProviders,
   useSettings,
+  useSlideNotes,
   useUpdateNote,
 } from '../hooks/queries';
 
@@ -71,8 +73,9 @@ export function NotesScreen() {
   const updateNote = useUpdateNote();
   const deleteNote = useDeleteNote();
 
-  const [courseId, setCourseId] = useState('');
-  const [documentId, setDocumentId] = useState('');
+  const [params] = useSearchParams();
+  const [courseId, setCourseId] = useState(params.get('course') ?? '');
+  const [documentId, setDocumentId] = useState(params.get('document') ?? '');
   const [mode, setMode] = useState<NoteMode>('concept');
   const [selected, setSelected] = useState<Note | null>(null);
   const [editing, setEditing] = useState<Note | null>(null);
@@ -104,6 +107,8 @@ export function NotesScreen() {
       <PageBody>
         <div className="space-y-4">
           <ProviderNotice compact />
+
+          <SlideNotesCard courseId={effectiveCourse} documentId={documentId} />
 
           <Card>
             <SectionHeading title="Generate notes" />
@@ -407,5 +412,36 @@ function SaveToFolder({ note }: { note: Note }) {
         <span className="text-[0.6875rem] text-[var(--signal-danger)]">{describeError(save.error)}</span>
       ) : null}
     </div>
+  );
+}
+
+/** What the student typed under slides while studying, gathered in one place. */
+function SlideNotesCard({ courseId, documentId }: { courseId: string; documentId: string }) {
+  const slideNotes = useSlideNotes(courseId || undefined, documentId || undefined);
+  if (!slideNotes.data || slideNotes.data.length === 0) return null;
+  return (
+    <Card>
+      <SectionHeading
+        title="Notes you wrote on slides"
+        description="Typed under a slide while studying it. Open one to go back to that slide."
+      />
+      <ul className="mt-2 divide-y divide-[var(--border-subtle)]">
+        {slideNotes.data.map((note) => (
+          <li key={`${note.document_id}:${note.page_number}`}>
+            <Link
+              to={`/study/${note.document_id}?page=${note.page_number}`}
+              className="block rounded-[var(--radius-control)] px-2 py-2 transition-colors hover:bg-[var(--surface-hover)]"
+            >
+              <span className="block text-[0.75rem] font-medium text-[var(--text-secondary)]">
+                {note.document_title} · slide {note.page_number}
+              </span>
+              <span className="mt-0.5 line-clamp-3 whitespace-pre-wrap text-[0.8125rem] text-[var(--text-primary)]">
+                {note.text}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }

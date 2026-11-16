@@ -41,6 +41,7 @@ def generate(
             count=payload.count,
             allow_cloud=payload.allow_cloud,
             user_settings=users.settings(user.id),
+            exam_style=payload.exam_style,
         )
     except NoMaterialError as exc:
         raise HTTPException(

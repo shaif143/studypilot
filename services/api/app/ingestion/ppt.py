@@ -45,6 +45,7 @@ from pathlib import Path
 
 import pymupdf
 
+from app.ingestion.metafile import draw_metafile, unwrap_office_blip
 from app.ingestion.pptx import (
     _NOTES_STRIP_POINTS,
     RenderedDeck,
@@ -435,6 +436,8 @@ def _slide_shapes(slide: Record, outline: list[TextBlock]) -> list[Shape]:
 class Picture:
     data: bytes
     kind: str  # "image" (decodable) | "metafile" | "unknown"
+    #: The frame Office recorded for a metafile, in the metafile's own units.
+    bounds: tuple[float, float, float, float] | None = None
 
 
 def _blips(pictures: bytes) -> list[Picture]:
@@ -451,8 +454,16 @@ def _blips(pictures: bytes) -> list[Picture]:
                 # A DIB is a BMP without its 14-byte file header; add one.
                 data = b"BM" + struct.pack("<IHHI", 14 + len(data), 0, 0, 14 + 40) + data
             found.append(Picture(data=data, kind="image"))
-        elif record.type in (ESC_BLIP_EMF, ESC_BLIP_WMF, ESC_BLIP_PICT):
-            found.append(Picture(data=body, kind="metafile"))
+        elif record.type in (ESC_BLIP_EMF, ESC_BLIP_WMF):
+            # Stored deflated behind one or two ids and a header with its frame.
+            inner = unwrap_office_blip(body, two_uids=record.instance in {0x3D5, 0x217})
+            if inner is None:
+                found.append(Picture(data=b"", kind="metafile"))
+            else:
+                found.append(Picture(data=inner[0], kind="metafile", bounds=inner[1]))
+        elif record.type == ESC_BLIP_PICT:
+            # A Macintosh PICT: recorded drawing commands of another kind, not drawn here.
+            found.append(Picture(data=b"", kind="metafile"))
         else:
             found.append(Picture(data=body, kind="unknown"))
     return found
@@ -675,9 +686,14 @@ def render_parsed(deck: ParsedDeck, *, max_slides: int, fallback_title: str = ""
                 if _draw_picture(page, shape.rect, picture):
                     drew_anything = True
                 elif picture.kind == "metafile":
-                    metafiles += 1
-                    page.draw_rect(shape.rect, color=(0.8, 0.8, 0.8), width=0.5)
-                    _insert_shrinking(page, _inset(shape.rect, 4), "[drawing not rendered]", 8)
+                    if picture.data and draw_metafile(
+                        page, shape.rect, picture.data, bounds=picture.bounds
+                    ):
+                        drew_anything = True
+                    else:
+                        metafiles += 1
+                        page.draw_rect(shape.rect, color=(0.8, 0.8, 0.8), width=0.5)
+                        _insert_shrinking(page, _inset(shape.rect, 4), "[drawing not rendered]", 8)
                 else:
                     warnings.append(f"Slide {content.number}: a picture could not be decoded.")
             if shape.text:
@@ -695,7 +711,7 @@ def render_parsed(deck: ParsedDeck, *, max_slides: int, fallback_title: str = ""
             title = content.title
     if metafiles:
         warnings.append(
-            f"{metafiles} drawing{'s' if metafiles != 1 else ''} in Windows metafile format "
+            f"{metafiles} drawing{'s' if metafiles != 1 else ''} in an old metafile format "
             "could not be rendered; the slide text is intact."
         )
 

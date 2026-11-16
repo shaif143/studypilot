@@ -726,7 +726,7 @@ function GoogleDriveCard() {
             {status.links.length > 0
               ? ` · ${status.links.length} linked folder${status.links.length === 1 ? '' : 's'}`
               : ''}
-            . Import and sync from the Lecture Library.
+            . Link and sync folders from a course’s “Add files”.
           </p>
           <p className="text-[0.75rem] text-[var(--text-muted)]">
             The sign-in token is kept encrypted

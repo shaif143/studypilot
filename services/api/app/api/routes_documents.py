@@ -12,7 +12,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 
 from app.agents.service import resolve_provider
@@ -33,6 +34,7 @@ from app.api.schemas import (
     ArchiveMemberOut,
     ArchiveUploadResponse,
     DocumentOut,
+    DocumentUpdate,
     PageOut,
     PageSummaryOut,
     TopicOut,
@@ -57,6 +59,7 @@ router = APIRouter(prefix="/api", tags=["documents"], dependencies=[Depends(requ
 )
 async def upload_document(
     course_id: str,
+    request: Request,
     context: ContextDep,
     user: UserDep,
     courses: CoursesDep,
@@ -75,7 +78,10 @@ async def upload_document(
     courses.get(user.id, course_id)  # ownership check before touching the file
     data = await file.read()
     try:
-        return _ingest_upload(
+        # Off the event loop, so a cancel (the client hanging up) is seen and
+        # the rest of the app stays responsive while a long file is read.
+        result = await run_in_threadpool(
+            _ingest_upload,
             filename=file.filename or "upload",
             data=data,
             title=title,
@@ -91,6 +97,40 @@ async def upload_document(
         )
     except UnsupportedFileError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if await request.is_disconnected():
+        _discard_cancelled(context, documents, chunks, user.id, [result])
+    return result
+
+
+def _discard_cancelled(
+    context: ContextDep,
+    documents: DocumentsDep,
+    chunks: ChunksDep,
+    user_id: str,
+    results: list[UploadResponse],
+) -> None:
+    """An upload whose sender cancelled is not kept.
+
+    Cancelling closes the connection; the file may already have been indexed
+    by then. A copy that was in the course before this upload is left alone.
+    """
+    from app.storage.repositories import NotFoundError
+
+    for result in results:
+        if result.deduplicated:
+            continue
+        try:
+            document = documents.get(user_id, result.document.id)
+        except NotFoundError:
+            continue
+        remove_document(
+            context=context,
+            session=documents.session,
+            documents=documents,
+            chunks=chunks,
+            document=document,
+        )
+        log.info("upload_cancelled", extra={"document_id": result.document.id})
 
 
 @router.post(
@@ -100,6 +140,7 @@ async def upload_document(
 )
 async def upload_archive(
     course_id: str,
+    request: Request,
     context: ContextDep,
     user: UserDep,
     courses: CoursesDep,
@@ -150,7 +191,11 @@ async def upload_archive(
 
     results: list[ArchiveMemberOut] = []
     refusals: dict[str, str] = {}  # media type → why it cannot be read, decided once
+    cancelled = False
     for member in unpacked.members:
+        if await request.is_disconnected():
+            cancelled = True
+            break
         name, data = normalise_image(Path(member.path).name, member.data)
         media = sniff_media_type(data, name) or ""
         if is_image(media) or is_audio(media):
@@ -163,7 +208,8 @@ async def upload_archive(
                 )
                 continue
         try:
-            result = _ingest_upload(
+            result = await run_in_threadpool(
+                _ingest_upload,
                 filename=name,
                 data=data,
                 title=Path(member.path).stem,
@@ -181,6 +227,10 @@ async def upload_archive(
             results.append(ArchiveMemberOut(path=member.path, status="skipped", detail=str(exc)))
             continue
         results.append(ArchiveMemberOut(path=member.path, status=result.status, result=result))
+    if cancelled or await request.is_disconnected():
+        _discard_cancelled(
+            context, documents, chunks, user.id, [m.result for m in results if m.result is not None]
+        )
     for skipped in unpacked.skipped:
         results.append(ArchiveMemberOut(path=skipped.path, status="skipped", detail=skipped.reason))
     return ArchiveUploadResponse(archive=archive_name, members=results)
@@ -316,6 +366,17 @@ def list_documents(
 @router.get("/documents/{document_id}", response_model=DocumentOut)
 def get_document(document_id: str, user: UserDep, documents: DocumentsDep) -> DocumentOut:
     return DocumentOut.model_validate(documents.get(user.id, document_id))
+
+
+@router.patch("/documents/{document_id}", response_model=DocumentOut)
+def update_document(
+    document_id: str, payload: DocumentUpdate, user: UserDep, documents: DocumentsDep
+) -> DocumentOut:
+    """Say what a document is: a lecture, a past exam paper, an assignment, a textbook."""
+    document = documents.get(user.id, document_id)
+    document.kind = payload.kind
+    documents.session.flush()
+    return DocumentOut.model_validate(document)
 
 
 @router.get("/documents/{document_id}/pages", response_model=list[PageSummaryOut])

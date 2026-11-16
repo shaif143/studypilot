@@ -499,8 +499,21 @@ class DriveClient:
         if response.status_code == 404:
             raise DriveError("That folder or file is not in this Google account.", status=404)
         if response.status_code >= 400:
+            detail = _error_detail(response)
+            if response.status_code == 403 and (
+                "has not been used in project" in detail or "is disabled" in detail
+            ):
+                # The sign-in worked; the project behind the OAuth client has
+                # never had the Drive API switched on. Say what to click.
+                raise DriveError(
+                    "The sign-in worked, but the Google Drive API is switched off for the "
+                    "Google Cloud project your OAuth client belongs to. In Google Cloud "
+                    "Console open APIs & Services, then Library, find Google Drive API and "
+                    "press Enable. Wait a minute, then connect again.",
+                    status=400,
+                )
             raise DriveError(
-                f"Google Drive answered: {_error_detail(response)}",
+                f"Google Drive answered: {detail}",
                 status=502 if response.status_code >= 500 else 400,
             )
         return response

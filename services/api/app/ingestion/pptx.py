@@ -30,6 +30,8 @@ from pathlib import Path
 
 import pymupdf
 
+from app.ingestion.metafile import draw_metafile
+
 log = logging.getLogger(__name__)
 
 PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
@@ -133,7 +135,7 @@ def render_pptx_to_pdf(path: Path, *, max_slides: int) -> RenderedDeck:
     if metafiles:
         warnings = [w for w in warnings if not w.startswith("__metafile__")]
         warnings.append(
-            f"{metafiles} drawing{'s' if metafiles != 1 else ''} in Windows metafile format "
+            f"{metafiles} drawing{'s' if metafiles != 1 else ''} in an old metafile format "
             "could not be rendered; the slide text is intact."
         )
 
@@ -179,6 +181,9 @@ def _draw_shape(page: pymupdf.Page, shape, warnings: list[str], slide_number: in
             page.insert_image(rect, stream=shape.image.blob, keep_proportion=True)
         except Exception as exc:
             ext = getattr(shape.image, "ext", "unknown")
+            if ext in {"wmf", "emf"} and draw_metafile(page, rect, shape.image.blob):
+                # A Windows metafile, played back as vector drawing.
+                return True
             if ext in {"wmf", "emf"}:
                 # Counted and reported once per deck; see render_pptx_to_pdf.
                 warnings.append(f"__metafile__:{slide_number}")

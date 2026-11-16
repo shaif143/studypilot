@@ -42,9 +42,12 @@ def remove_document(
 
     # The original bytes are only ours to remove when nothing else shares them
     # — and were never stored at all for a document read from Drive.
-    remaining = session.scalar(
-        select(func.count(Document.id)).where(Document.content_hash == content_hash)
-    )
-    if not remaining:
-        context.blobs.delete(content_hash)
+    # A row that was only ever queued has no bytes and no hash: there is no
+    # blob to remove, and an empty key would name the blob directory itself.
+    if content_hash:
+        remaining = session.scalar(
+            select(func.count(Document.id)).where(Document.content_hash == content_hash)
+        )
+        if not remaining:
+            context.blobs.delete(content_hash)
     log.info("document_deleted", extra={"document_id": document_id, "chunks": len(chunk_ids)})

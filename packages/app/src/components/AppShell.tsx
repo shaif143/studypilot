@@ -13,8 +13,6 @@ import {
   FileQuestion,
   GraduationCap,
   LayoutDashboard,
-  Library,
-  MessagesSquare,
   NotebookPen,
   Settings as SettingsIcon,
 } from 'lucide-react';
@@ -42,9 +40,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const primary: NavItem[] = [
     { to: '/', label: 'Dashboard', icon: <LayoutDashboard size={16} /> },
+    // Files and questions belong to a course, so they are reached from the
+    // course itself ("Add files", "Ask about this course") rather than from
+    // two more destinations here.
     { to: '/courses', label: 'My Courses', icon: <GraduationCap size={16} /> },
-    { to: '/library', label: 'Lecture Library', icon: <Library size={16} /> },
-    { to: '/tutor', label: 'AI Tutor', icon: <MessagesSquare size={16} /> },
   ];
   const study: NavItem[] = [
     { to: '/flashcards', label: 'Flashcards', icon: <BookMarked size={16} />, badge: due },

@@ -163,6 +163,41 @@ _COMMON = frozenset(
 
 VALID_KINDS = {"mcq", "short_answer", "numeric", "explanation"}
 
+EXAMINER_SYSTEM = (
+    "You are the examiner who sets this module's paper, writing practice questions for "
+    "a student who wants to be ready for exactly the paper you will set this year. You "
+    "are given a description of the real exam drawn from its past papers, and this "
+    "year's lecture material.\n\n"
+    "How to set the questions:\n"
+    "- Write what this year's paper would most plausibly contain: the same question "
+    "forms, the same command words, the same depth and the same marks per question as "
+    "the real exam. A student who meets your questions first should find the real "
+    "paper familiar.\n"
+    "- Spend the questions on topics in proportion to their likelihood. The most likely "
+    "topics come first and get the most marks; a topic under 20% gets at most one "
+    "question.\n"
+    "- For a topic that recurs, write the next variation, not a copy: new numbers, the "
+    "converse, a different sub-part, a derivation where last time it was an "
+    "application. Follow the 'likely next' note for the topic when there is one.\n"
+    "- Multi-part written questions keep their parts in one prompt, labelled (a), (b), "
+    "(c), each with its marks in square brackets, as the real paper prints them.\n"
+    "- Every question must be answerable from the lecture material supplied, which is "
+    "what was taught this year. Set source_chunk_id to the chunk_id of the passage it "
+    "rests on. A likely topic with no material supplied is skipped, not invented.\n"
+    "- expected_answer is the model answer that would earn full marks, written the way "
+    "the mark scheme awards them. rubric_points are the marking points, one per mark "
+    "where that is possible.\n"
+    "- A multiple-choice question has 4 or 5 options with exactly one correct, and "
+    "distractors that are the mistakes students really make.\n"
+    "- If a question is modelled on one particular past question, put that question's "
+    'reference (for example "2022 Q3(b)") in past_paper_ref; otherwise leave it empty. '
+    "Never say that a question came from a past paper.\n"
+    "- Do not repeat or reword a practice question the student has already been given.\n"
+    "- Mathematics inside strings is written in LaTeX between $ signs with every "
+    "backslash doubled, so that the reply is valid JSON.\n"
+    "- Reply with JSON only, no prose."
+)
+
 
 @dataclass
 class GeneratedQuestion:
@@ -372,8 +407,15 @@ class QuestionGenerator:
         *,
         blueprint: dict[str, object],
         provider: LLMProvider,
+        exam_brief: str = "",
+        avoid: list[str] | None = None,
     ) -> list[GeneratedQuestion]:
-        """Ask a model for questions, then validate them against the evidence."""
+        """Ask a model for questions, then validate them against the evidence.
+
+        With an ``exam_brief`` — the course's real exam, described from its
+        past papers — the model writes as that exam's setter: the same forms,
+        command words and marks, on the topics most likely to come up next.
+        """
         if not provider.info.generative:
             return []
 
@@ -407,6 +449,28 @@ class QuestionGenerator:
             '"explanation": "..."}]}'
         )
 
+        if exam_brief:
+            system = EXAMINER_SYSTEM
+            earlier = ""
+            if avoid:
+                listed = "\n".join(f"- {prompt[:240]}" for prompt in avoid[:40])
+                earlier = (
+                    "\n\nPractice questions the student has already been given. Write "
+                    f"different ones, not rewordings of these:\n{listed}"
+                )
+            user = (
+                f"{exam_brief}\n\n"
+                f"This year's lecture material:\n\n{chr(10).join(evidence_blocks)}"
+                f"{earlier}\n\n"
+                f"Write exactly {wanted} questions. Use these forms, in roughly the "
+                f"real exam's proportions: {', '.join(kinds)}.\n"
+                "Return JSON of the form:\n"
+                '{"questions": [{"kind": "mcq", "prompt": "...", "options": ["..."], '
+                '"correct_option": 0, "expected_answer": "...", "rubric_points": ["..."], '
+                '"marks": 1, "difficulty": "easy|medium|hard", "source_chunk_id": "...", '
+                '"explanation": "...", "past_paper_ref": ""}]}'
+            )
+
         try:
             result = provider.generate(
                 GenerationRequest(
@@ -414,9 +478,11 @@ class QuestionGenerator:
                     user=user,
                     question="",
                     evidence=[],
-                    max_output_tokens=2400,
-                    temperature=0.4,
+                    max_output_tokens=5200 if exam_brief else 2400,
+                    # Each new exam should differ from the last one written.
+                    temperature=0.75 if exam_brief else 0.4,
                     json_schema={"type": "object"},
+                    timeout_seconds=180.0 if exam_brief else 90.0,
                 )
             )
         except ProviderUnavailableError as exc:
@@ -436,7 +502,7 @@ class QuestionGenerator:
 
         validated: list[GeneratedQuestion] = []
         for raw in raw_questions:
-            question = self._validate_llm_question(raw, allowed_ids)
+            question = self._validate_llm_question(raw, allowed_ids, exam=bool(exam_brief))
             if question is not None:
                 validated.append(question)
         if len(validated) < len(raw_questions):
@@ -448,7 +514,7 @@ class QuestionGenerator:
 
     @staticmethod
     def _validate_llm_question(
-        raw: object, allowed: dict[str, RetrievedChunk]
+        raw: object, allowed: dict[str, RetrievedChunk], *, exam: bool = False
     ) -> GeneratedQuestion | None:
         """Reject anything malformed or not grounded in the supplied evidence."""
         if not isinstance(raw, dict):
@@ -478,11 +544,20 @@ class QuestionGenerator:
             marks=marks,
             difficulty=difficulty,
             topic_slug=chunk.topic_slug,
-            provenance="ai_generated",
+            # A variation is only ever claimed when the course has past papers
+            # and the model named the question it built on.
+            provenance=(
+                "past_paper_variation"
+                if exam and str(raw.get("past_paper_ref") or "").strip()
+                else "ai_generated"
+            ),
             source_chunk_id=chunk.chunk_id,
             source_page=chunk.page_number,
             explanation=str(raw.get("explanation", ""))[:2000],
         )
+        reference = str(raw.get("past_paper_ref") or "").strip()[:60]
+        if exam and reference:
+            question.explanation = f"{question.explanation}\n\nModelled on {reference}.".strip()
 
         if kind == "mcq":
             options = [str(o).strip() for o in (raw.get("options") or []) if str(o).strip()]

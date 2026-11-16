@@ -372,6 +372,9 @@ class QuizGenerateRequest(BaseModel):
     time_limit_seconds: int | None = Field(default=None, ge=60, le=4 * 3600)
     topic_weights: dict[str, float] | None = None
     allow_cloud: bool = False
+    #: Follow the course's past papers (forms, marks, likely topics). None means
+    #: "if they have been analysed"; False writes a generic quiz.
+    exam_style: bool | None = None
 
 
 class QuestionOut(BaseModel):
@@ -453,6 +456,7 @@ class FlashcardGenerateRequest(BaseModel):
     page_to: int | None = Field(default=None, ge=1)
     count: int = Field(default=10, ge=1, le=60)
     allow_cloud: bool = False
+    exam_style: bool | None = None
 
 
 class FlashcardOut(BaseModel):
@@ -607,6 +611,9 @@ class ExportResponse(BaseModel):
     mastery: list[dict[str, Any]]
     #: Teaching slides written for pages of the user's lectures.
     slide_guides: list[dict[str, Any]] = Field(default_factory=list)
+    lecture_transcripts: list[dict[str, Any]] = Field(default_factory=list)
+    slide_notes: list[dict[str, Any]] = Field(default_factory=list)
+    exam_profiles: list[dict[str, Any]] = Field(default_factory=list)
     note: str
 
 
@@ -834,8 +841,10 @@ class DriveImportOut(BaseModel):
 
 # --- folders on this machine ----------------------------------------------------------
 class LocalFolderScanOut(BaseModel):
-    #: queued | running | done | failed
+    #: queued | running | done | failed | cancelled
     state: str
+    #: Asked to stop; it finishes the file it is on first.
+    stopping: bool = False
     #: "documents" or "media": the slow part (images, recordings) comes last.
     phase: str = "documents"
     done: int = 0
@@ -914,6 +923,7 @@ class SlideGuideOut(BaseModel):
     model: str = ""
     level: str = "intermediate"
     saw_image: bool = False
+    used_transcript: bool = False
     #: False for the slide's own text, which is not kept: opening the slide again asks again.
     saved: bool = True
     warnings: list[str] = Field(default_factory=list)
@@ -934,7 +944,96 @@ class SlideGuideRequest(BaseModel):
     level: Literal["simple", "intermediate", "advanced"] | None = None
 
 
+class GuideJobOut(BaseModel):
+    """A whole lecture being explained."""
+
+    #: "queued" | "running" | "done" | "failed" | "cancelled"
+    state: str
+    total: int = 0
+    done: int = 0
+    written: int = 0
+    failed: int = 0
+    error: str = ""
+    #: Asked to stop; the slides already with the model are still coming back.
+    stopping: bool = False
+
+
 class GuidedPagesOut(BaseModel):
     """Which pages of a document already have teaching slides."""
 
     pages: list[int] = Field(default_factory=list)
+    page_count: int = 0
+    #: The explain-all job for this lecture, while it runs and a while after.
+    job: GuideJobOut | None = None
+    has_transcript: bool = False
+
+
+class ExplainAllRequest(BaseModel):
+    allow_cloud: bool = False
+    level: Literal["simple", "intermediate", "advanced"] | None = None
+    #: Also rewrite the slides already explained.
+    regenerate: bool = False
+
+
+class TranscriptOut(BaseModel):
+    document_id: str
+    filename: str
+    word_count: int
+    updated_at: datetime | None = None
+
+
+class TranscriptStatusOut(BaseModel):
+    """`transcript` is null when the lecture has none."""
+
+    transcript: TranscriptOut | None = None
+
+
+class SlideNoteOut(BaseModel):
+    document_id: str
+    page_number: int
+    text: str = ""
+    updated_at: datetime | None = None
+
+
+class SlideNoteListItem(BaseModel):
+    document_id: str
+    document_title: str
+    course_id: str
+    page_number: int
+    text: str
+    updated_at: datetime | None = None
+
+
+class SlideNoteIn(BaseModel):
+    text: str = Field(default="", max_length=20000)
+
+
+class ExamPaperOut(BaseModel):
+    document_id: str
+    title: str
+    page_count: int
+    status: str
+
+
+class ExamProfileOut(BaseModel):
+    """A course's past papers and what was learned from them."""
+
+    course_id: str
+    papers: list[ExamPaperOut] = Field(default_factory=list)
+    #: None until the papers have been analysed.
+    profile: dict[str, Any] | None = None
+    #: "llm:<provider>" when a model analysed the papers, "counted" for the format only.
+    generated_by: str = ""
+    model: str = ""
+    #: True when papers were added, removed or changed since the analysis.
+    stale: bool = False
+    warnings: list[str] = Field(default_factory=list)
+    updated_at: datetime | None = None
+
+
+class ExamAnalyseRequest(BaseModel):
+    allow_cloud: bool = False
+
+
+class DocumentUpdate(BaseModel):
+    kind: Literal["lecture", "past_paper", "assignment", "textbook"]

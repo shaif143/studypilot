@@ -18,14 +18,21 @@ import { Badge, Button, Callout, Select, Skeleton, Spinner, Textarea } from '@st
 import { useIsMutating } from '@tanstack/react-query';
 import {
   AlertTriangle,
+  BookMarked,
   BookOpen,
   ChartLine,
+  Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  CircleHelp,
   CornerDownLeft,
   ExternalLink,
+  FileQuestion,
   Library,
   Lightbulb,
+  Mic,
+  NotebookPen,
   PencilLine,
   RefreshCw,
   Sigma,
@@ -49,8 +56,10 @@ import {
   usePage,
   useProviders,
   useResumeSession,
+  useSaveSlideNote,
   useSettings,
   useSlideGuide,
+  useSlideNote,
   useWriteSlideGuide,
 } from '../hooks/queries';
 
@@ -64,6 +73,8 @@ const KINDS: Record<string, { label: string; icon: React.ReactNode }> = {
   visual: { label: 'Visual', icon: <ChartLine size={11} /> },
   example: { label: 'Worked example', icon: <PencilLine size={11} /> },
   background: { label: 'Background', icon: <Library size={11} /> },
+  in_class: { label: 'From the class', icon: <Mic size={11} /> },
+  check: { label: 'Check yourself', icon: <CircleHelp size={11} /> },
 };
 
 export function SlideStudyScreen() {
@@ -280,6 +291,7 @@ export function SlideStudyScreen() {
           >
             <ChevronRight size={15} />
           </Button>
+          <StudyMenu courseId={courseId} documentId={documentId} pageNumber={pageNumber} />
         </div>
       </div>
 
@@ -395,6 +407,9 @@ export function SlideStudyScreen() {
               no extractable text on this slide
             </Badge>
           ) : null}
+          {documentId ? (
+            <SlideNoteBox key={`${documentId}:${pageNumber}`} documentId={documentId} page={pageNumber} />
+          ) : null}
         </aside>
       </div>
 
@@ -427,6 +442,183 @@ export function SlideStudyScreen() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Where to go next from a slide: practise it, or read the notes on it.
+ *
+ * Each destination opens already pointed at this lecture, and the quiz and
+ * mock exam at this slide's part of it, so "I have finished this slide" is
+ * one click from being tested on it.
+ */
+function StudyMenu({
+  courseId,
+  documentId,
+  pageNumber,
+}: {
+  courseId: string | undefined;
+  documentId: string | undefined;
+  pageNumber: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent ? event.key === 'Escape' : !ref.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', close);
+    window.addEventListener('keydown', close);
+    return () => {
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('keydown', close);
+    };
+  }, [open]);
+
+  const scope = `course=${courseId ?? ''}&document=${documentId ?? ''}`;
+  const items = [
+    {
+      to: `/flashcards?${scope}`,
+      label: 'Flashcards',
+      hint: 'Cards from this lecture',
+      icon: <BookMarked size={14} />,
+    },
+    {
+      to: `/quizzes?${scope}&from=${pageNumber}&to=${pageNumber}`,
+      label: 'Quiz',
+      hint: `On slide ${pageNumber}`,
+      icon: <FileQuestion size={14} />,
+    },
+    {
+      to: `/exams?course=${courseId ?? ''}`,
+      label: 'Mock exam',
+      hint: 'The whole course, exam style',
+      icon: <BookOpen size={14} />,
+    },
+    {
+      to: `/notes?${scope}`,
+      label: 'My notes',
+      hint: 'Notes for this lecture',
+      icon: <NotebookPen size={14} />,
+    },
+  ];
+
+  return (
+    <div ref={ref} className="relative ml-1">
+      <Button
+        size="sm"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={!courseId || !documentId}
+        onClick={() => setOpen((value) => !value)}
+      >
+        Study this
+        <ChevronDown size={13} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+      </Button>
+      {open ? (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-30 mt-1 w-56 rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-1 shadow-[var(--shadow-raised)]"
+        >
+          {items.map((item) => (
+            <Link
+              key={item.label}
+              role="menuitem"
+              to={item.to}
+              className="flex items-center gap-2.5 rounded-[var(--radius-control)] px-2.5 py-2 text-left transition-colors hover:bg-[var(--surface-hover)]"
+            >
+              <span className="text-[var(--text-secondary)]">{item.icon}</span>
+              <span className="min-w-0">
+                <span className="block text-[0.8125rem] font-medium text-[var(--text-primary)]">
+                  {item.label}
+                </span>
+                <span className="block text-[0.6875rem] text-[var(--text-secondary)]">
+                  {item.hint}
+                </span>
+              </span>
+            </Link>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** How long typing must pause before a note is saved. */
+const NOTE_SAVE_MS = 700;
+
+/**
+ * The student's own note on this slide, under the original.
+ *
+ * Saved by itself a moment after typing stops and when the slide is left;
+ * there is no save button to forget. Mounted per slide (see the `key` where
+ * it is used), so a slide's note can never be written onto another slide.
+ */
+function SlideNoteBox({ documentId, page }: { documentId: string; page: number }) {
+  const note = useSlideNote(documentId, page);
+  const save = useSaveSlideNote(documentId);
+  const [draft, setDraft] = useState<string | null>(null);
+  const saved = note.data?.text ?? '';
+  const text = draft ?? saved;
+  const dirty = draft !== null && draft !== saved;
+  const { mutate } = save;
+
+  useEffect(() => {
+    if (!dirty || draft === null) return;
+    const handle = window.setTimeout(() => mutate({ page, text: draft }), NOTE_SAVE_MS);
+    return () => window.clearTimeout(handle);
+  }, [dirty, draft, mutate, page]);
+
+  // Leaving the slide mid-pause must not lose the last words typed.
+  const latest = useRef({ dirty, draft });
+  useEffect(() => {
+    latest.current = { dirty, draft };
+  });
+  useEffect(
+    () => () => {
+      const { dirty: pending, draft: value } = latest.current;
+      if (pending && value !== null) mutate({ page, text: value });
+    },
+    [mutate, page],
+  );
+
+  return (
+    <section className="mt-3" aria-label="Your notes on this slide">
+      <p className="mb-1.5 flex items-center justify-between text-[0.6875rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">
+        <span className="flex items-center gap-1.5">
+          <NotebookPen size={12} /> Your notes on this slide
+        </span>
+        <span className="normal-case tracking-normal" aria-live="polite">
+          {save.isError ? (
+            <span className="text-[var(--signal-danger)]">Not saved</span>
+          ) : dirty || save.isPending ? (
+            'Saving…'
+          ) : text ? (
+            <span className="flex items-center gap-1">
+              <Check size={11} /> Saved
+            </span>
+          ) : null}
+        </span>
+      </p>
+      <Textarea
+        rows={7}
+        value={text}
+        disabled={note.isPending}
+        aria-label="Your notes on this slide"
+        placeholder="Write what you want to remember about this slide. It is saved as you type and stays with the slide."
+        onChange={(event) => setDraft(event.target.value)}
+        className="min-h-[9rem] resize-y bg-[var(--surface-raised)] text-[0.8125rem] leading-relaxed"
+      />
+      {save.isError ? (
+        <p className="mt-1 text-[0.75rem] text-[var(--signal-danger)]">
+          {describeError(save.error)}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
@@ -507,8 +699,9 @@ function GuideView({
       {written ? (
         <p className="text-[0.6875rem] text-[var(--text-muted)]">
           Written by {guide.model || guide.generated_by.slice(4)}
-          {guide.saw_image ? ', which was shown the slide itself' : ' from the slide’s text'}. Check
-          anything that matters against the original.
+          {guide.saw_image ? ', which was shown the slide itself' : ' from the slide’s text'}
+          {guide.used_transcript ? ' and what was said in class' : ''}. Check anything that
+          matters against the original.
         </p>
       ) : null}
     </div>

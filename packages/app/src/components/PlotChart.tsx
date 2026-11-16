@@ -10,7 +10,13 @@
  */
 import { useId, useMemo, useRef, useState } from 'react';
 
-import { formatNumber, nearestPoint, niceTicks, parsePlotSpec } from '../lib/plot';
+import {
+  formatNumber,
+  nearestPoint,
+  niceTicks,
+  parsePlotSpec,
+  type PlotSpec,
+} from '../lib/plot';
 
 const WIDTH = 560;
 const HEIGHT = 300;
@@ -20,9 +26,22 @@ const INNER_H = HEIGHT - MARGIN.top - MARGIN.bottom;
 
 const SERIES_VARS = ['var(--plot-series-1)', 'var(--plot-series-2)', 'var(--plot-series-3)'];
 
-export function PlotChart({ source }: { source: string }) {
-  const spec = useMemo(() => parsePlotSpec(source), [source]);
+export interface PlotChartProps {
+  /** The text of a ```plot block. */
+  source?: string;
+  /** Or values already in hand (an ```explore block samples its own). */
+  spec?: PlotSpec;
+  /** Hold the y-axis still at this range instead of fitting it to the data. */
+  yDomain?: [number, number];
+  /** The "Show the numbers" table; off when the numbers change as a slider moves. */
+  numbers?: boolean;
+}
+
+export function PlotChart({ source = '', spec: given, yDomain, numbers = true }: PlotChartProps) {
+  const parsed = useMemo(() => (given ? null : parsePlotSpec(source)), [given, source]);
+  const spec = given ?? parsed;
   const titleId = useId();
+  const clipId = useId();
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
 
@@ -31,7 +50,9 @@ export function PlotChart({ source }: { source: string }) {
     const xs = spec.series.flatMap((s) => s.points.map((p) => p[0]));
     const ys = spec.series.flatMap((s) => s.points.map((p) => p[1]));
     const xTicks = niceTicks(Math.min(...xs), Math.max(...xs), 6);
-    const yTicks = niceTicks(Math.min(...ys), Math.max(...ys), 5);
+    const yTicks = yDomain
+      ? niceTicks(yDomain[0], yDomain[1], 5)
+      : niceTicks(Math.min(...ys), Math.max(...ys), 5);
     const xMin = Math.min(Math.min(...xs), xTicks[0] ?? 0);
     const xMax = Math.max(Math.max(...xs), xTicks[xTicks.length - 1] ?? 1);
     const yMin = yTicks[0] ?? Math.min(...ys);
@@ -46,7 +67,7 @@ export function PlotChart({ source }: { source: string }) {
       xTicks: xTicks.filter((t) => t >= xMin && t <= xMax),
       yTicks,
     };
-  }, [spec]);
+  }, [spec, yDomain]);
 
   if (!spec || !geometry) {
     return (
@@ -197,6 +218,9 @@ export function PlotChart({ source }: { source: string }) {
             </text>
           ) : null}
 
+          <clipPath id={clipId}>
+            <rect x={MARGIN.left} y={MARGIN.top - 2} width={INNER_W} height={INNER_H + 4} />
+          </clipPath>
           {spec.series.map((series, index) => (
             <polyline
               key={series.name + index}
@@ -205,6 +229,8 @@ export function PlotChart({ source }: { source: string }) {
               strokeWidth={2}
               strokeLinejoin="round"
               strokeLinecap="round"
+              // With a fixed range a curve can leave the frame; it is cut at the edge.
+              clipPath={yDomain ? `url(#${clipId})` : undefined}
               points={series.points.map(([x, y]) => `${sx(x)},${sy(y)}`).join(' ')}
             />
           ))}
@@ -212,6 +238,8 @@ export function PlotChart({ source }: { source: string }) {
           {ends.map((end) => {
             const series = spec.series[end.index] as { points: Array<[number, number]> };
             const last = series.points[series.points.length - 1] as [number, number];
+            const y = sy(last[1]);
+            if (y < MARGIN.top - 2 || y > MARGIN.top + INNER_H + 2) return null;
             return (
               <g key={`end${end.index}`}>
                 <circle
@@ -292,6 +320,7 @@ export function PlotChart({ source }: { source: string }) {
         ) : null}
       </div>
 
+      {numbers ? (
       <details className="mt-1 text-[0.75rem] text-[var(--text-secondary)]">
         <summary className="cursor-pointer select-none text-[var(--text-muted)]">
           Show the numbers
@@ -319,6 +348,7 @@ export function PlotChart({ source }: { source: string }) {
           </table>
         </div>
       </details>
+      ) : null}
     </figure>
   );
 }

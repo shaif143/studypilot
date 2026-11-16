@@ -10,15 +10,51 @@
  */
 import type { Citation } from '@studypilot/shared';
 import type { Root, Text } from 'mdast';
-import { isValidElement, memo, useMemo } from 'react';
+import { Children, isValidElement, memo, useMemo, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import { visit } from 'unist-util-visit';
 
+import { calloutTone } from '../lib/blocks';
+import { ExploreChart } from './ExploreChart';
 import { MermaidDiagram } from './MermaidDiagram';
 import { PlotChart } from './PlotChart';
+import { SelfCheck, StepThrough } from './TeachingBlocks';
+
+/** Fences that become something drawn or interactive rather than code. */
+const RENDERED_FENCES = new Set([
+  'language-mermaid',
+  'language-plot',
+  'language-explore',
+  'language-steps',
+  'language-quiz',
+]);
+
+const CALLOUT_LABELS: Record<string, string> = {
+  key: 'sp-callout sp-callout-key',
+  mistake: 'sp-callout sp-callout-mistake',
+  exam: 'sp-callout sp-callout-exam',
+  class: 'sp-callout sp-callout-class',
+};
+
+/** The plain text at the start of some rendered children, for telling what a quote is. */
+function leadingText(node: ReactNode, limit = 40): string {
+  let text = '';
+  const visit = (value: ReactNode) => {
+    if (text.length >= limit || value === null || value === undefined) return;
+    if (typeof value === 'string' || typeof value === 'number') {
+      text += String(value);
+    } else if (Array.isArray(value)) {
+      value.forEach(visit);
+    } else if (isValidElement<{ children?: ReactNode }>(value)) {
+      Children.forEach(value.props.children, visit);
+    }
+  };
+  visit(node);
+  return text;
+}
 
 const CITATION_PATTERN = /\[(\d{1,2})\]/g;
 const CITE_PREFIX = '#sp-cite-';
@@ -80,6 +116,11 @@ export const GroundedAnswer = memo(function GroundedAnswer({
     [citations],
   );
 
+  // Markdown inside a step or a self-check answer: the same renderer, one level down.
+  const renderNested = (nested: string) => (
+    <GroundedAnswer markdown={nested} citations={citations} onCitationClick={onCitationClick} />
+  );
+
   return (
     <div className={className ? `sp-prose ${className}` : 'sp-prose'}>
       <Markdown
@@ -95,8 +136,15 @@ export const GroundedAnswer = memo(function GroundedAnswer({
             const fence = isValidElement<{ className?: string }>(child)
               ? child.props.className
               : undefined;
-            if (fence === 'language-mermaid' || fence === 'language-plot') return <>{children}</>;
+            if (fence && RENDERED_FENCES.has(fence)) return <>{children}</>;
             return <pre {...rest}>{children}</pre>;
+          },
+          blockquote({ children }) {
+            // "> **Key idea:** …" and its siblings are callouts, not quotations.
+            const tone = calloutTone(leadingText(children));
+            return (
+              <blockquote className={tone ? CALLOUT_LABELS[tone] : undefined}>{children}</blockquote>
+            );
           },
           table({ children }) {
             // A wide table scrolls inside its own box instead of pushing the
@@ -112,7 +160,17 @@ export const GroundedAnswer = memo(function GroundedAnswer({
             // block is left as code. Mermaid runs in strict mode (see the
             // component), so the model's text can only ever produce a picture.
             if (codeClass === 'language-mermaid') {
-              return <MermaidDiagram code={String(children).trim()} title="Diagram" />;
+              return <MermaidDiagram code={String(children).trim()} title="Diagram" paper />;
+            }
+            // Sliders over a formula: expressions parsed as data, never run as code.
+            if (codeClass === 'language-explore') {
+              return <ExploreChart source={String(children).trim()} />;
+            }
+            if (codeClass === 'language-steps') {
+              return <StepThrough source={String(children)} render={renderNested} />;
+            }
+            if (codeClass === 'language-quiz') {
+              return <SelfCheck source={String(children)} render={renderNested} />;
             }
             // A ```plot fence is data for a line chart, parsed and never evaluated.
             if (codeClass === 'language-plot') {

@@ -276,6 +276,33 @@
     color: var(--text-secondary);
     font-style: normal;
   }
+  /* A quote line that opens with a known label is a callout. */
+  .sp-prose blockquote.sp-callout {
+    border-left-width: 3px;
+    border-radius: 0 var(--radius-control) var(--radius-control) 0;
+    padding: 0.55em 0.9em;
+    color: var(--text-primary);
+  }
+  .sp-prose blockquote.sp-callout-key {
+    border-left-color: var(--signal-info);
+    background: var(--signal-info-bg);
+  }
+  .sp-prose blockquote.sp-callout-mistake {
+    border-left-color: var(--signal-danger);
+    background: var(--signal-danger-bg);
+  }
+  .sp-prose blockquote.sp-callout-exam {
+    border-left-color: var(--signal-caution);
+    background: var(--signal-caution-bg);
+  }
+  .sp-prose blockquote.sp-callout-class {
+    border-left-color: var(--signal-grounded);
+    background: var(--signal-grounded-bg);
+  }
+  .sp-range {
+    accent-color: var(--color-accent-600);
+    height: 1.25rem;
+  }
   .sp-prose a {
     color: var(--text-accent);
     text-decoration: underline;

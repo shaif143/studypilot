@@ -26,9 +26,11 @@ from app.storage.models import (
     Document,
     DriveConnection,
     DriveLink,
+    ExamProfile,
     Flashcard,
     FlashcardReview,
     LearningSession,
+    LectureTranscript,
     LocalFolderLink,
     MasteryEstimate,
     Message,
@@ -38,6 +40,7 @@ from app.storage.models import (
     Question,
     QuestionResponse,
     SlideGuide,
+    SlideNote,
     Topic,
     User,
     UserSettings,
@@ -1026,3 +1029,130 @@ class SlideGuideRepository:
             setattr(row, key, value)
         self.session.flush()
         return row
+
+
+class TranscriptRepository:
+    """A lecture's class transcript. Ownership rides on the document."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, user_id: str, document_id: str) -> LectureTranscript | None:
+        return self.session.scalar(
+            select(LectureTranscript).where(
+                LectureTranscript.user_id == user_id,
+                LectureTranscript.document_id == document_id,
+            )
+        )
+
+    def list(self, user_id: str) -> list[LectureTranscript]:
+        return list(
+            self.session.scalars(
+                select(LectureTranscript)
+                .where(LectureTranscript.user_id == user_id)
+                .order_by(LectureTranscript.document_id)
+            )
+        )
+
+    def documents_with_transcripts(self, user_id: str, document_ids: list[str]) -> set[str]:
+        if not document_ids:
+            return set()
+        return set(
+            self.session.scalars(
+                select(LectureTranscript.document_id).where(
+                    LectureTranscript.user_id == user_id,
+                    LectureTranscript.document_id.in_(document_ids),
+                )
+            )
+        )
+
+    def save(
+        self, user_id: str, document_id: str, *, filename: str, text: str
+    ) -> LectureTranscript:
+        row = self.get(user_id, document_id)
+        if row is None:
+            row = LectureTranscript(user_id=user_id, document_id=document_id)
+            self.session.add(row)
+        row.filename = filename[:512]
+        row.text = text
+        row.word_count = len(text.split())
+        self.session.flush()
+        return row
+
+    def delete(self, user_id: str, document_id: str) -> None:
+        row = self.get(user_id, document_id)
+        if row is not None:
+            self.session.delete(row)
+            self.session.flush()
+
+
+class SlideNoteRepository:
+    """The student's own notes, one per slide."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, user_id: str, document_id: str, page_number: int) -> SlideNote | None:
+        return self.session.scalar(
+            select(SlideNote).where(
+                SlideNote.user_id == user_id,
+                SlideNote.document_id == document_id,
+                SlideNote.page_number == page_number,
+            )
+        )
+
+    def list(self, user_id: str, document_id: str | None = None) -> list[SlideNote]:
+        query = select(SlideNote).where(SlideNote.user_id == user_id)
+        if document_id:
+            query = query.where(SlideNote.document_id == document_id)
+        return list(
+            self.session.scalars(query.order_by(SlideNote.document_id, SlideNote.page_number))
+        )
+
+    def save(self, user_id: str, document_id: str, page_number: int, text: str) -> SlideNote | None:
+        """Keep the note, or remove it when it has been emptied."""
+        row = self.get(user_id, document_id, page_number)
+        if not text.strip():
+            if row is not None:
+                self.session.delete(row)
+                self.session.flush()
+            return None
+        if row is None:
+            row = SlideNote(user_id=user_id, document_id=document_id, page_number=page_number)
+            self.session.add(row)
+        row.text = text
+        self.session.flush()
+        return row
+
+
+class ExamProfileRepository:
+    """A course's exam profile: one row, replaced on each analysis."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, user_id: str, course_id: str) -> ExamProfile | None:
+        return self.session.scalar(
+            select(ExamProfile).where(
+                ExamProfile.user_id == user_id, ExamProfile.course_id == course_id
+            )
+        )
+
+    def list(self, user_id: str) -> list[ExamProfile]:
+        return list(self.session.scalars(select(ExamProfile).where(ExamProfile.user_id == user_id)))
+
+    def save(self, user_id: str, course_id: str, **values: object) -> ExamProfile:
+        row = self.get(user_id, course_id)
+        if row is None:
+            row = ExamProfile(user_id=user_id, course_id=course_id)
+            self.session.add(row)
+        for key, value in values.items():
+            setattr(row, key, value)
+        self.session.flush()
+        return row
+
+    def delete(self, user_id: str, course_id: str) -> None:
+        row = self.get(user_id, course_id)
+        if row is not None:
+            self.session.delete(row)
+            self.session.flush()
