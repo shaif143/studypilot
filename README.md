@@ -37,7 +37,7 @@ This is an honest list. Everything marked ✅ was built, run and tested; see
 | Claude / Gemini on the Mac | ✅ Paste the key in Settings; it is kept in the macOS Keychain, never a file, and only sent to that provider. Pick the model per provider (Opus 5.5 by default; Fable 5.1, Sonnet 5.5, Haiku 5.5, or any id) |
 | Folders on this Mac | ✅ Link a folder (native picker) to a course and it is indexed **in place** — nothing copied, the reader opens the original file. The whole folder is listed at once; documents are read first (seconds each) and images and recordings last, with progress shown; Rescan follows new, changed and deleted files; notes are saved back into a `StudyPilot Notes` subfolder. Desktop only |
 | Folder upload | ✅ Drop or choose a whole folder (subfolders included); every supported file is indexed, each with its own result, and anything the app cannot take is listed by name |
-| Old PowerPoint (.ppt) | ✅ A pure-Python reader of the 1997–2003 binary format (`olefile` + the record walker in `ingestion/ppt.py`): slide order, titles, bullets, inline text, pictures, groups, speaker notes, incremental saves. Windows-metafile drawings are reported, not rendered |
+| Old PowerPoint (.ppt) | ✅ A pure-Python reader of the 1997–2003 binary format (`olefile` + the record walker in `ingestion/ppt.py`): slide order, titles, bullets, inline text, pictures, groups, speaker notes, incremental saves. Windows-metafile drawings are played back as vector drawing (see *Old metafile drawings*) |
 | .zip / .rar archives | ✅ Uploaded whole; every readable member becomes its own document, named by its path, and the rest are listed with a reason. Images (PNG/JPEG/WebP/GIF/BMP/TIFF) and recordings inside go to the same consent-gated model as a single upload — the dialog asks once per batch — or are skipped with one clear reason. RAR is read with the `bsdtar` every Mac ships |
 | Google Drive | ✅ Like mounting Drive in Colab: one click to connect (the build ships the app's own OAuth client, so nothing is typed), then link Drive folders to courses. **Files are not copied**: each is read once for its index and opened from Drive; "Sync now" follows the folder; notes are saved back into a `StudyPilot Notes` subfolder. Google Docs and Slides come through Google's PDF export |
 | Privacy controls | ✅ Export, delete-everything, per-feature consent, all off by default |
@@ -50,6 +50,13 @@ This is an honest list. Everything marked ✅ was built, run and tested; see
 | Diagrams, graphs and tables in answers | ✅ The tutor may add a short Mermaid flowchart or a plotted curve (a ` ```plot ` block of number pairs); both are rendered as pictures from data, never executed. Markdown tables are drawn, with maths and citations working inside cells |
 | Slide study view | ✅ My Courses → **Open** lists every lecture's slides as thumbnails; a slide opens with a written explanation on two thirds of the screen — one or more teaching slides with the equations unpacked, a diagram or graph where it helps, a worked example, and lecture-video searches — and the lecturer's original on the other third, with an **Ask** prompt along the bottom. Written once per slide (the model is shown the slide itself) and kept; anything not on the slide is labelled *Beyond the slide* |
 | Dashboard | ✅ Courses fold into one accordion row; *What to do next* is colour-coded by how pressing each step is (urgent, soon, routine, on track), with the label as well as the colour |
+| Explain a whole lecture | ✅ **Explain all slides** in a lecture's header writes every slide not yet explained, three at a time in the background, with progress and a **Stop**; what was written before a stop is kept |
+| Class transcripts | ✅ A lecture takes the transcript of the class it was shown in (`.txt`, `.md`, `.vtt`, `.srt`, `.docx`, `.pdf`); the part about each slide is found by its words and its place in the lecture and put in front of the model, which then teaches the slide the way the lecturer did and marks what came *From the class* |
+| Interactive explanations | ✅ Beside diagrams and plots: a graph the student drives with sliders (` ```explore `, expressions in a small arithmetic language parsed as data and never run as code), a derivation revealed step by step (` ```steps `), self-check questions with hidden answers (` ```quiz `), and callouts for the key idea, the common mistake and the exam tip |
+| Notes on a slide | ✅ A note box under the original slide, saved as you type and kept with that slide; all of them are gathered on *My Notes* |
+| Past exam papers | ✅ A course's past papers and solutions are analysed into the paper's format, its mix of question forms and a ranked forecast of topics, each with the question references behind it and the likely next variation. Likelihoods are clamped to what the number of papers supports and never reach certainty. Quizzes, mock exams and flashcards then follow it: the real exam's forms and marks, likeliest topics first, different questions each time, written from this year's lectures |
+| Stopping work in progress | ✅ A folder scan and an upload can be stopped. The file being read is finished or discarded, nothing is left half-added, and a cancelled upload is not kept |
+| Old metafile drawings | ✅ WMF and EMF pictures in PowerPoint decks (diagrams, MathType equations, pasted screenshots) are played back onto the slide as vector drawing by a built-in renderer; nothing on a Mac draws them otherwise |
 | Camera-based attention tracking | ❌ Interface and simulated data only — see [`docs/PRIVACY.md`](docs/PRIVACY.md) |
 | Federated learning | ❌ Design only — see [`research/federated_learning/`](research/federated_learning/) |
 | Knowledge graph / Graph RAG | ❌ Schema supports prerequisites; no graph store |
@@ -130,7 +137,7 @@ credentials are configured.
 npm run check
 ```
 
-Runs the TypeScript typecheck, ESLint, 133 frontend unit tests, Ruff, and 376
+Runs the TypeScript typecheck, ESLint, 161 frontend unit tests, Ruff, and 404
 backend tests. The 15 PostgreSQL integration tests need a database:
 
 ```bash

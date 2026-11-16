@@ -139,21 +139,19 @@ class FakeModel:
         else:
             chunk_ids = re.findall(r"chunk_id=([0-9a-f]+)", request.user)
             wanted = int(re.search(r"Write exactly (\d+) questions", request.user).group(1))
-            questions = [
-                {
-                    "kind": "explanation",
-                    "prompt": f"(a) Explain why padding is needed, variation {index}. [15 marks]",
-                    "expected_answer": "Padding keeps borders and size.",
-                    "rubric_points": ["keeps size", "keeps border information"],
-                    "marks": 15,
-                    "difficulty": "medium",
-                    "source_chunk_id": chunk_ids[index % len(chunk_ids)],
-                    "explanation": "From the padding slide.",
-                    "past_paper_ref": self.past_paper_ref if index == 0 else "",
-                }
+            # The examiner answers in delimited text, where LaTeX needs no escaping.
+            text = "\n".join(
+                "=== QUESTION ===\n"
+                "kind: explanation\nmarks: 15\ndifficulty: medium\n"
+                f"source_chunk_id: {chunk_ids[index % len(chunk_ids)]}\n"
+                f"past_paper_ref: {self.past_paper_ref if index == 0 else ''}\n"
+                "--- prompt ---\n"
+                f"(a) Explain why padding is needed, variation {index}. [15 marks]\n"
+                "--- answer ---\nPadding keeps $\\frac{n}{s}$ borders and size.\n"
+                "--- marking ---\n- keeps size\n- keeps border information\n"
+                "--- explanation ---\nFrom the padding slide.\n"
                 for index in range(wanted)
-            ]
-            text = json.dumps({"questions": questions})
+            )
         return GenerationResult(text=text, provider="fake", model="fake-1", generative=True)
 
 
@@ -218,6 +216,77 @@ def test_a_passage_is_weighed_by_the_topics_likely_to_be_asked():
     assert "Padding (95%)" in brief and "Likely next: Compare three kinds." in brief
     assert "explanation 60%" in brief and "derive, calculate, explain" in brief
     assert "do not copy them" in brief
+
+
+def test_the_examiners_reply_is_read_without_json_so_latex_survives():
+    reply = """Here are the questions.
+
+=== QUESTION ===
+kind: numeric
+marks: 4
+difficulty: medium
+source_chunk_id: c1
+past_paper_ref: 2023 Q1(b)
+numeric_answer: 16
+--- prompt ---
+An input of width 32 passes through a layer with $k=5$, $p=2$, $s=2$. Calculate
+$\\left\\lfloor \\frac{n+2p-k}{s} \\right\\rfloor + 1$. [4 marks]
+--- answer ---
+$\\lfloor 31/2 \\rfloor + 1 = 16$
+--- marking ---
+- substitutes correctly
+- takes the floor
+--- explanation ---
+Asked in both papers with new numbers.
+
+=== QUESTION ===
+kind: MCQ
+marks: 1
+source_chunk_id: c1
+--- prompt ---
+Which padding keeps the output the same size?
+--- options ---
+A. valid
+* B. same
+C) full
+--- answer ---
+same
+
+=== QUESTION ===
+kind: numeric
+marks: 6
+source_chunk_id: c1
+numeric_answer: it depends on the stride
+--- prompt ---
+Calculate the receptive field after three stacked 3x3 convolutions.
+--- answer ---
+7 by 7, because each layer adds two.
+
+=== QUESTION ===
+kind: explanation
+source_chunk_id: c1
+--- answer ---
+A block with no prompt is not a question.
+"""
+    raw = generator.parse_question_blocks(reply)
+    assert [question["kind"] for question in raw] == ["numeric", "mcq", "short_answer"]
+    # Backslashes arrive exactly as written: nothing to double, nothing lost.
+    assert "\\frac{n+2p-k}{s}" in raw[0]["prompt"] and raw[0]["expected_answer"] == "16"
+    assert raw[0]["rubric_points"] == ["substitutes correctly", "takes the floor"]
+    assert raw[1]["options"] == ["valid", "same", "full"] and raw[1]["correct_option"] == 1
+    # A calculation with no single number for an answer is marked against its model answer.
+    assert raw[2]["expected_answer"].startswith("7 by 7")
+
+    allowed = {"c1": _chunk("c1")}
+    checked = [
+        generator.QuestionGenerator._validate_llm_question(question, allowed, exam=True)
+        for question in raw
+    ]
+    assert all(question is not None for question in checked)
+    assert checked[0].numeric_answer == 16 and checked[0].provenance == "past_paper_variation"
+    assert "\\lfloor 31/2" in checked[0].explanation  # the working is kept for the review
+    assert checked[1].correct_option == 1 and checked[1].expected_answer == "same"
+    assert generator.parse_question_blocks("no blocks at all") == []
 
 
 # --- through the API ---------------------------------------------------------------------

@@ -193,10 +193,101 @@ EXAMINER_SYSTEM = (
     'reference (for example "2022 Q3(b)") in past_paper_ref; otherwise leave it empty. '
     "Never say that a question came from a past paper.\n"
     "- Do not repeat or reword a practice question the student has already been given.\n"
-    "- Mathematics inside strings is written in LaTeX between $ signs with every "
-    "backslash doubled, so that the reply is valid JSON.\n"
-    "- Reply with JSON only, no prose."
+    "- Mathematics is written in LaTeX between $ signs.\n\n"
+    "Reply in exactly this format, one block per question, with nothing before, between "
+    "or after the blocks. It is plain text, not JSON, so write LaTeX backslashes as they "
+    "are:\n\n"
+    "=== QUESTION ===\n"
+    "kind: <mcq | short_answer | numeric | explanation>\n"
+    "marks: <whole number>\n"
+    "difficulty: <easy | medium | hard>\n"
+    "source_chunk_id: <the chunk_id of the passage it rests on>\n"
+    "past_paper_ref: <a past question's reference, or leave empty>\n"
+    "numeric_answer: <for kind numeric only: the final value as a plain number>\n"
+    "--- prompt ---\n"
+    "<the question as the paper would print it>\n"
+    "--- options ---\n"
+    "<for kind mcq only: one option per line, the correct one starting with *>\n"
+    "--- answer ---\n"
+    "<the model answer>\n"
+    "--- marking ---\n"
+    "- <one marking point per line>\n"
+    "--- explanation ---\n"
+    "<one or two sentences on why this is likely to be asked and what it tests>"
 )
+
+_QUESTION_BLOCK = re.compile(r"^===\s*QUESTION\s*===\s*$", re.MULTILINE | re.IGNORECASE)
+_SECTION = re.compile(
+    r"^---\s*(prompt|options|answer|marking|explanation)\s*---\s*$", re.MULTILINE | re.IGNORECASE
+)
+_FIELD = re.compile(r"^([a-z_]+)\s*:\s*(.*)$", re.IGNORECASE)
+_NUMBER = re.compile(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?")
+
+
+def parse_question_blocks(text: str) -> list[dict[str, object]]:
+    """Read the examiner's delimited reply into the shape the validator takes.
+
+    Tolerant of what does not matter (case, blank lines, a missing section)
+    and silent about what is malformed: a block with no prompt is skipped,
+    and the validator decides about everything else.
+    """
+    questions: list[dict[str, object]] = []
+    blocks = _QUESTION_BLOCK.split(text)[1:]
+    for block in blocks:
+        marks = list(_SECTION.finditer(block))
+        head = block[: marks[0].start()] if marks else block
+        raw: dict[str, object] = {}
+        for line in head.splitlines():
+            field_match = _FIELD.match(line.strip())
+            if field_match:
+                raw[field_match.group(1).lower()] = field_match.group(2).strip()
+        sections: dict[str, str] = {}
+        for index, mark in enumerate(marks):
+            end = marks[index + 1].start() if index + 1 < len(marks) else len(block)
+            sections[mark.group(1).lower()] = block[mark.end() : end].strip()
+
+        prompt = sections.get("prompt", "")
+        if not prompt:
+            continue
+        raw["prompt"] = prompt
+        raw["expected_answer"] = sections.get("answer", "")
+        raw["explanation"] = sections.get("explanation", "")
+        raw["rubric_points"] = [
+            line.strip().lstrip("-*• ").strip()
+            for line in sections.get("marking", "").splitlines()
+            if line.strip().lstrip("-*• ").strip()
+        ]
+        kind = str(raw.get("kind", "")).strip().lower().replace(" ", "_")
+
+        if kind == "mcq":
+            options: list[str] = []
+            correct: int | None = None
+            for line in sections.get("options", "").splitlines():
+                option = line.strip()
+                if not option:
+                    continue
+                is_correct = option.startswith("*")
+                option = re.sub(r"^\*?\s*(?:[A-Fa-f][\).:]\s+)?", "", option).strip()
+                if not option:
+                    continue
+                if is_correct and correct is None:
+                    correct = len(options)
+                options.append(option)
+            raw["options"] = options
+            raw["correct_option"] = correct
+        elif kind == "numeric":
+            # A calculation whose answer is not one plain number is still a good
+            # question; it is marked against its model answer instead.
+            found = _NUMBER.fullmatch(str(raw.get("numeric_answer", "")).replace(",", "").strip())
+            if found:
+                raw["tolerance"] = max(abs(float(found.group(0))) * 0.01, 0.01)
+                raw["worked_answer"] = raw["expected_answer"]
+                raw["expected_answer"] = found.group(0)
+            else:
+                kind = "short_answer"
+        raw["kind"] = kind
+        questions.append(raw)
+    return questions
 
 
 @dataclass
@@ -463,12 +554,7 @@ class QuestionGenerator:
                 f"This year's lecture material:\n\n{chr(10).join(evidence_blocks)}"
                 f"{earlier}\n\n"
                 f"Write exactly {wanted} questions. Use these forms, in roughly the "
-                f"real exam's proportions: {', '.join(kinds)}.\n"
-                "Return JSON of the form:\n"
-                '{"questions": [{"kind": "mcq", "prompt": "...", "options": ["..."], '
-                '"correct_option": 0, "expected_answer": "...", "rubric_points": ["..."], '
-                '"marks": 1, "difficulty": "easy|medium|hard", "source_chunk_id": "...", '
-                '"explanation": "...", "past_paper_ref": ""}]}'
+                f"real exam's proportions: {', '.join(kinds)}."
             )
 
         try:
@@ -478,18 +564,21 @@ class QuestionGenerator:
                     user=user,
                     question="",
                     evidence=[],
-                    max_output_tokens=5200 if exam_brief else 2400,
+                    # A written question with its model answer and marking points
+                    # is long; a paper of them must not be cut off half way.
+                    max_output_tokens=min(16000, 1500 + 900 * wanted) if exam_brief else 2400,
                     # Each new exam should differ from the last one written.
                     temperature=0.75 if exam_brief else 0.4,
-                    json_schema={"type": "object"},
-                    timeout_seconds=180.0 if exam_brief else 90.0,
+                    json_schema=None if exam_brief else {"type": "object"},
+                    timeout_seconds=min(420.0, 120.0 + 20.0 * wanted) if exam_brief else 90.0,
                 )
             )
         except ProviderUnavailableError as exc:
             log.warning("quiz_generation_failed", extra={"reason": str(exc)})
             return []
 
-        payload = extract_json_object(result.text)
+        blocks = parse_question_blocks(result.text) if exam_brief else []
+        payload = {"questions": blocks} if blocks else extract_json_object(result.text)
         if isinstance(payload, list):
             raw_questions = payload
         elif isinstance(payload, dict):
@@ -577,6 +666,10 @@ class QuestionGenerator:
                 question.numeric_answer = float(raw.get("expected_answer"))
             except (TypeError, ValueError):
                 return None
+            question.expected_answer = str(raw.get("expected_answer", "")).strip()
+            worked = str(raw.get("worked_answer", "")).strip()
+            if worked:
+                question.explanation = f"{worked}\n\n{question.explanation}".strip()[:4000]
             try:
                 question.numeric_tolerance = abs(float(raw.get("tolerance", 0.01)))
             except (TypeError, ValueError):

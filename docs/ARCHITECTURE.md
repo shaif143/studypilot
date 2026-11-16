@@ -265,10 +265,24 @@ letters as "?".
 the current edit's persist directory (so incremental saves resolve to the
 live slides), the slide list with its placeholder text, each slide's
 OfficeArt drawing for anchors, inline text boxes, pictures and groups, and
-the notes list. The result is rendered exactly as a `.pptx` is. EMF/WMF
-drawings cannot be rasterised without a metafile renderer and are reported
-as such; everything else — words, bullets, JPEG/PNG/BMP pictures, speaker
-notes — comes through.
+the notes list. The result is rendered exactly as a `.pptx` is: words,
+bullets, JPEG/PNG/BMP pictures, speaker notes, and Windows metafiles.
+
+`ingestion/metafile.py` draws the metafiles. A WMF or EMF is not a picture
+but a list of recorded drawing commands for the Windows graphics layer, and
+old decks keep diagrams, MathType equations and pasted screenshots that way.
+The module plays the records back onto the PDF page as vector drawing —
+pens, brushes and fonts through the object table, polylines, polygons,
+rectangles, ellipses and text, mapped from the file's window onto the
+shape's rectangle — and places a bitmap wrapped in a metafile (a single
+`DibStretchBlt` or `StretchDIBits` record, the usual shape of a pasted
+screenshot) as the image it is. Office stores a metafile deflated behind a
+header carrying its frame; `unwrap_office_blip` reads both. It is a subset
+on purpose: clipping, raster operations, arcs and hatched brushes are
+skipped, and text is set in the nearest standard PDF font, so an equation
+is readable rather than typeset. A record that is not understood is ignored
+and the rest still appears; a metafile with nothing drawable is counted and
+reported. Macintosh PICT pictures are still not drawn.
 
 **Archives.** A `.zip` is read with the standard library and a `.rar` with
 `bsdtar` (libarchive), into memory and a private temporary directory, with
@@ -532,6 +546,90 @@ attached; each message records the page it was asked on (`meta.page`), which
 is how a slide shows its own questions rather than the whole deck's
 conversation. The client waits for a 600 ms dwell before requesting a guide,
 so flicking through a deck does not send every slide to a model.
+
+### Richer teaching blocks
+
+Beside diagrams and plots an explanation may hold three more blocks, each a
+fence the reader renders, and each a model's text read as data:
+
+- ```` ```explore ```` — a formula drawn as a curve with a slider per
+  parameter. The curves are expressions in a small arithmetic language
+  (`lib/expression.ts`): numbers, the declared names, `+ - * / ^`,
+  parentheses and a fixed list of mathematical functions. It is parsed into
+  a closed tree and evaluated by walking it; there is no `eval`, no
+  `Function` and no property access, and a name that is not declared makes
+  the whole block invalid. The y-range is fixed over every slider position
+  so the curve is what is seen to change.
+- ```` ```steps ```` — `## title` lines split a derivation into steps the
+  student reveals one at a time.
+- ```` ```quiz ```` — `Q:`/`A:` pairs with the answer hidden until asked for.
+
+A quote line opening with *Key idea*, *Common mistake*, *Exam tip* or *In
+class* is drawn as a callout. Mermaid may also be a sequence diagram, state
+diagram, mind map or timeline, drawn on a light sheet in both themes.
+
+### The class transcript
+
+A lecture may carry the transcript of the class it was shown in
+(`lecture_transcripts`, one per document; `learning/transcripts.py`).
+Subtitle files lose their cue numbers, timestamps and scrolled repeats. A
+transcript is far longer than a prompt and has no slide markers, so the part
+for a slide is chosen by two signals at once: passages that use the slide's
+own terms (weighted by how few passages hold each term), and passages near
+where the slide falls in the lecture. Neither is reliable alone; the score
+is their sum. The excerpts go into the prompt as untrusted data, with
+instructions to teach the slide the way the lecturer did and to put what the
+lecturer said that the slide does not show in a slide of kind `in_class`.
+The transcript is never indexed for search and never cited from.
+
+### Explaining a whole lecture
+
+`learning/guide_service.py` holds what a single slide and a whole lecture
+share: reading the inputs from the database, the model call, keeping the
+result. `POST …/guides/explain-all` starts a job in a thread of its own with
+its own session, like a folder scan. It writes three slides at a time — the
+model calls touch no database and run in a small pool, while reads, page
+rendering and writes stay on the job's thread — and commits each slide as it
+arrives. It gives up after three slides in a row come back unwritten,
+skips a slide the student explained meanwhile, and stops submitting when
+asked; slides already with the model are still kept. `GET …/guides` carries
+the job's progress, which the course page polls while it runs.
+
+### Notes on a slide
+
+`slide_notes`, one per page, written by `PUT …/pages/{n}/note` a moment after
+typing stops and when the slide is left. An emptied note is deleted.
+
+## Past exam papers
+
+Documents of kind `past_paper` in a course are its evidence of what the exam
+asks. `learning/exam_analysis.py` turns them into an *exam profile*
+(`exam_profiles`, one per course): the paper's format, the mix of question
+forms, and a ranked list of topics with a likelihood, the question
+references it was drawn from, and the likely next variation.
+
+The analyst prompt spells out a method rather than asking for a prediction:
+inventory every question, state the fixed format, count frequency, look for
+rotation and recency, compare with this year's lecture topics (a topic
+taught but never examined is a candidate; one examined but no longer taught
+is marked down), predict the next variation, and only then calibrate.
+`clean_profile` then enforces what cannot be left to the model: no
+likelihood above 0.7 from a single paper or above 0.95 at all, confidence
+capped by the number of papers, malformed entries dropped. Without a model
+that may read the papers only the format is counted (`count_profile`), and
+the result is labelled as counted.
+
+When a profile exists, `assessment/service.py` follows it unless the request
+says not to. The question forms come from the profile rather than the
+request. The passages are this year's lectures only — never the papers
+themselves — and seven in ten are the ones most about the likely topics
+(`exam_weight`), the rest spread over the course. The model is prompted as
+the examiner, with the profile, a short sample of real questions for style,
+and the practice questions already written so that it writes different ones.
+It replies in delimited text (`=== QUESTION ===` blocks), not JSON, for the
+same reason slide explanations do: LaTeX. Every question is still validated
+against the supplied passages, and is called a `past_paper_variation` only
+when the model named the past question it built on.
 
 ## Prompt-injection posture
 

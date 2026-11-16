@@ -449,8 +449,8 @@ Faithful conversion needs PowerPoint or LibreOffice, which the app cannot
 bundle and the user may not have. The binary format is documented, the
 parts a student needs (text, pictures, positions, notes) are a few hundred
 lines to read, and the result is indexed, cited and shown like any deck.
-Windows metafiles are the honest gap: there is no pure-Python rasteriser,
-so they are reported slide by slide instead of silently dropped.
+Windows metafiles were the gap when this was written, and were reported
+slide by slide instead of silently dropped. Decision 33 closes it.
 
 ---
 
@@ -508,8 +508,65 @@ unmarked", which keeps the property that matters: the student can always
 tell the lecturer's content from the model's. The same reasoning rules out
 model-written URLs (a plausible video link that does not exist is worse than
 none) and model-written drawings (data can be validated; markup cannot).
-Markdown tables are forbidden in the prompt rather than rendered: rendering
-them needs another parser extension, and a plain-text grid reads as well.
+Markdown tables were first forbidden in the prompt; they are now rendered
+(`remark-gfm`) and asked for where values are compared.
+
+---
+
+## 32. An exam forecast is a likelihood with its evidence, clamped in code
+
+**Decision.** Past papers are analysed into a ranked topic forecast. Every
+topic carries the question references it rests on. Likelihoods are clamped
+after the model answers: at most 0.7 from one paper, never above 0.95, and
+confidence capped by the number of papers. The interface calls it a forecast
+and says how many papers it is drawn from.
+
+**Why.** "Predict what will come up" is what the student wants and what a
+model will happily overstate. A student who is told a topic is certain and
+skips the rest is worse off than one with no forecast at all. So the claim
+is bounded where it can be checked — in code, against a count the model
+cannot argue with — and shown with its evidence so it can be doubted. The
+prompt asks for a method (inventory, count, rotation, this year's teaching)
+rather than an answer, because the inventory makes the counts checkable and
+a model that has listed every question reasons from the list. Practice is
+written from this year's lectures, not from the papers: a question lifted
+from an old paper tests memory of the paper, and a topic that has left the
+syllabus should not come back through its old exam.
+
+---
+
+## 33. Metafiles are played back, not converted
+
+**Decision.** WMF and EMF drawings in decks are drawn by a few hundred lines
+that play their records onto the PDF page (`ingestion/metafile.py`), with no
+new dependency.
+
+**Why.** The alternatives were to keep reporting them as unrendered, or to
+shell out to LibreOffice or PowerPoint, which the app cannot bundle and a
+student may not have. The lecture that prompted this had nine: three were
+bitmaps wrapped in a single record, five were equations made of text
+records, one was a diagram of lines and polygons. That is the usual mix in
+old decks, and all of it is within a subset that is small enough to read
+and test record by record. Drawing them as vectors also keeps them sharp
+when the slide is shown to a vision model, which is where a missing figure
+cost the most.
+
+---
+
+## 34. An interactive graph is an expression language, not generated code
+
+**Decision.** A slide's explanation may include a graph with sliders. The
+model supplies expressions in a small arithmetic language; the app parses
+and evaluates them itself.
+
+**Why.** The obvious way to get interactive visuals from a model is to let
+it write HTML and JavaScript and run that in a sandboxed frame. That makes
+the model's output code, and every guarantee about it then rests on the
+sandbox. Decision 31 already drew the line — data can be validated, markup
+cannot — and a formula with parameters is still data: a parser that accepts
+only numbers, declared names, five operators and a fixed list of functions
+has nothing to escape from. It covers what a lecture slide needs (how a
+curve responds to a parameter) and nothing else, which is the point.
 
 ---
 

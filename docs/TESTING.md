@@ -29,8 +29,8 @@ Nothing in the suite needs the network, a model download, or a running server.
 
 | Suite | Tests | Status |
 | --- | --- | --- |
-| Backend (`services/api/tests`) | 391 | ✅ all passing (376 + 15 PostgreSQL integration) |
-| Frontend (`tests/frontend`) | 133 | ✅ all passing |
+| Backend (`services/api/tests`) | 419 | ✅ all passing (404 + 15 PostgreSQL integration) |
+| Frontend (`tests/frontend`) | 161 | ✅ all passing |
 | ESLint | — | ✅ clean |
 | TypeScript | — | ✅ clean |
 | Ruff lint + format | — | ✅ clean |
@@ -97,6 +97,9 @@ simulate quitting and relaunching.
 | `test_scanned_pdfs.py` | A PDF of page images: without a vision model it is partial and says what would read it; with a consenting one every page is transcribed, headed, indexed and cited; a born-digital PDF never goes to the model; a failed upload retried is one document, not two |
 | `test_local_folders.py` | A real folder under tmp: linking indexes PDF and PPTX in place (no blob, no previews, the deck keeps its rendered PDF), pages and the reader work; a rescan leaves unchanged files, re-reads an edited one, indexes a new one and removes a deleted one; a background scan reports progress to done; unlinking drops the index and a moved file is refused; the disk root, home folder, relative and missing paths are refused; a file whose row points outside any linked folder is never served; images are read only with consent and a model; hidden and unsupported entries are left out; documents are ordered before media and media is not queued without consent; a note saved into the folder lands in `StudyPilot Notes` and is never indexed back |
 | `test_slide_guides.py` | A model's reply becomes teaching slides and search phrases (LaTeX, the diagram and the plot untouched; a written link loses its address; an address is not a search phrase); a reply without the format is still one slide; a Markdown table is kept as written and both prompts allow one; kinds are checked and slides capped; video links are searches built by the backend. Through the API: reading never calls a model; a slide is explained once and kept, with the slide image sent to a model that can see and not to one that cannot; regenerating replaces; without a model, or when the model fails, the slide's own text comes back and is **not** kept; a guide goes when its document does and is in the data export; a question records the slide it was asked on |
+| `test_study_extras.py` | A subtitle file becomes the words that were said (cue numbers, timestamps, markup and scrolled repeats gone); a file that is not text is refused; the part of a transcript about a slide is found by its words and its place; a transcript reaches the prompt for its lecture, the reply's `in_class` slide is not marked as beyond the slide, and the status never carries the text; a note is kept with its slide and removed when emptied; explain-all writes every missing slide once, skips what is explained, rewrites when asked, is refused without a model, gives up after three failures in a row, and stops when asked, keeping what it wrote; a stopped folder scan keeps what it read, removes what was only queued and is finished by a rescan; an upload whose sender hung up is not kept, and a cancelled duplicate leaves the original alone |
+| `test_exam_analysis.py` | A paper's format is counted from its text (multiple choice against written, marks, time allowed); a forecast is clamped to 70% with one paper and never reaches certainty, confidence is capped by the number of papers, malformed entries are dropped; passages are weighed by the topics likely to be asked; the examiner's delimited reply is read without JSON so LaTeX survives, a calculation with no single number is marked against its model answer; papers are analysed and kept, a paper added later marks the analysis out of date; without a model only the format is counted; practice follows the papers (their forms rather than the request's, this year's lectures rather than the papers as material, earlier questions passed so they are not repeated) and can be switched off; only a question that names the one it was modelled on is a past-paper variation; flashcards take a multiple-choice paper's form |
+| `test_metafile.py` | Metafiles built record by record: a polyline is a vector path in the pen's colour, mapped from the file's own units onto its rectangle; text is text; a bitmap wrapped in a WMF or an EMF is placed as an image; an undrawn object still takes its slot in the object table; empty, foreign and truncated files draw nothing and say so; an Office picture record is unwrapped and inflated, and placed by the frame Office stored |
 | `test_security.py` | Auth required on every route, token file permissions, repository-level ownership, 404-not-403 for another user's rows, **path traversal** on previews, disguised uploads, size limits, the two-part consent gate, provider egress declarations, privacy defaults all off, prompt-injection containment, **fabricated citation markers being stripped**, ungrounded LLM questions rejected, export and delete-everything, webcam attention refused, log redaction |
 
 ### What the frontend suite covers
@@ -108,6 +111,7 @@ simulate quitting and relaunching.
 | `formatting.test.ts` | Byte, duration and relative-time formatting including unparseable input; provenance, mastery and action labels |
 | `uploads.test.ts` | A folder selection: supported files taken, hidden files dropped, `.docx`/`.ppt`/empty files listed with a reason, duplicates removed, same name in two folders kept, a file with no declared type judged by name |
 | `plot.test.tsx` | A ` ```plot ` block: exactly a JSON object of number pairs is a chart (sorted by x, at most three series); not-JSON, strings for numbers, triples and expressions are refused; axis ticks are round and enclose the data; the chart names every series twice (legend and line end), keeps the numbers as a table, falls back to the text, and is not wrapped in a code block |
+| `teaching-blocks.test.tsx` | The expression language: precedence, right-associative powers, variables, constants and its fixed functions; **anything that is not arithmetic fails to compile** (calls to unknown names, property access, strings, assignment, arrow functions, `constructor`, `__proto__`, implicit multiplication, an over-long input); an ` ```explore ` block is read, sampled and given one y-range for every slider position, and refused when a curve uses an undeclared name or a parameter is named after a function; steps and self-check pairs are split from their text; in an answer a slider redraws the curve and Reset restores it, a refused block shows its text, a derivation reveals one step at a time, an answer stays hidden until asked for, and a labelled quote line is a callout while a plain quotation is not |
 | `api-contract.test.ts` | Drives the real client against a stub transport and asserts **every URL it produces exists in the backend's committed OpenAPI document** — so a renamed route fails here rather than at runtime |
 
 ---
@@ -257,10 +261,21 @@ Stated plainly rather than implied by omission.
   assignment guide → "Check my attempt" refused honestly without a model.
   A third uploads a whole folder and checks Drive is offered, not faked; a
   fourth opens a course from the dashboard accordion and from **Open**, opens
-  a slide in the study view, asks a question on it and turns the slide.
+  a slide in the study view, asks a question on it and turns the slide; it
+  also checks that the sidebar no longer lists the library or the tutor, that
+  a lecture starts folded with **Explain all slides** beside its arrow, that
+  a note typed under a slide is saved and stays with that slide, that
+  **Study this** leads to practice on the lecture, and that past papers have
+  their own screen.
   Drag-to-resize, keyboard navigation and the desktop shell are still
   hand-verified. Run with `npm run test:e2e` (needs `npx playwright install
   chromium` once).
+- **The metafile renderer is a subset.** Its tests build metafiles record by
+  record, so they prove the records it handles, not that a given deck's
+  drawings are among them. It was checked by eye against one real lecture
+  (eight WMF, one EMF: all drawn). Arcs, clipping and hatched fills are not
+  implemented, and equation text is set in a standard font with the file's
+  own character spacing ignored.
 - **No automated test calls a real model.** The planner and the readers are
   tested with scripted providers, and the Anthropic and Gemini request
   bodies are pinned by intercepting the HTTP call. The real models were run

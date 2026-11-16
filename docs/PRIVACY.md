@@ -50,6 +50,11 @@ wherever the backend that the site is configured to talk to stores it.
 | Generating quizzes, flashcards or notes without an AI model | No |
 | Asking a question with Anthropic or Gemini enabled **and** opted into | **Yes** — the question and the retrieved passages |
 | Opening a slide in the study view with a cloud provider enabled **and** opted into | **Yes** — that slide's text and an image of that slide, once; the explanation is then kept here and reopening sends nothing. With no cloud provider, nothing leaves and the slide's own text is shown |
+| **Explain all slides** on a lecture, with a cloud provider enabled **and** opted into | **Yes** — every slide of that lecture not yet explained: its text, its image and, if a class transcript was added, the part of the transcript about it. One request per slide. Refused up front without a model that may read your material |
+| Adding a class transcript | No. It is stored here. Parts of it are sent only when a slide of that lecture is explained by a cloud model you opted into |
+| Writing a note under a slide | No |
+| Analysing past exam papers with a cloud provider enabled **and** opted into | **Yes** — the text of every past paper in the course, and the titles and topic names of its lectures. Without one, only the papers' format is counted, on this device |
+| Generating exam-style practice with a cloud provider | **Yes** — lecture passages as before, plus the kept analysis, a short sample of the past papers' questions for style, and the practice questions already written for the course so they are not repeated |
 | Drafting an assignment guide with a cloud provider | **Yes** — the brief's text and the lecture passages retrieved for it |
 | Uploading an **image** brief | **Yes, if** cloud processing is on and you opt in on the upload — the image is sent to the vision model. Otherwise the upload is refused with a message, never read silently |
 | Uploading an **audio** brief | **No** when the local Whisper model is installed; otherwise **yes** under the same two-part consent — the recording is sent to Gemini |
@@ -100,7 +105,7 @@ diagnosed without exposing material.
 
 | Control | Where | Effect |
 | --- | --- | --- |
-| Export everything | Settings → Your data | Full JSON: profile, settings, courses, documents, conversations, flashcards, assessments, notes, mastery, slide explanations |
+| Export everything | Settings → Your data | Full JSON: profile, settings, courses, documents, conversations, flashcards, assessments, notes, mastery, slide explanations, class transcripts, slide notes, exam analyses |
 | Delete everything | Settings → Your data | Hard-deletes the profile, every row, the vector index, the sparse index and all stored files |
 | Delete one document | Lecture Library | Removes the file, its previews and every index entry derived from it |
 | Delete one course | My Courses | Cascades to its documents, topics and indexes |

@@ -10,6 +10,7 @@ the UI never has to claim success it cannot verify.
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
@@ -50,6 +51,8 @@ from app.storage.files import BlobNotFoundError
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["documents"], dependencies=[Depends(require_token)])
+
+_upload_lock = threading.Lock()
 
 
 @router.post(
@@ -278,6 +281,41 @@ def _ingest_upload(
     users: UsersDep,
 ) -> UploadResponse:
     """Validate, store, and index one file; shared by the upload and archive routes."""
+    # Indexing runs off the event loop now, so two uploads could otherwise
+    # write the vector store and the search index at the same moment. One at a
+    # time, as it always was when the loop itself did the serialising.
+    with _upload_lock:
+        return _ingest_upload_locked(
+            filename=filename,
+            data=data,
+            title=title,
+            kind=kind,
+            allow_cloud=allow_cloud,
+            course_id=course_id,
+            context=context,
+            user=user,
+            documents=documents,
+            chunks=chunks,
+            topics=topics,
+            users=users,
+        )
+
+
+def _ingest_upload_locked(
+    *,
+    filename: str,
+    data: bytes,
+    title: str,
+    kind: str,
+    allow_cloud: bool,
+    course_id: str,
+    context: ContextDep,
+    user: UserDep,
+    documents: DocumentsDep,
+    chunks: ChunksDep,
+    topics: TopicsDep,
+    users: UsersDep,
+) -> UploadResponse:
     filename, data = normalise_image(filename, data)
     media_type = validate_upload(filename, data, context.settings)
 
