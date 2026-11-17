@@ -25,6 +25,11 @@ from app.models.base import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_waiting_between_retries(monkeypatch):
+    monkeypatch.setattr(engine, "RETRY_DELAYS", (0.0, 0.0))
+
+
 @dataclass
 class Scripted:
     """A model that answers each stage from a script, and records what it was asked."""
@@ -311,7 +316,7 @@ def test_a_model_that_fails_is_left_out_and_said_to_be():
     }
     assert any(e["type"] == "error" and e["member"] == "Gemini" for e in events)
     # Gemini wrote no draft, so it reviews no one and is reviewed by no one.
-    assert gemini.stages() == ["propose"]
+    assert set(gemini.stages()) == {"propose"}
 
     alone, _ = _run(_members(Scripted("Claude"), Scripted("Gemini", fail_at="propose")))
     assert alone.unanimous is False and alone.rounds == 0 and alone.agreed == ["Claude"]
@@ -558,3 +563,142 @@ def test_a_file_can_be_uploaded_straight_into_a_folder(
         data={"folder_id": folder["id"]},
     )
     assert uploaded.status_code == 201 and uploaded.json()["document"]["folder_id"] == folder["id"]
+
+
+# --- objections in the final vote are argued and ruled on, not obeyed --------------------
+OBJECTION = (
+    "=== VOTE ===\nvote: object\n\n=== OBJECTION ===\nwhere: [1] gives the formula\n"
+    "problem: That is not a direct quotation of [1].\nreason: It paraphrases.\n"
+    "fix: Quote [1] word for word.\n"
+)
+OBJECTING_15 = (
+    "=== VOTE ===\nvote: object\n\n=== OBJECTION ===\nwhere: width is 15\n"
+    "problem: It is 16.\nreason: [1] ends in + 1.\nfix: Write 16.\n"
+)
+AGREE = "=== VOTE ===\nvote: agree\n"
+
+
+def test_a_wrong_objection_is_overruled_by_a_neutral_model_instead_of_blocking():
+    """One model objecting on weak grounds must not hold the others up for ever."""
+    claude = Scripted("Claude", defence=_defend("A cited paraphrase is what was asked for."))
+    gemini = Scripted(
+        "Gemini",
+        ruling="=== RULING ===\nissue: 1\nruling: dismiss\nreason: Citing [1] is enough.\n",
+    )
+    local = Scripted("Local", votes=[OBJECTION])
+    outcome, events = _run(_members(claude, gemini, local))
+
+    # Settled in one round: the objection was ruled on, not obeyed and not ignored.
+    assert outcome.rounds == 1 and outcome.settled is True
+    assert outcome.unanimous is False  # it is not called unanimous when it was not
+    assert outcome.agreed == ["Claude", "Gemini"] and outcome.objections == []
+    assert [(o["member"], o["judge"]) for o in outcome.overruled] == [("Local", "Gemini")]
+    assert outcome.overruled[0]["ruling"] == "Citing [1] is enough."
+    assert "revise" not in claude.stages()
+    # The judge was neither the objector nor the author of the agreed version.
+    assert "judge" in gemini.stages() and "judge" not in local.stages()
+    consensus = outcome.consensus()
+    assert consensus["settled"] is True and consensus["issues_raised"] == 0
+    in_vote = [issue for issue in outcome.issues if issue.stage == "vote"]
+    assert [(i.reviewer, i.author, i.status, i.round) for i in in_vote] == [
+        ("Local", "Claude", "dismissed", 1)
+    ]
+    assert any(e["type"] == "ruling" and e["member"] == "Gemini" for e in events)
+
+
+def test_an_objection_that_is_upheld_is_worked_in_before_the_next_vote():
+    claude = Scripted(
+        "Claude", synthesis="width is 15", revision="width is 16", defence=_defend("15 is right.")
+    )
+    gemini = Scripted(
+        "Gemini", ruling="=== RULING ===\nissue: 1\nruling: uphold\nreason: [1] gives 16.\n"
+    )
+    chatgpt = Scripted("ChatGPT", votes=[OBJECTING_15, AGREE])
+    outcome, _ = _run(_members(claude, chatgpt, gemini))
+    assert outcome.unanimous and outcome.text == "width is 16" and outcome.rounds == 2
+    assert outcome.overruled == []
+
+    # The author accepting an objection settles it without a judge.
+    accepting = Scripted(
+        "Claude",
+        revision="fixed",
+        defence="=== RESPONSE ===\nissue: 1\nstance: accept\nreason: Yes, 16.\n",
+    )
+    judge = Scripted("Gemini")
+    voter = Scripted("ChatGPT", votes=[OBJECTING_15, AGREE])
+    outcome, _ = _run(_members(accepting, voter, judge))
+    assert outcome.unanimous and outcome.text == "fixed" and "judge" not in judge.stages()
+
+
+def test_a_local_model_is_asked_for_a_short_answer_in_a_short_time():
+    asked: list[GenerationRequest] = []
+
+    class Recording(Scripted):
+        def generate(self, request: GenerationRequest) -> GenerationResult:
+            asked.append(request)
+            return super().generate(request)
+
+    local = engine.Member("ollama", "Local", Recording("Local"), local=True)
+    cloud = engine.Member("anthropic", "Claude", Scripted("Claude"))
+    engine.Discussion(TASK, [cloud, local]).run()
+    assert asked and all(r.max_output_tokens <= engine.LOCAL_MAX_TOKENS for r in asked)
+    assert all(r.timeout_seconds == engine.LOCAL_TIMEOUT for r in asked)
+    assert cloud.tokens(7000) == 7000 and local.tokens(7000) == engine.LOCAL_MAX_TOKENS
+
+
+def test_a_stop_is_noticed_while_a_slow_model_is_still_answering():
+    import threading
+
+    release = threading.Event()
+
+    class Slow(Scripted):
+        def generate(self, request: GenerationRequest) -> GenerationResult:
+            release.wait(timeout=20)
+            return super().generate(request)
+
+    stop = {"now": False}
+
+    def emit(event):
+        if event.get("type") == "draft":  # the fast model has answered; stop now
+            stop["now"] = True
+
+    started = time.time()
+    with pytest.raises(engine.DiscussionStoppedError):
+        engine.Discussion(
+            TASK,
+            _members(Scripted("Claude"), Slow("Local")),
+            emit=emit,
+            should_stop=lambda: stop["now"],
+        ).run()
+    release.set()
+    assert time.time() - started < 8  # it did not wait for the slow model
+
+
+def test_a_hosted_model_that_fails_for_a_moment_is_asked_again():
+    """ "Overloaded, try again" must not cost a model its seat for the whole discussion."""
+    calls = {"count": 0}
+
+    class Flaky(Scripted):
+        def generate(self, request: GenerationRequest) -> GenerationResult:
+            calls["count"] += 1
+            if calls["count"] <= 2:
+                raise ProviderUnavailableError("503: high demand, try again later")
+            return super().generate(request)
+
+    outcome, events = _run(_members(Scripted("Claude"), Flaky("Gemini")))
+    assert outcome.took_part == ["Claude", "Gemini"] and outcome.dropped == []
+    assert not any(event["type"] == "error" for event in events)
+
+    # It is given up on after the retries, not asked for ever; a local model is not retried.
+    always = Scripted("Gemini", fail_at="propose")
+    _run(_members(Scripted("Claude"), always))
+    assert always.stages().count("propose") == 3
+    local = Scripted("Local", fail_at="propose")
+    engine.Discussion(
+        TASK,
+        [
+            engine.Member("anthropic", "Claude", Scripted("Claude")),
+            engine.Member("ollama", "Local", local, local=True),
+        ],
+    ).run()
+    assert local.stages().count("propose") == 1

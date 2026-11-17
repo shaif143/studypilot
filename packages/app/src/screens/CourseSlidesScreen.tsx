@@ -16,8 +16,8 @@ import {
   Check,
   ChevronDown,
   ClipboardList,
+  FilePlus,
   FileText,
-  FolderPlus,
   GraduationCap,
   MessagesSquare,
   Mic,
@@ -32,6 +32,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { ErrorPanel, PageBody, PageHeader } from '../components/AppShell';
+import { FolderHeading, MoveToFolder, NewFolderButton, groupByFolder } from '../components/Folders';
 import { SlideThumbnails } from '../components/SlideThumbnails';
 import {
   describeError,
@@ -40,6 +41,7 @@ import {
   useDeleteTranscript,
   useDocuments,
   useExplainAll,
+  useFolders,
   useGuidedPages,
   usePages,
   useProviders,
@@ -72,6 +74,11 @@ export function CourseSlidesScreen() {
   );
   const slideCount = lectures.reduce((total, lecture) => total + lecture.page_count, 0);
   const id = courseId ?? '';
+  const folders = useFolders(courseId);
+  const filed = useMemo(
+    () => groupByFolder(lectures, folders.data ?? [], 'course'),
+    [folders.data, lectures],
+  );
 
   return (
     <>
@@ -91,10 +98,11 @@ export function CourseSlidesScreen() {
               <Button icon={<GraduationCap size={15} />}>Past exams</Button>
             </Link>
             <Link to={`/library?course=${id}`}>
-              <Button variant="ghost" icon={<FolderPlus size={15} />}>
+              <Button variant="ghost" icon={<FilePlus size={15} />}>
                 Add files
               </Button>
             </Link>
+            <NewFolderButton courseId={id} section="course" />
             <Link to={`/courses/${id}/assignments`}>
               <Button variant="ghost" icon={<ClipboardList size={15} />}>
                 Assignments
@@ -129,7 +137,7 @@ export function CourseSlidesScreen() {
             <Skeleton className="h-14" />
             <Skeleton className="h-14" />
           </div>
-        ) : lectures.length === 0 ? (
+        ) : lectures.length === 0 && filed.groups.length === 0 ? (
           <EmptyState
             icon={<Presentation size={22} />}
             title="No lecture slides in this course yet"
@@ -141,10 +149,47 @@ export function CourseSlidesScreen() {
             }
           />
         ) : (
-          <div className="space-y-3">
-            {lectures.map((lecture) => (
-              <LectureSection key={lecture.id} lecture={lecture} />
+          <div className="space-y-5">
+            {filed.groups.map(({ folder, items }) => (
+              <section key={folder.id} aria-label={`Folder ${folder.name}`}>
+                <FolderHeading
+                  folder={folder}
+                  count={items.length}
+                  actions={
+                    <Link to={`/library?course=${id}&folder=${folder.id}`}>
+                      <Button size="sm" variant="ghost" icon={<FilePlus size={13} />}>
+                        Add files here
+                      </Button>
+                    </Link>
+                  }
+                />
+                {items.length === 0 ? (
+                  <p className="rounded-[var(--radius-card)] border border-dashed border-[var(--border-strong)] px-4 py-3 text-[0.8125rem] text-[var(--text-secondary)]">
+                    Empty. Add files here, or open a lecture below and choose this folder for it.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {items.map((lecture) => (
+                      <LectureSection key={lecture.id} lecture={lecture} />
+                    ))}
+                  </div>
+                )}
+              </section>
             ))}
+            {filed.loose.length > 0 ? (
+              <section aria-label="Lectures not in a folder">
+                {filed.groups.length > 0 ? (
+                  <h2 className="px-1 pb-1.5 text-[0.75rem] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                    Not in a folder
+                  </h2>
+                ) : null}
+                <div className="space-y-3">
+                  {filed.loose.map((lecture) => (
+                    <LectureSection key={lecture.id} lecture={lecture} />
+                  ))}
+                </div>
+              </section>
+            ) : null}
           </div>
         )}
       </PageBody>
@@ -216,6 +261,7 @@ function LectureSection({ lecture }: { lecture: DocumentSummary }) {
 
       {open ? (
         <div id={panelId} className="space-y-4 border-t border-[var(--border-subtle)] p-4">
+          <MoveToFolder courseId={lecture.course_id} document={lecture} section="course" />
           <TranscriptRow lecture={lecture} explained={guided.size} />
           {pages.isPending ? (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-3">

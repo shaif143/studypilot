@@ -45,6 +45,8 @@ import { useId, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { ErrorPanel, PageBody, PageHeader } from '../components/AppShell';
+import { CouncilPanel } from '../components/CouncilPanel';
+import { FolderHeading, MoveToFolder, NewFolderButton, groupByFolder } from '../components/Folders';
 import { GroundedAnswer } from '../components/GroundedAnswer';
 import {
   describeError,
@@ -53,6 +55,7 @@ import {
   useCheckAttempt,
   useCourse,
   useDraftAssignmentPlan,
+  useFolders,
   useSetStepApproval,
   useSettings,
   useUploadDocument,
@@ -85,6 +88,12 @@ export function AssignmentsScreen() {
   const course = useCourse(courseId);
   const assignments = useAssignments(courseId);
   const [selected, setSelected] = useState<string | null>(null);
+  const folders = useFolders(courseId);
+  const filed = groupByFolder(
+    (assignments.data ?? []).map((a) => ({ ...a, folder_id: a.document.folder_id })),
+    folders.data ?? [],
+    'assignments',
+  );
 
   const current =
     assignments.data?.find((a) => a.document.id === selected) ?? assignments.data?.[0] ?? null;
@@ -95,15 +104,18 @@ export function AssignmentsScreen() {
         title="Assignments"
         description={
           course.data
-            ? `${course.data.title} — upload a brief and get a step-by-step guide grounded in this course's lectures.`
-            : 'Upload a brief and get a step-by-step guide grounded in your lectures.'
+            ? `${course.data.title} — add a brief, then have your models agree a step-by-step guide and complete it.`
+            : 'Add a brief, then have your models agree a step-by-step guide and complete it.'
         }
         actions={
-          <Link to={`/library?course=${courseId}`}>
-            <Button variant="ghost" icon={<FileText size={15} />}>
-              Lecture library
-            </Button>
-          </Link>
+          <>
+            <NewFolderButton courseId={courseId} section="assignments" />
+            <Link to={`/courses/${courseId}`}>
+              <Button variant="ghost" icon={<FileText size={15} />}>
+                Back to the course
+              </Button>
+            </Link>
+          </>
         }
       />
       <PageBody>
@@ -120,29 +132,39 @@ export function AssignmentsScreen() {
             <UploadBrief courseId={courseId} onUploaded={(id) => setSelected(id)} />
             {assignments.isPending ? (
               <Skeleton className="h-24" />
-            ) : assignments.data && assignments.data.length > 0 ? (
+            ) : (assignments.data && assignments.data.length > 0) || filed.groups.length > 0 ? (
               <Card>
                 <SectionHeading title="Briefs" />
-                <ul className="mt-2 space-y-1">
-                  {assignments.data.map((a) => (
-                    <li key={a.document.id}>
-                      <button
-                        type="button"
-                        onClick={() => setSelected(a.document.id)}
-                        className={[
-                          'flex w-full items-center gap-2 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-[0.8125rem]',
-                          current?.document.id === a.document.id
-                            ? 'bg-[var(--surface-raised)] text-[var(--text-primary)]'
-                            : 'text-[var(--text-secondary)] hover:bg-[var(--surface-raised)]',
-                        ].join(' ')}
-                      >
-                        <BriefIcon mediaType={a.document.media_type} />
-                        <span className="min-w-0 flex-1 truncate">{a.document.title}</span>
-                        {a.plan ? <PlanBadge plan={a.plan} /> : null}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                {filed.groups.map(({ folder, items }) => (
+                  <div key={folder.id} className="mt-2">
+                    <FolderHeading folder={folder} count={items.length} />
+                    {items.length === 0 ? (
+                      <p className="px-2 pb-1 text-[0.75rem] text-[var(--text-muted)]">
+                        Empty. Open a brief and choose this folder for it.
+                      </p>
+                    ) : (
+                      <BriefList
+                        items={items}
+                        currentId={current?.document.id}
+                        onSelect={setSelected}
+                      />
+                    )}
+                  </div>
+                ))}
+                {filed.loose.length > 0 ? (
+                  <div className="mt-2">
+                    {filed.groups.length > 0 ? (
+                      <p className="px-1 pb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                        Not in a folder
+                      </p>
+                    ) : null}
+                    <BriefList
+                      items={filed.loose}
+                      currentId={current?.document.id}
+                      onSelect={setSelected}
+                    />
+                  </div>
+                ) : null}
               </Card>
             ) : null}
           </div>
@@ -163,6 +185,39 @@ export function AssignmentsScreen() {
         </div>
       </PageBody>
     </>
+  );
+}
+
+function BriefList({
+  items,
+  currentId,
+  onSelect,
+}: {
+  items: Assignment[];
+  currentId: string | undefined;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <ul className="space-y-1">
+      {items.map((a) => (
+        <li key={a.document.id}>
+          <button
+            type="button"
+            onClick={() => onSelect(a.document.id)}
+            className={[
+              'flex w-full items-center gap-2 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-[0.8125rem]',
+              currentId === a.document.id
+                ? 'bg-[var(--surface-raised)] text-[var(--text-primary)]'
+                : 'text-[var(--text-secondary)] hover:bg-[var(--surface-raised)]',
+            ].join(' ')}
+          >
+            <BriefIcon mediaType={a.document.media_type} />
+            <span className="min-w-0 flex-1 truncate">{a.document.title}</span>
+            {a.plan ? <PlanBadge plan={a.plan} /> : null}
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -276,15 +331,15 @@ function AssignmentDetail({ courseId, assignment }: { courseId: string; assignme
             ) : null}
             <Button
               size="sm"
-              variant="primary"
               icon={<Sparkles size={14} />}
               loading={draft.isPending}
               disabled={!readable}
+              title="One model drafts a plan that coaches you through it step by step, without doing it for you."
               onClick={() =>
                 draft.mutate({ documentId: assignment.document.id, allowCloud })
               }
             >
-              {plan ? 'Draft again' : 'Draft the guide'}
+              {plan ? 'Draft the coaching plan again' : 'Draft a coaching plan'}
             </Button>
           </div>
         </div>
@@ -312,7 +367,12 @@ function AssignmentDetail({ courseId, assignment }: { courseId: string; assignme
             model: the brief's requirements with matching lecture passages, not written steps.
           </p>
         ) : null}
+        <div className="mt-3">
+          <MoveToFolder courseId={courseId} document={assignment.document} section="assignments" />
+        </div>
       </Card>
+
+      {readable ? <CouncilPanel courseId={courseId} brief={assignment.document} /> : null}
 
       {plan ? <PlanView courseId={courseId} plan={plan} /> : null}
     </div>

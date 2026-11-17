@@ -12,6 +12,9 @@ import type {
   Assignment,
   AttemptReview,
   ConceptMap,
+  CouncilStartRequest,
+  CouncilState,
+  CourseFolder,
   DriveImportRequest,
   DriveImportResult,
   DriveListing,
@@ -87,6 +90,8 @@ export const keys = {
   transcript: (id: string) => ['documents', id, 'transcript'] as const,
   slideNote: (id: string, page: number) => ['documents', id, 'pages', page, 'note'] as const,
   examProfile: (courseId: string) => ['courses', courseId, 'exam-profile'] as const,
+  folders: (courseId: string) => ['courses', courseId, 'folders'] as const,
+  council: (documentId: string) => ['assignments', documentId, 'council'] as const,
   sessions: ['sessions'] as const,
   session: (id: string) => ['sessions', id] as const,
   messages: (id: string) => ['sessions', id, 'messages'] as const,
@@ -321,10 +326,11 @@ export function useUploadDocument() {
       kind?: string;
       allowCloud?: boolean;
       signal?: AbortSignal;
+      folderId?: string;
     }
   >({
-    mutationFn: ({ courseId, file, title, kind, allowCloud, signal }) =>
-      client.uploadDocument(courseId, file, { title, kind, allowCloud, signal }),
+    mutationFn: ({ courseId, file, title, kind, allowCloud, signal, folderId }) =>
+      client.uploadDocument(courseId, file, { title, kind, allowCloud, signal, folderId }),
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({ queryKey: keys.documents(variables.courseId) });
       void queryClient.invalidateQueries({ queryKey: keys.documents(undefined) });
@@ -1146,5 +1152,96 @@ export function useSetDocumentKind() {
       void queryClient.invalidateQueries({ queryKey: keys.examProfile(document.course_id) });
       void queryClient.invalidateQueries({ queryKey: keys.assignments(document.course_id) });
     },
+  });
+}
+
+// --- folders ----------------------------------------------------------------
+export function useFolders(courseId: string | undefined) {
+  const client = useClient();
+  return useQuery<CourseFolder[]>({
+    queryKey: keys.folders(courseId ?? ''),
+    queryFn: () => client.folders(courseId as string),
+    enabled: Boolean(courseId),
+  });
+}
+
+/** Create, rename and delete folders; each answers with the course's folders as they now are. */
+export function useFolderActions(courseId: string) {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  const settle = (folders: CourseFolder[]) => {
+    queryClient.setQueryData(keys.folders(courseId), folders);
+    void queryClient.invalidateQueries({ queryKey: ['documents'] });
+    void queryClient.invalidateQueries({ queryKey: keys.assignments(courseId) });
+  };
+  const create = useMutation<
+    CourseFolder[],
+    Error,
+    { name: string; section: CourseFolder['section'] }
+  >({
+    mutationFn: ({ name, section }) => client.createFolder(courseId, name, section),
+    onSuccess: settle,
+  });
+  const rename = useMutation<CourseFolder[], Error, { id: string; name: string }>({
+    mutationFn: ({ id, name }) => client.renameFolder(id, name),
+    onSuccess: settle,
+  });
+  const remove = useMutation<CourseFolder[], Error, string>({
+    mutationFn: (id) => client.deleteFolder(id),
+    onSuccess: settle,
+  });
+  return { create, rename, remove };
+}
+
+export function useSetDocumentFolder(courseId: string) {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation<DocumentSummary, Error, { id: string; folderId: string }>({
+    mutationFn: ({ id, folderId }) => client.setDocumentFolder(id, folderId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['documents'] });
+      void queryClient.invalidateQueries({ queryKey: keys.folders(courseId) });
+      void queryClient.invalidateQueries({ queryKey: keys.assignments(courseId) });
+    },
+  });
+}
+
+// --- models working an assignment out together ------------------------------
+const councilBusy = (state: CouncilState | undefined) =>
+  [state?.guide, state?.solution].some(
+    (run) => run && (run.status === 'queued' || run.status === 'running'),
+  );
+
+/** The seats, the guide and the completed work. Polls while a discussion runs. */
+export function useCouncil(documentId: string | undefined, allowCloud: boolean) {
+  const client = useClient();
+  return useQuery<CouncilState>({
+    queryKey: [...keys.council(documentId ?? ''), allowCloud],
+    queryFn: () => client.councilState(documentId as string, allowCloud),
+    enabled: Boolean(documentId),
+    refetchInterval: (query) => (councilBusy(query.state.data) ? 2500 : false),
+  });
+}
+
+export function useStartCouncil(documentId: string, allowCloud: boolean) {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation<
+    CouncilState,
+    Error,
+    { kind: 'guide' | 'solution' } & CouncilStartRequest
+  >({
+    mutationFn: ({ kind, ...body }) => client.startCouncil(documentId, kind, body),
+    onSuccess: (state) =>
+      queryClient.setQueryData([...keys.council(documentId), allowCloud], state),
+  });
+}
+
+export function useStopCouncil(documentId: string) {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation<CouncilState, Error, 'guide' | 'solution'>({
+    mutationFn: (kind) => client.stopCouncil(documentId, kind),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: keys.council(documentId) }),
   });
 }

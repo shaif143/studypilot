@@ -29,8 +29,8 @@ Nothing in the suite needs the network, a model download, or a running server.
 
 | Suite | Tests | Status |
 | --- | --- | --- |
-| Backend (`services/api/tests`) | 429 | ✅ all passing (414 + 15 PostgreSQL integration) |
-| Frontend (`tests/frontend`) | 162 | ✅ all passing |
+| Backend (`services/api/tests`) | 456 | ✅ all passing (441 + 15 PostgreSQL integration) |
+| Frontend (`tests/frontend`) | 170 | ✅ all passing |
 | ESLint | — | ✅ clean |
 | TypeScript | — | ✅ clean |
 | Ruff lint + format | — | ✅ clean |
@@ -101,6 +101,8 @@ simulate quitting and relaunching.
 | `test_exam_analysis.py` | A paper's format is counted from its text (multiple choice against written, marks, time allowed); a forecast is clamped to 70% with one paper and never reaches certainty, confidence is capped by the number of papers, malformed entries are dropped; passages are weighed by the topics likely to be asked; the examiner's delimited reply is read without JSON so LaTeX survives, a calculation with no single number is marked against its model answer; papers are analysed and kept, a paper added later marks the analysis out of date; without a model only the format is counted; practice follows the papers (their forms rather than the request's, this year's lectures rather than the papers as material, earlier questions passed so they are not repeated) and can be switched off; only a question that names the one it was modelled on is a past-paper variation; flashcards take a multiple-choice paper's form |
 | `test_metafile.py` | Metafiles built record by record: a polyline is a vector path in the pen's colour, mapped from the file's own units onto its rectangle; text is text; a bitmap wrapped in a WMF or an EMF is placed as an image; an undrawn object still takes its slot in the object table; empty, foreign and truncated files draw nothing and say so; an Office picture record is unwrapped and inflated, and placed by the frame Office stored |
 | `test_notebook_import.py` | A notebook built cell by cell becomes pages of its text, code, printed output, error trace and figure, with Markdown laid out rather than shown as markup, LaTeX left as written and a section heading opening a page; a picture pasted into a Markdown cell is kept; long output is clipped and a progress bar keeps its last state; broken, empty and non-notebook files are refused. An HTML page keeps its structure and **loses everything that runs**: scripts, styles, navigation, forms, hidden text and export furniture are absent from the text and from the PDF's bytes, the embedded picture is placed, the remote one is never fetched and that is reported. HTML is recognised by its opening, not only its name. Through the API both upload, index and are served to the reader as PDF, and ligatures are split so `flow` is stored as `flow`. Drive offers a notebook whatever type it reports for one |
+| `test_council.py` | Scripted models that answer by the stage they are told they are in. A reply is read by its blocks and multi-line fields. An accepted issue is settled without a judge; a defended one is ruled on by a model that took neither side and saw both arguments; a dismissed one is not applied; two models have no judge and the issue stays contested for the lead to decide. Its own draft, an unknown author and a claim with no reason are not issues. Objections send the version back until everyone agrees; when they never agree the result says so and keeps the objections; **an objection is argued and ruled on, so a wrong one is overruled instead of blocking**, and an upheld one is worked in; a vote that cannot be read, or `agree` with an objection attached, is not agreement. A model that fails is left out and said to be, its silence not counted as a vote; a hosted model is retried after a temporary failure and a local one is not; the local model is asked for a short answer in a short time; the best-voted draft is built on and a tie goes to the first seat; a stop is noticed between stages and while a slow model is still answering. Through the API: the four seats and who is ready; completing is refused before a guide exists; a guide is discussed, kept with its members, citations and every event, and the assignment is then completed by it from the chosen references; fewer than two models, a non-brief, and assignment help switched off are refused. Folders: created per section, duplicates refused, a file filed and unfiled, another course's folder refused, deleted with the files left in the course, uploaded into directly |
+| `test_openai_provider.py` | The newest chat model is chosen from what the account lists (no snapshots, previews, audio, image, code or embedding models); models are listed once and never without a key; a key that lists nothing is said to be unusable; a refused temperature is retried without one and room is left for reasoning; an error and an empty answer are failures, not answers; the local model's context window is sized to the prompt within fixed bounds |
 | `test_security.py` | Auth required on every route, token file permissions, repository-level ownership, 404-not-403 for another user's rows, **path traversal** on previews, disguised uploads, size limits, the two-part consent gate, provider egress declarations, privacy defaults all off, prompt-injection containment, **fabricated citation markers being stripped**, ungrounded LLM questions rejected, export and delete-everything, webcam attention refused, log redaction; every method any route uses passes a cross-origin preflight from the desktop window's origin |
 
 ### What the frontend suite covers
@@ -269,6 +271,10 @@ Stated plainly rather than implied by omission.
   **Study this** leads to practice on the lecture, that past papers have
   their own screen, and that the sidebar hides, stays hidden across a reload,
   returns by button and by shortcut, with the Ask bar fully in view each way.
+  The assignment page is checked for the four model seats, the references
+  chooser, the two steps (disabled, with the reason, when fewer than two models
+  are ready) and folders: one made among the assignments with the brief filed
+  in it, one made in the course with a lecture filed in it.
   Drag-to-resize, keyboard navigation and the desktop shell are still
   hand-verified. Run with `npm run test:e2e` (needs `npx playwright install
   chromium` once).
@@ -278,6 +284,14 @@ Stated plainly rather than implied by omission.
   (eight WMF, one EMF: all drawn). Arcs, clipping and hatched fills are not
   implemented, and equation text is set in a standard font with the file's
   own character spacing ignored.
+- **The discussion between models is tested with scripted models.** That
+  proves the procedure, not the quality of what real models say in it. It was
+  run for real twice: Claude, Gemini and a local `llama3.1:8b` on a guide
+  (ten issues raised, all settled, about twenty-seven minutes, most of it
+  waiting for the local model) and Claude with Gemini on a guide and a
+  completed assignment (three minutes for the latter, nine issues, agreed).
+  **ChatGPT was never called for real**: no key was available, so its request
+  shape is tested only against a fake.
 - **No automated test calls a real model.** The planner and the readers are
   tested with scripted providers, and the Anthropic and Gemini request
   bodies are pinned by intercepting the HTTP call. The real models were run

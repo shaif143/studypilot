@@ -474,6 +474,11 @@ const KEY_LABELS: Record<string, { label: string; hint: string; placeholder: str
     hint: 'From aistudio.google.com → Get API key.',
     placeholder: 'AIza…',
   },
+  openai: {
+    label: 'ChatGPT (OpenAI) API key',
+    hint: 'From platform.openai.com → API keys. This is separate from a ChatGPT subscription.',
+    placeholder: 'sk-…',
+  },
   google_client_id: {
     label: 'OAuth client ID',
     hint: 'Ends in .apps.googleusercontent.com.',

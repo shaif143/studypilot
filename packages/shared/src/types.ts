@@ -133,6 +133,8 @@ export interface DocumentSummary {
   source: 'upload' | 'google_drive' | 'local_folder';
   /** The file's id at its source; empty for an upload. */
   source_ref: string;
+  /** The folder it is filed in within its course, if any. */
+  folder_id?: string | null;
   created_at: string;
 }
 
@@ -959,4 +961,137 @@ export interface ExamProfile {
   stale: boolean;
   warnings: string[];
   updated_at: string | null;
+}
+
+// --- folders ----------------------------------------------------------------
+/** A folder the student made to organise a course's lectures or its assignments. */
+export interface CourseFolder {
+  id: string;
+  course_id: string;
+  name: string;
+  section: 'course' | 'assignments';
+  document_count: number;
+}
+
+// --- models working an assignment out together ------------------------------
+/** One of the four models, and whether it can take part right now. */
+export interface CouncilSeat {
+  key: 'anthropic' | 'openai' | 'gemini' | 'ollama';
+  name: string;
+  model: string;
+  ready: boolean;
+  local: boolean;
+  /** Why it cannot take part, or what using it means. */
+  detail: string;
+}
+
+export interface CouncilIssue {
+  id: number;
+  reviewer: string;
+  author: string;
+  kind: 'mistake' | 'better';
+  where: string;
+  problem: string;
+  reason: string;
+  fix: string;
+  /** How it ended: accepted by its author, upheld or dismissed by a judge, or left contested. */
+  status: 'open' | 'accepted' | 'defended' | 'upheld' | 'dismissed' | 'contested';
+  response: string;
+  judge: string;
+  ruling: string;
+  /** "review" for an issue with a draft; "vote" for an objection to the agreed version. */
+  stage?: 'review' | 'vote';
+  round?: number;
+}
+
+export interface CouncilObjection {
+  member: string;
+  where: string;
+  problem: string;
+  reason: string;
+  fix: string;
+  /** For an overruled objection: who ruled, and why. */
+  judge?: string;
+  ruling?: string;
+}
+
+/** One thing said in a discussion, in the order it was said. */
+export type CouncilEvent =
+  | { type: 'draft'; phase: string; member: string; markdown: string }
+  | { type: 'review'; phase: string; member: string; issues: CouncilIssue[]; best: string }
+  | {
+      type: 'defence';
+      phase: string;
+      member: string;
+      responses: Array<{ issue: number; stance: string; reason: string }>;
+    }
+  | {
+      type: 'ruling';
+      phase: string;
+      member: string;
+      rulings: Array<{ issue: number; ruling: string; reason: string }>;
+    }
+  | { type: 'synthesis'; phase: string; member: string; markdown: string }
+  | {
+      type: 'vote';
+      phase: string;
+      member: string;
+      round: number;
+      vote: 'agree' | 'object';
+      objections: CouncilObjection[];
+    }
+  | { type: 'revision'; phase: string; member: string; round: number; markdown: string }
+  | { type: 'error'; phase: string; member: string; text: string }
+  | { type: 'issues'; phase: string; issues: CouncilIssue[] };
+
+export interface CouncilConsensus {
+  /** Every model voted for it. */
+  unanimous?: boolean;
+  /** Nothing is left open: everyone agreed, or what was objected to was ruled against. */
+  settled?: boolean;
+  /** Objections to the agreed version that a neutral model ruled against. */
+  overruled?: CouncilObjection[];
+  rounds?: number;
+  lead?: string;
+  agreed?: string[];
+  took_part?: string[];
+  dropped?: Array<{ member: string; phase: string; reason: string }>;
+  objections?: CouncilObjection[];
+  issues_raised?: number;
+  issues_accepted?: number;
+  issues_upheld?: number;
+  issues_dismissed?: number;
+  issues_contested?: number;
+}
+
+export interface CouncilRun {
+  id: string;
+  document_id: string;
+  kind: 'guide' | 'solution';
+  status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+  phase: string;
+  phase_detail: string;
+  members: Array<{ key: string; name: string; model: string; local: boolean }>;
+  reference_document_ids: string[];
+  citations: Citation[];
+  events: CouncilEvent[];
+  result_markdown: string;
+  consensus: CouncilConsensus;
+  warnings: string[];
+  error: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CouncilState {
+  seats: CouncilSeat[];
+  guide: CouncilRun | null;
+  solution: CouncilRun | null;
+}
+
+export interface CouncilStartRequest {
+  allow_cloud?: boolean;
+  /** The files to use as references. Empty means every lecture in the course. */
+  reference_document_ids?: string[];
+  members?: Array<CouncilSeat['key']>;
 }

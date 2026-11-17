@@ -2,6 +2,9 @@ import type {
   ArchiveUploadResult,
   AttemptReview,
   ConceptMap,
+  CouncilStartRequest,
+  CouncilState,
+  CourseFolder,
   DriveConnectResult,
   DriveImportRequest,
   DriveImportResult,
@@ -288,11 +291,18 @@ export class StudyPilotClient {
   uploadDocument = (
     courseId: string,
     file: File,
-    options: { title?: string; kind?: string; allowCloud?: boolean; signal?: AbortSignal } = {},
+    options: {
+      title?: string;
+      kind?: string;
+      allowCloud?: boolean;
+      signal?: AbortSignal;
+      folderId?: string;
+    } = {},
   ) => {
     const form = new FormData();
     form.append('file', file);
     if (options.title) form.append('title', options.title);
+    if (options.folderId) form.append('folder_id', options.folderId);
     if (options.kind) form.append('kind', options.kind);
     // Image and audio briefs are read by a model; this is the per-request
     // consent for a cloud one. PDFs ignore it.
@@ -565,6 +575,40 @@ export class StudyPilotClient {
     this.request<SlideNote>(`/api/documents/${documentId}/pages/${page}/note`, {
       method: 'PUT',
       body: { text },
+    });
+
+  // --- folders -------------------------------------------------------------
+  folders = (courseId: string) =>
+    this.request<CourseFolder[]>(`/api/courses/${courseId}/folders`);
+  createFolder = (courseId: string, name: string, section: CourseFolder['section']) =>
+    this.request<CourseFolder[]>(`/api/courses/${courseId}/folders`, {
+      method: 'POST',
+      body: { name, section },
+    });
+  renameFolder = (folderId: string, name: string) =>
+    this.request<CourseFolder[]>(`/api/folders/${folderId}`, { method: 'PATCH', body: { name } });
+  deleteFolder = (folderId: string) =>
+    this.request<CourseFolder[]>(`/api/folders/${folderId}`, { method: 'DELETE' });
+  /** File a document in a folder of its course; an empty id takes it out. */
+  setDocumentFolder = (id: string, folderId: string) =>
+    this.request<DocumentSummary>(`/api/documents/${id}`, {
+      method: 'PATCH',
+      body: { folder_id: folderId },
+    });
+
+  // --- models working an assignment out together ---------------------------
+  councilState = (documentId: string, allowCloud: boolean) =>
+    this.request<CouncilState>(`/api/assignments/${documentId}/council`, {
+      query: { allow_cloud: allowCloud },
+    });
+  startCouncil = (documentId: string, kind: 'guide' | 'solution', body: CouncilStartRequest) =>
+    this.request<CouncilState>(`/api/assignments/${documentId}/council/${kind}`, {
+      method: 'POST',
+      body,
+    });
+  stopCouncil = (documentId: string, kind: 'guide' | 'solution') =>
+    this.request<CouncilState>(`/api/assignments/${documentId}/council/${kind}`, {
+      method: 'DELETE',
     });
 
   // --- past papers --------------------------------------------------------

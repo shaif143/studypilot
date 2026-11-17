@@ -126,10 +126,37 @@ test('a PowerPoint deck, the concept map and the assignment coach are all wired'
   const uploadBrief = page.getByRole('button', { name: 'Upload brief' });
   await expect(uploadBrief).toBeEnabled();
   await uploadBrief.click();
-  await expect(page.getByRole('button', { name: 'Draft the guide' })).toBeEnabled({
+  await expect(page.getByRole('button', { name: 'Draft a coaching plan' })).toBeEnabled({
     timeout: 60_000,
   });
-  await page.getByRole('button', { name: 'Draft the guide' }).click();
+
+  // --- the four models, the references and the two steps are all on the brief ----
+  await expect(page.getByText('Work it out with all your models')).toBeVisible();
+  const seats = page.getByRole('list', { name: 'Models' }).getByRole('listitem');
+  await expect(seats).toHaveCount(4);
+  await expect(seats).toContainText(['Claude', 'ChatGPT', 'Gemini', 'Local model']);
+  // This run has no cloud model, so there is no one to discuss with: the two
+  // steps are offered but cannot start, and the screen says what is missing.
+  await expect(page.getByText(/A discussion needs at least two models/)).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Work out the step-by-step guide' }),
+  ).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Complete the assignment' })).toBeDisabled();
+  await page.getByRole('button', { name: /References:/ }).click();
+  await expect(page.getByRole('checkbox', { name: /sample-lecture-cnn/ }).first()).toBeChecked();
+  await page.getByRole('button', { name: /References:/ }).click();
+
+  // --- a folder in the assignments section, and the brief filed in it ------------
+  await page.getByRole('button', { name: 'New folder' }).click();
+  await page.getByRole('textbox', { name: 'Folder name' }).fill('Coursework 1');
+  await page.getByRole('button', { name: 'Create folder' }).click();
+  await expect(page.getByRole('heading', { name: 'Coursework 1' })).toBeVisible();
+  await expect(page.getByText('Empty. Open a brief and choose this folder for it.')).toBeVisible();
+  await page.getByRole('combobox', { name: /^Folder for / }).selectOption({ label: 'Coursework 1' });
+  await expect(page.getByText('Empty. Open a brief and choose this folder for it.')).toHaveCount(0);
+  await expect(page.getByText('1 file', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Draft a coaching plan' }).click();
   const checkButton = page.getByRole('button', { name: 'Check my attempt' }).first();
   await expect(checkButton).toBeVisible({ timeout: 60_000 });
   await checkButton.click();
@@ -223,6 +250,17 @@ test('a course opens as slides, a slide opens explained beside its original', as
   await expect(page.getByRole('link', { name: 'Ask about this course' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Past exams' })).toBeVisible();
 
+  // --- a folder in the course: made here, and a lecture filed in it ---------------
+  await page.getByRole('button', { name: 'New folder' }).click();
+  await page.getByRole('textbox', { name: 'Folder name' }).fill('Week 7');
+  await page.getByRole('button', { name: 'Create folder' }).click();
+  const week = page.getByRole('region', { name: 'Folder Week 7' });
+  await expect(week.getByRole('heading', { name: 'Week 7' })).toBeVisible();
+  await expect(week.getByRole('link', { name: 'Add files here' })).toHaveAttribute(
+    'href',
+    /\/library\?course=.+&folder=.+/,
+  );
+
   // --- a lecture starts folded, with "Explain all slides" beside its arrow -------
   const lecture = page.getByRole('button', { name: /^Open / }).first();
   await expect(lecture).toHaveAttribute('aria-expanded', 'false');
@@ -230,6 +268,13 @@ test('a course opens as slides, a slide opens explained beside its original', as
   await expect(page.getByRole('button', { name: 'Explain all slides' }).first()).toBeVisible();
   await lecture.click();
   await expect(page.getByText('Class video transcription').first()).toBeVisible();
+  // Filed in the folder from inside the open lecture; it moves under the folder's heading.
+  await page
+    .getByRole('combobox', { name: /^Folder for / })
+    .first()
+    .selectOption({ label: 'Week 7' });
+  await expect(week.getByRole('button', { name: /^Open |^Close / }).first()).toBeVisible();
+  await week.getByRole('button', { name: /^Open / }).first().click();
   const padding = page.getByRole('link', { name: /Padding/ }).first();
   await expect(padding).toBeVisible({ timeout: 30_000 });
   await padding.click();

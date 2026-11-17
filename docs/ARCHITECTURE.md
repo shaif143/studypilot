@@ -151,7 +151,8 @@ provider names.
 | `extractive` *(default)* | **No** | No | Ranks and quotes sentences from the student's own material. Cannot hallucinate; cannot teach. |
 | `ollama` | Yes | No | Local runtime, optional install. Fine for tutor turns; too slow for a plan with `llama3.1:8b` on an 8 GB Mac (13 minutes for one call). Text only — it refuses image and audio attachments rather than ignoring them. |
 | `anthropic` | Yes | **Yes** | Requires consent and `ANTHROPIC_API_KEY`. Reads images. The default for assignment guides when a key is present. No `temperature` is sent — Claude 5.x rejects it. |
-| `gemini` | Yes | **Yes** | Requires consent and `GEMINI_API_KEY`. Reads images and audio through the general model (Google's dedicated transcribe model rejects system instructions and answered a bare request with nothing, so it is not used). Replaced OpenAI. |
+| `gemini` | Yes | **Yes** | Requires consent and `GEMINI_API_KEY`. Reads images and audio through the general model (Google's dedicated transcribe model rejects system instructions and answered a bare request with nothing, so it is not used). |
+| `openai` | Yes | **Yes** | ChatGPT's models. Requires consent and `OPENAI_API_KEY`. No model id is hard-coded: the account's own list is fetched (cached fifteen minutes), filtered to chat models and ranked newest first, and the first is the default. Reasoning models refuse a temperature, so a refusal is retried without one, and the output budget is doubled to leave room for thinking. Text only. |
 
 **Where a cloud key lives on the desktop.** The desktop engine runs on the
 Mac and never talks to the hosted API, so a cloud provider's key has to be
@@ -508,6 +509,70 @@ about; markers are verified like the planner's. Reviews persist in
 `assignment_attempts`, oldest first, so the ladder survives a restart and the
 student can see how their reasoning changed. Without a generative provider
 the route answers 409 with what to do, not a hollow review.
+
+## Assignments worked out by several models
+
+`app/council` runs a discussion between models; `engine.py` is the procedure,
+`prompts.py` what each model is told at each stage, `service.py` the job.
+
+Four seats, in a fixed order: Claude, ChatGPT, Gemini, the local model. A seat
+is filled when its provider is available and, for a hosted one, the two-part
+consent gate is open. A discussion needs two.
+
+```
+draft ─▶ review ─▶ answer ─▶ judge ─▶ agreed version ─▶ vote ─┬─▶ done
+ (all)    (all)   (authors)  (neutral)     (lead)       (others) │
+                                                  ▲              │ objections:
+                                                  └── revise ◀───┘ answer ─▶ judge
+```
+
+1. **Draft.** Every model answers alone, so one model's mistake is not copied.
+2. **Review.** Every model reads the others' drafts and raises issues — a
+   mistake or a better approach — each with a reason and a reference, and
+   names the draft that is best to build on. An issue about its own draft, an
+   unknown author or with no reason is discarded.
+3. **Answer and judge.** Each author accepts an issue or defends the draft. A
+   defended issue goes to a model that is neither its author nor its
+   reviewer, which upholds or dismisses it. With two models there is no third:
+   the issue stays contested and whoever writes the agreed version decides it
+   on its merits.
+4. **The agreed version.** The author of the best-voted draft (a tie goes to
+   the earlier seat) writes one version with every settled correction applied.
+5. **Vote.** Every other model agrees or objects. An objection is not a veto:
+   the lead answers it and a neutral model rules, as in stage 3. Objections
+   that stand are worked in and voted on again, three rounds at most.
+
+The outcome records how it ended: `unanimous` (everyone voted for it),
+`settled` (nothing left open, possibly because an objection was ruled
+against, which is listed with its ruling), or neither, in which case the
+remaining objections are kept beside the answer. A vote that cannot be read
+is not agreement, and a model that failed to vote is not counted as agreeing.
+
+Replies that code has to read — reviews, defences, rulings, votes — are
+delimited text (`=== ISSUE ===` blocks of `field: value` lines), not JSON,
+because the answers are full of LaTeX.
+
+A hosted model that fails is asked twice more before it is left out of a
+stage; "overloaded, try again" is the commonest failure and lasts seconds. A
+local model writes a few words a second, so it is asked for at most 900
+tokens and given five minutes, is not retried, and can be unticked for a run.
+Answers are taken as they arrive, so a fast model's draft is on screen while a
+slow one is still writing, and a stop is noticed while waiting.
+
+The job (`service.py`) runs in a thread with its own session and writes each
+draft, issue, ruling and vote to its `council_runs` row as it happens; the
+assignment page polls the row. The references are the documents the student
+ticked, limited to the brief's course: one retrieval per requirement of the
+brief, merged and numbered, so that each part of the assignment brings its own
+passages. Completing the assignment requires a guide the models have already
+agreed, and is written by following it.
+
+## Folders
+
+`course_folders` groups a course's files, among its lectures or among its
+assignments (`section`). `documents.folder_id` is a plain column, not a
+foreign key: deleting a folder clears it and leaves the documents in the
+course. A document can only be filed in a folder of its own course.
 
 ## Concept map
 

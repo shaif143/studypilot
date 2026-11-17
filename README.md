@@ -32,6 +32,8 @@ This is an honest list. Everything marked ✅ was built, run and tested; see
 | Knowledge tracing | ✅ Bayesian Knowledge Tracing with explicit uncertainty |
 | Socratic assignment coaching | ✅ Progressive hints, per-course integrity policy |
 | Assignment guide | ✅ Upload a brief (PDF, image or audio) → step-by-step plan; every step is either grounded in the course's lectures with citations, or held for your approval with a disclosure saying what the slides do not cover |
+| Assignments worked out by several models | ✅ Claude, ChatGPT, Gemini and a local model (whichever are set up, two at least) work a brief out together in two steps: they agree a step-by-step guide, then complete the assignment by following it. Each step is a discussion: every model drafts alone, they review each other's drafts with a reason and a reference for each issue, an author accepts an issue or defends the draft, a defended issue is ruled on by a model that took neither side, the best-voted draft becomes one agreed version, and everyone votes on it. An objection in the vote is argued and ruled on the same way, so one model objecting wrongly is overruled rather than obeyed. The result says how it ended (all agreed, agreed by ruling, or not agreed, with what is still objected to) and the whole discussion is kept beside it. The student picks which files and folders the models may use as references |
+| Folders | ✅ Folders inside a course, among its lectures and among its assignments: create, rename, delete (the files stay), file a lecture or a brief in one, upload straight into one, and tick a whole folder as references |
 | Image and audio briefs | ✅ Read by a vision model (Anthropic or Gemini, with consent) and by a local Whisper model or Gemini for audio — the document records which, and the upload says to check the transcript |
 | Scanned PDFs | ✅ A PDF with no text layer is read page by page by the vision model (with the same consent, up to 40 pages); indexed, searchable and cited like any other, and the upload says it was read from images |
 | Claude / Gemini on the Mac | ✅ Paste the key in Settings; it is kept in the macOS Keychain, never a file, and only sent to that provider. Pick the model per provider (Opus 5.5 by default; Fable 5.1, Sonnet 5.5, Haiku 5.5, or any id) |
@@ -139,7 +141,7 @@ credentials are configured.
 npm run check
 ```
 
-Runs the TypeScript typecheck, ESLint, 162 frontend unit tests, Ruff, and 414
+Runs the TypeScript typecheck, ESLint, 170 frontend unit tests, Ruff, and 441
 backend tests. The 15 PostgreSQL integration tests need a database:
 
 ```bash

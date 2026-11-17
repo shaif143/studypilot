@@ -67,6 +67,7 @@ import {
   useDeleteDocument,
   useDocuments,
   useDriveFiles,
+  useFolders,
   useGoogleDrive,
   useImportFromDrive,
   useLinkLocalFolder,
@@ -135,6 +136,10 @@ export function LibraryScreen() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const courseFilter = params.get('course') ?? undefined;
+  // Reached from a folder's "Add files here": uploads are filed in that folder.
+  const uploadFolder = courseFilter ? (params.get('folder') ?? undefined) : undefined;
+  const folders = useFolders(courseFilter);
+  const intoFolder = folders.data?.find((folder) => folder.id === uploadFolder);
 
   const { platform } = useApp();
   const courses = useCourses();
@@ -228,6 +233,11 @@ export function LibraryScreen() {
           >
             ← Back to the course
           </Link>
+        ) : null}
+        {intoFolder ? (
+          <Callout tone="info" className="mb-3" icon={<Folder size={14} />}>
+            Files you upload here go into the folder “{intoFolder.name}”.
+          </Callout>
         ) : null}
         <div className="space-y-4">
           {lastBatch ? (
@@ -396,6 +406,7 @@ export function LibraryScreen() {
         <UploadDialog
           open={uploadFor !== null}
           courseId={uploadFor}
+          folderId={uploadFolder}
           courses={courses.data ?? []}
           onClose={() => setUploadFor(null)}
           onUploaded={(batch) => {
@@ -561,12 +572,15 @@ function SingleSummary({ result, onDismiss }: { result: UploadResult; onDismiss:
 function UploadDialog({
   open,
   courseId,
+  folderId,
   courses,
   onClose,
   onUploaded,
 }: {
   open: boolean;
   courseId: string | null;
+  /** The folder of the course to file the uploads in, when reached from one. */
+  folderId?: string;
   courses: Array<{ id: string; title: string }>;
   onClose: () => void;
   onUploaded: (batch: UploadBatch) => void;
@@ -664,6 +678,8 @@ function UploadDialog({
           kind,
           allowCloud: cloudForThisUpload,
           signal: controller.signal,
+          // Only into the course the folder belongs to.
+          folderId: folderId && effectiveCourse === courseId ? folderId : undefined,
         });
         entries.push({ file, label, result });
       } catch (error) {

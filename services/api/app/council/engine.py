@@ -34,9 +34,10 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from collections import Counter
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -50,7 +51,14 @@ MAX_VOTE_ROUNDS = 3
 MAX_ISSUES_PER_REVIEW = 8
 #: Characters of brief, guide and references a model is given.
 CLOUD_BUDGET = 60_000
-LOCAL_BUDGET = 9_000
+LOCAL_BUDGET = 6_000
+#: A model on this machine writes a few words a second. Asked for a long
+#: answer it would hold every stage up for minutes, so it is asked for a short
+#: one and given a short time: its part is a second opinion, not the essay.
+LOCAL_MAX_TOKENS = 900
+LOCAL_TIMEOUT = 300.0
+#: Seconds to wait before asking a hosted model again after it fails.
+RETRY_DELAYS: tuple[float, ...] = (4.0, 12.0)
 
 Emit = Callable[[dict[str, Any]], None]
 
@@ -80,7 +88,10 @@ class Member:
 
     @property
     def timeout(self) -> float:
-        return 900.0 if self.local else 300.0
+        return LOCAL_TIMEOUT if self.local else 300.0
+
+    def tokens(self, asked: int) -> int:
+        return min(asked, LOCAL_MAX_TOKENS) if self.local else asked
 
 
 @dataclass
@@ -124,9 +135,23 @@ class Issue:
     response: str = ""
     judge: str = ""
     ruling: str = ""
+    #: "review" for an issue with a draft; "vote" for an objection to the agreed version.
+    stage: str = "review"
+    round: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    def as_objection(self) -> dict[str, str]:
+        return {
+            "member": self.reviewer,
+            "where": self.where,
+            "problem": self.problem,
+            "reason": self.reason,
+            "fix": self.fix,
+            "judge": self.judge,
+            "ruling": self.ruling,
+        }
 
     def stated(self) -> str:
         return (
@@ -145,21 +170,30 @@ class Outcome:
     rounds: int
     agreed: list[str]
     objections: list[dict[str, str]] = field(default_factory=list)
+    #: Objections to the agreed version that a neutral model ruled against.
+    overruled: list[dict[str, str]] = field(default_factory=list)
     issues: list[Issue] = field(default_factory=list)
     took_part: list[str] = field(default_factory=list)
     dropped: list[dict[str, str]] = field(default_factory=list)
 
+    @property
+    def settled(self) -> bool:
+        """Nothing is left open: everyone agreed, or what they objected to was ruled on."""
+        return self.rounds > 0 and not self.objections
+
     def consensus(self) -> dict[str, Any]:
-        settled = Counter(issue.status for issue in self.issues)
+        settled = Counter(issue.status for issue in self.issues if issue.stage == "review")
         return {
             "unanimous": self.unanimous,
+            "settled": self.settled,
+            "overruled": self.overruled,
             "rounds": self.rounds,
             "lead": self.lead,
             "agreed": self.agreed,
             "took_part": self.took_part,
             "dropped": self.dropped,
             "objections": self.objections,
-            "issues_raised": len(self.issues),
+            "issues_raised": sum(settled.values()),
             "issues_accepted": settled["accepted"],
             "issues_upheld": settled["upheld"],
             "issues_dismissed": settled["dismissed"],
@@ -247,20 +281,38 @@ class Discussion:
     def _ask(
         self, member: Member, system: str, user: str, *, max_tokens: int, temperature: float
     ) -> str:
-        result = member.provider.generate(
-            GenerationRequest(
-                system=system,
-                user=user,
-                question=self.task.brief_title,
-                max_output_tokens=max_tokens,
-                temperature=temperature,
-                timeout_seconds=member.timeout,
-            )
+        """One model's answer. A hosted model that fails is asked again before it is given up on.
+
+        "Overloaded, try again later" is the commonest failure of a hosted
+        model and lasts seconds; dropping a model from a whole discussion for
+        it would leave the others unchecked. A local model is not retried: when
+        it fails it has run out of time, and asking again would take as long.
+        """
+        request = GenerationRequest(
+            system=system,
+            user=user,
+            question=self.task.brief_title,
+            max_output_tokens=max_tokens,
+            temperature=temperature,
+            timeout_seconds=member.timeout,
         )
-        text = (result.text or "").strip()
-        if not text:
-            raise ValueError("it returned nothing")
-        return text
+        delays = () if member.local else RETRY_DELAYS
+        for attempt in range(len(delays) + 1):
+            try:
+                text = (member.provider.generate(request).text or "").strip()
+                if text:
+                    return text
+                failure: Exception = ValueError("it returned nothing")
+            except Exception as exc:
+                failure = exc
+            if attempt == len(delays) or self._should_stop():
+                raise failure
+            log.info(
+                "council_member_retry",
+                extra={"member": member.name, "attempt": attempt + 1, "reason": str(failure)[:160]},
+            )
+            time.sleep(delays[attempt])
+        raise AssertionError("unreachable")  # pragma: no cover
 
     def _ask_each(
         self,
@@ -269,36 +321,61 @@ class Discussion:
         *,
         max_tokens: int,
         temperature: float,
+        on_reply: Callable[[str, str], None] | None = None,
     ) -> dict[str, str]:
-        """Ask several members at once. One that fails is reported and left out of the stage."""
+        """Ask several members at once, taking each answer as it arrives.
+
+        One that fails is reported and left out of the stage. A stop request is
+        noticed while waiting, not only between stages: a slow model must not
+        keep a discussion the student has stopped alive for minutes.
+        """
         by_name = {member.name: member for member in self.members}
         replies: dict[str, str] = {}
         if not calls:
             return replies
-        with ThreadPoolExecutor(max_workers=len(calls), thread_name_prefix="council") as pool:
-            futures = {
-                name: pool.submit(
-                    self._ask,
-                    by_name[name],
-                    system,
-                    user,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                )
-                for name, (system, user) in calls.items()
-            }
-            for name, future in futures.items():
-                try:
-                    replies[name] = future.result()
-                except Exception as exc:
-                    reason = str(exc)[:300] or exc.__class__.__name__
-                    log.warning("council_member_failed", extra={"member": name, "phase": phase})
-                    self._emit({"type": "error", "phase": phase, "member": name, "text": reason})
-                    self.dropped.append({"member": name, "phase": phase, "reason": reason})
+        pool = ThreadPoolExecutor(max_workers=len(calls), thread_name_prefix="council")
+        pending: dict[Future[str], str] = {
+            pool.submit(
+                self._ask,
+                by_name[name],
+                system,
+                user,
+                max_tokens=by_name[name].tokens(max_tokens),
+                temperature=temperature,
+            ): name
+            for name, (system, user) in calls.items()
+        }
+        try:
+            while pending:
+                finished, _ = wait(list(pending), timeout=1.0, return_when=FIRST_COMPLETED)
+                if self._should_stop():
+                    raise DiscussionStoppedError
+                for future in finished:
+                    name = pending.pop(future)
+                    try:
+                        replies[name] = future.result()
+                    except Exception as exc:
+                        reason = str(exc)[:300] or exc.__class__.__name__
+                        log.warning("council_member_failed", extra={"member": name, "phase": phase})
+                        self._emit(
+                            {"type": "error", "phase": phase, "member": name, "text": reason}
+                        )
+                        self.dropped.append({"member": name, "phase": phase, "reason": reason})
+                    else:
+                        if on_reply is not None:
+                            on_reply(name, replies[name])
+                    if finished and pending and len(calls) > 1:
+                        waiting = ", ".join(sorted(pending.values()))
+                        self._emit(
+                            {"type": "phase", "phase": phase, "detail": f"Waiting for {waiting}."}
+                        )
+        finally:
+            # Calls still in flight finish on their own; nothing waits for them.
+            pool.shutdown(wait=False, cancel_futures=True)
         return replies
 
     def _drafts_block(self, drafts: dict[str, str], reader: Member) -> str:
-        room = max(1500, reader.budget // max(1, len(drafts)))
+        room = max(1200, reader.budget // max(1, len(drafts)))
         parts = []
         for name, text in drafts.items():
             label = "your own draft" if name == reader.name else f"draft by {name}"
@@ -315,16 +392,22 @@ class Discussion:
             for member in self.members
         }
         long = self.task.kind == "solution"
-        drafts = self._ask_each(
-            "propose", calls, max_tokens=7000 if long else 3600, temperature=0.3
+        arrived = self._ask_each(
+            "propose",
+            calls,
+            max_tokens=7000 if long else 3600,
+            temperature=0.3,
+            # Shown as each arrives: a fast model's draft is readable while a slow one writes.
+            on_reply=lambda name, text: self._emit(
+                {"type": "draft", "phase": "propose", "member": name, "markdown": text}
+            ),
         )
-        for name, text in drafts.items():
-            self._emit({"type": "draft", "phase": "propose", "member": name, "markdown": text})
-        if not drafts:
+        if not arrived:
             raise NoAnswerError("None of the models produced a draft.")
-        # Only a model that drafted has a position to argue from.
-        self.members = [member for member in self.members if member.name in drafts]
-        return drafts
+        # Only a model that drafted has a position to argue from; and the order
+        # they sit in, not the order they finished, is the order everywhere else.
+        self.members = [member for member in self.members if member.name in arrived]
+        return {member.name: arrived[member.name] for member in self.members}
 
     # -- stage 2 ----------------------------------------------------------------------
     def _review(self, drafts: dict[str, str]) -> tuple[list[Issue], Counter[str]]:
@@ -338,7 +421,7 @@ class Discussion:
             )
             for member in self.members
         }
-        replies = self._ask_each("review", calls, max_tokens=3200, temperature=0.2)
+        replies = self._ask_each("review", calls, max_tokens=4500, temperature=0.2)
 
         issues: list[Issue] = []
         best: Counter[str] = Counter()
@@ -349,7 +432,7 @@ class Discussion:
                 reply, ("draft", "kind", "where", "problem", "reason", "fix", "because")
             ):
                 if block == "BEST":
-                    choice = match_name(values.get("draft", ""), names)
+                    choice = match_name(values.get("draft", "") or values.get("because", ""), names)
                 elif block == "ISSUE" and len(raised) < MAX_ISSUES_PER_REVIEW:
                     author = match_name(values.get("draft", ""), names)
                     problem = values.get("problem", "").strip()
@@ -387,13 +470,18 @@ class Discussion:
         return issues, best
 
     # -- stage 3 ----------------------------------------------------------------------
-    def _defend(self, drafts: dict[str, str], issues: list[Issue]) -> None:
+    def _defend(
+        self,
+        drafts: dict[str, str],
+        issues: list[Issue],
+        detail: str = "Each model is answering the issues raised about its draft.",
+    ) -> None:
         by_author: dict[str, list[Issue]] = {}
         for issue in issues:
             by_author.setdefault(issue.author, []).append(issue)
         if not by_author:
             return
-        self._phase("defend", "Each model is answering the issues raised about its draft.")
+        self._phase("defend", detail)
         by_name = {member.name: member for member in self.members}
         calls = {}
         for author, raised in by_author.items():
@@ -689,6 +777,7 @@ class Discussion:
 
         agreed: list[str] = []
         objections: list[dict[str, str]] = []
+        overruled: list[dict[str, str]] = []
         rounds = 0
         for round_number in range(1, MAX_VOTE_ROUNDS + 1):
             self._phase(
@@ -698,12 +787,45 @@ class Discussion:
                 else f"The revised version is being checked (round {round_number}).",
             )
             rounds = round_number
-            agreed, objections = self._vote(lead, text, round_number)
-            if not objections:
+            agreed, raised = self._vote(lead, text, round_number)
+            if not raised:
+                objections = []
                 break
-            if round_number == MAX_VOTE_ROUNDS:
+            # An objection is not a veto. Its author's side is put by whoever
+            # wrote the agreed version, and a model that took neither side
+            # rules, exactly as for an issue with a draft. One model objecting
+            # wrongly can then be overruled instead of holding everyone up.
+            cases = [
+                Issue(
+                    id=len(issues) + index + 1,
+                    reviewer=objection["member"],
+                    author=lead,
+                    kind="mistake",
+                    where=objection["where"],
+                    problem=objection["problem"],
+                    reason=objection["reason"],
+                    fix=objection["fix"],
+                    stage="vote",
+                    round=round_number,
+                )
+                for index, objection in enumerate(raised)
+            ]
+            issues.extend(cases)
+            arguable = [case for case in cases if case.reason or case.fix]
+            for case in cases:
+                if case not in arguable:
+                    case.status = "contested"  # nothing was said that could be ruled on
+            current = {lead: text}
+            self._defend(current, arguable, f"{lead} is answering the objections.")
+            self._judge(current, arguable)
+            overruled.extend(case.as_objection() for case in cases if case.status == "dismissed")
+            standing = [case for case in cases if case.status != "dismissed"]
+            objections = [case.as_objection() for case in standing]
+            if not standing or round_number == MAX_VOTE_ROUNDS:
                 break
-            self._phase("revise", "The objections are being worked into the agreed version.")
+            self._phase(
+                "revise", "The objections that stood are being worked into the agreed version."
+            )
             text = self._revise(lead, text, objections, round_number)
 
         voters = [member.name for member in self.members if member.name != lead]
@@ -711,10 +833,14 @@ class Discussion:
             text=text,
             lead=lead,
             # Everyone who could vote did, and all of them agreed.
-            unanimous=not objections and set(agreed) == set(voters) and bool(voters),
+            unanimous=not objections
+            and not overruled
+            and set(agreed) == set(voters)
+            and bool(voters),
             rounds=rounds,
             agreed=[lead, *agreed],
             objections=objections,
+            overruled=overruled,
             issues=issues,
             took_part=took_part,
             dropped=self.dropped,

@@ -298,6 +298,7 @@ approves it.
 
 **Decision.** The second cloud provider is Gemini. OpenAI remains
 constructible for anyone who pinned it but is no longer offered.
+*(Superseded in part by decision 36: OpenAI is offered again, beside Gemini.)*
 
 **Why.** One provider that reads text, images and audio through a single
 endpoint is what makes image and audio briefs possible on a hosted instance
@@ -567,6 +568,47 @@ cannot — and a formula with parameters is still data: a parser that accepts
 only numbers, declared names, five operators and a fixed list of functions
 has nothing to escape from. It covers what a lecture slide needs (how a
 curve responds to a parameter) and nothing else, which is the point.
+
+---
+
+## 35. Assignments may be completed, by models that check each other
+
+**Decision.** Beside the coaching plan, an assignment can be worked out and
+completed by several models in discussion. The procedure is fixed in code:
+who may judge a dispute (never a party to it), what counts as settled, when
+it ends, and what is reported when the models did not all agree.
+
+**Why.** The owner asked for it, and the earlier position — coach, never
+complete — is kept as the other route rather than removed. What could be
+decided was how to do it honestly. One model answering an assignment can be
+confidently wrong and nothing in its answer says so; several models make
+different mistakes, which is only useful if they are made to check each
+other and if their agreement is not overstated. So drafts are written
+independently before anything is shared; an issue needs a reason and a
+reference or it is dropped; a dispute is ruled on by a model with no stake in
+it, which is what stops a confident reviewer overturning a correct answer and
+a stubborn author keeping a wrong one; an objection in the final vote is
+argued the same way instead of being a veto, because in the first real run
+the weakest model objected to every version on grounds the others could show
+were wrong. The result is labelled with how it ended and never called
+unanimous when it was not, and the discussion is kept beside it, because
+agreement between models is evidence and not proof: they can share a
+mistake. The setting that switches assignment help off still switches this
+off, and the output carries a line about the module's own rules on AI.
+
+---
+
+## 36. ChatGPT returns, and no model id of its is written down
+
+**Decision.** OpenAI is offered again as a provider. Its models are listed
+from the account at run time and ranked; none is named in the code.
+
+**Why.** The discussion wants four different models, and decision 18's reason
+for dropping OpenAI (one provider for images and audio) does not apply to
+text. OpenAI renames its models often enough that any id written here would
+be wrong within months, as the one this code used to carry already was. The
+account's own list is the only answer that stays true, so it is fetched,
+cached, filtered to chat models and ordered newest first.
 
 ---
 
