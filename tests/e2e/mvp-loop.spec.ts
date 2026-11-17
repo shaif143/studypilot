@@ -249,6 +249,27 @@ test('a course opens as slides, a slide opens explained beside its original', as
   await expect(page.getByText('Your questions on this slide')).toBeVisible({ timeout: 60_000 });
   await expect(page.locator('button.sp-citation').first()).toBeVisible({ timeout: 60_000 });
 
+  // --- the sidebar folds away and comes back, and the choice is remembered --------
+  const sidebar = page.getByRole('complementary', { name: 'Main navigation' });
+  const askBox = page.getByLabel('Ask about this slide');
+  await expect(sidebar).toBeVisible();
+  await expect(askBox).toBeInViewport({ ratio: 1 }); // the bottom bar is fully on screen
+  await page.getByRole('button', { name: 'Hide sidebar' }).click();
+  await expect(sidebar).toBeHidden();
+  await expect(askBox).toBeInViewport({ ratio: 1 });
+  await page.reload();
+  await expect(page.getByLabel('Original slide')).toBeVisible();
+  await expect(sidebar).toBeHidden();
+  await page.keyboard.press('ControlOrMeta+Backslash');
+  await expect(sidebar).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+Backslash');
+  await page.getByRole('button', { name: 'Show sidebar' }).click();
+  await expect(sidebar).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Hide sidebar' })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
+
   // --- a note typed under the original is kept with the slide --------------------
   const note = page.getByRole('textbox', { name: 'Your notes on this slide' });
   await note.fill('Same padding keeps the size.');

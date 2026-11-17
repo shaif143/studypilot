@@ -14,13 +14,77 @@ import {
   GraduationCap,
   LayoutDashboard,
   NotebookPen,
+  PanelLeftClose,
+  PanelLeftOpen,
   Settings as SettingsIcon,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 
 import { useApp } from '../context';
 import { useDashboard, useHealth, useProviders } from '../hooks/queries';
+
+const SIDEBAR_KEY = 'studypilot.sidebar';
+const SIDEBAR_ID = 'studypilot-sidebar';
+
+/**
+ * Whether the sidebar is hidden, remembered across launches.
+ *
+ * Reading a slide wants the whole window; the choice is the reader's and it
+ * sticks until they change it. Storage can be unavailable (a private window),
+ * in which case the sidebar simply starts open each time.
+ */
+function useSidebarHidden(): [boolean, () => void] {
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return window.localStorage.getItem(SIDEBAR_KEY) === 'hidden';
+    } catch {
+      return false;
+    }
+  });
+  const toggle = useCallback(() => {
+    setHidden((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(SIDEBAR_KEY, next ? 'hidden' : 'shown');
+      } catch {
+        // Not remembered, but still toggled for this session.
+      }
+      return next;
+    });
+  }, []);
+
+  // Cmd+\ on a Mac, Ctrl+\ elsewhere: the same key editors use for their side panel.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === '\\' && (event.metaKey || event.ctrlKey) && !event.altKey) {
+        event.preventDefault();
+        toggle();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toggle]);
+
+  return [hidden, toggle];
+}
+
+function SidebarToggle({ hidden, onToggle }: { hidden: boolean; onToggle: () => void }) {
+  const label = hidden ? 'Show sidebar' : 'Hide sidebar';
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={label}
+      aria-expanded={!hidden}
+      aria-controls={SIDEBAR_ID}
+      title={`${label} (⌘\\)`}
+      className="flex h-6 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
+    >
+      {hidden ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+    </button>
+  );
+}
 
 interface NavItem {
   to: string;
@@ -37,6 +101,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const dashboard = useDashboard();
 
   const due = dashboard.data?.due_flashcards ?? 0;
+  const [sidebarHidden, toggleSidebar] = useSidebarHidden();
+  const desktop = platform.kind === 'desktop';
 
   const primary: NavItem[] = [
     { to: '/', label: 'Dashboard', icon: <LayoutDashboard size={16} /> },
@@ -59,24 +125,36 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-full w-full overflow-hidden bg-[var(--surface-page)]">
       <aside
-        className="flex w-[15rem] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--surface-sunken)]"
+        id={SIDEBAR_ID}
+        hidden={sidebarHidden}
+        className={[
+          'w-[15rem] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--surface-sunken)]',
+          sidebarHidden ? 'hidden' : 'flex',
+        ].join(' ')}
         aria-label="Main navigation"
       >
-        {platform.kind === 'desktop' ? (
-          // Space for the macOS traffic lights; the strip is the window drag area.
-          <div data-tauri-drag-region className="h-[2.1rem] shrink-0" />
+        {desktop ? (
+          // Space for the macOS traffic lights; the strip is the window drag
+          // area, and the toggle sits at its far end, clear of the lights.
+          <div
+            data-tauri-drag-region
+            className="flex h-[2.1rem] shrink-0 items-center justify-end pr-2"
+          >
+            <SidebarToggle hidden={false} onToggle={toggleSidebar} />
+          </div>
         ) : null}
 
         <div className="flex items-center gap-2 px-4 pb-3 pt-4">
           <BrainCircuit size={20} className="text-[var(--text-accent)]" />
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-[var(--text-primary)]">
               StudyPilot
             </p>
             <p className="text-[0.6875rem] text-[var(--text-muted)]">
-              {platform.kind === 'desktop' ? 'On this Mac' : 'Web'}
+              {desktop ? 'On this Mac' : 'Web'}
             </p>
           </div>
+          {desktop ? null : <SidebarToggle hidden={false} onToggle={toggleSidebar} />}
         </div>
 
         <nav className="sp-scroll flex-1 overflow-y-auto px-2 pb-2">
@@ -119,11 +197,24 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <main className="sp-scroll min-w-0 flex-1 overflow-y-auto">
-        {platform.kind === 'desktop' ? (
-          <div data-tauri-drag-region className="h-[2.1rem] w-full" />
+      {/* A column: the strip keeps its height and the page gets exactly the
+          rest. With the strip inside the scrolling area, a full-height screen
+          such as the slide view was a strip too tall and lost its bottom edge. */}
+      <main className="flex min-w-0 flex-1 flex-col">
+        {desktop || sidebarHidden ? (
+          // With the sidebar hidden its toggle moves here, to the same corner of
+          // the window: past the traffic lights on the Mac, at the edge on the web.
+          <div
+            data-tauri-drag-region={desktop ? true : undefined}
+            className={[
+              'flex h-[2.1rem] w-full shrink-0 items-center',
+              desktop && sidebarHidden ? 'pl-[5.25rem]' : 'pl-2',
+            ].join(' ')}
+          >
+            {sidebarHidden ? <SidebarToggle hidden onToggle={toggleSidebar} /> : null}
+          </div>
         ) : null}
-        {children}
+        <div className="sp-scroll min-h-0 flex-1 overflow-y-auto">{children}</div>
       </main>
     </div>
   );

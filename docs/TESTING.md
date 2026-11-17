@@ -266,8 +266,9 @@ Stated plainly rather than implied by omission.
   also checks that the sidebar no longer lists the library or the tutor, that
   a lecture starts folded with **Explain all slides** beside its arrow, that
   a note typed under a slide is saved and stays with that slide, that
-  **Study this** leads to practice on the lecture, and that past papers have
-  their own screen.
+  **Study this** leads to practice on the lecture, that past papers have
+  their own screen, and that the sidebar hides, stays hidden across a reload,
+  returns by button and by shortcut, with the Ask bar fully in view each way.
   Drag-to-resize, keyboard navigation and the desktop shell are still
   hand-verified. Run with `npm run test:e2e` (needs `npx playwright install
   chromium` once).
