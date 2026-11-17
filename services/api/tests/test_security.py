@@ -597,3 +597,30 @@ def test_two_first_requests_racing_to_create_the_local_profile_both_succeed(cont
         assert found.id == made_id
         assert calls["n"] == 2
         assert second.scalar(select(func.count()).select_from(User)) == 1
+
+
+def test_the_desktop_window_may_use_every_method_a_route_has(client: TestClient):
+    """The desktop app's window and its backend are different origins.
+
+    A method missing from the CORS list is refused at the preflight, before
+    the route is reached, and the app can only report the backend as
+    unreachable. The website is same-origin and never preflights, so browser
+    tests cannot see this: saving a slide note (PUT) failed only on the Mac.
+    """
+    used: dict[str, str] = {}
+    for path, operations in client.app.openapi()["paths"].items():
+        for method in operations:
+            used.setdefault(method.upper(), path)
+    assert {"GET", "POST", "PUT", "PATCH", "DELETE"} <= set(used)
+
+    for method, path in sorted(used.items()):
+        preflight = client.options(
+            path.replace("{", "").replace("}", ""),
+            headers={
+                "Origin": "tauri://localhost",
+                "Access-Control-Request-Method": method,
+                "Access-Control-Request-Headers": "content-type,authorization",
+            },
+        )
+        assert preflight.status_code == 200, f"{method} {path} is refused cross-origin"
+        assert method in preflight.headers["access-control-allow-methods"]

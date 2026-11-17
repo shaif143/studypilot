@@ -115,7 +115,10 @@ def create_app(
         CORSMiddleware,
         allow_origins=list(settings.effective_cors_origins),
         allow_credentials=False,
-        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        # Every method a route uses must be here: the desktop window is a
+        # different origin from its backend, so a method left out is refused at
+        # the preflight and the app reports the backend as unreachable.
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["content-type", "x-studypilot-token", "authorization"],
         max_age=600,
     )
