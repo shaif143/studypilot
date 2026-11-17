@@ -167,7 +167,8 @@ def _pdf_text(data: bytes) -> str:
         import pymupdf
 
         with pymupdf.open(stream=data, filetype="pdf") as doc:
-            return "\n".join(page.get_text("text") for page in doc)
+            flags = pymupdf.TEXTFLAGS_TEXT & ~pymupdf.TEXT_PRESERVE_LIGATURES
+            return "\n".join(page.get_text("text", flags=flags) for page in doc)
     except Exception as exc:
         raise TranscriptError("That PDF could not be read.") from exc
 

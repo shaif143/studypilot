@@ -298,6 +298,33 @@ draws them over the rendered PDF.
 
 **Local transcription.** faster-whisper on the CPU, int8. MP3 and M4A are decoded with PyAV here rather than by faster-whisper's own call, which passes an argument newer PyAV releases dropped; the voice-activity filter is off because it needs onnxruntime, which the packaged app does not carry.
 
+### Notebooks and HTML pages
+
+`ingestion/notebook.py` gives a Jupyter notebook and an HTML page the same
+treatment as a deck: laid out as a PDF, which is kept as the document's
+rendered asset and is what is read, indexed, cited and shown.
+
+A notebook's cells are turned into HTML — Markdown cells by a small converter
+(headings, lists, tables, fences, emphasis; a link keeps its words and loses
+its address), code cells as their source followed by the outputs saved in the
+file: printed text, error traces with their colour codes removed, figures.
+Long output is clipped to its head and tail. An HTML file is taken as it is.
+Either way the HTML then passes through one cleaner that keeps structure,
+text and pictures embedded as `data:` URIs, and drops everything else with
+its content: scripts, styles, forms, frames, navigation, hidden elements and
+the prompts a Jupyter export decorates cells with. A picture with any other
+source would have to be fetched, and is left out and counted instead, so
+opening a file never makes a request. PyMuPDF's Story engine flows the clean
+HTML onto A4 pages; an `h1` or `h2` starts a page once the previous section
+has said something, so a page is a section that can be explained as one.
+
+Nothing is executed. Mathematics stays as the LaTeX the author wrote.
+
+Text is read from every PDF with ligatures split back into letters
+(`TEXT_PRESERVE_LIGATURES` off), which matters here because the layout engine
+sets "fi" and "fl" as single glyphs, and matters for typeset lecture PDFs for
+the same reason: "ﬁlter" has to be found by a search for "filter".
+
 ### Image and audio briefs
 
 A photographed brief or a recording cannot be read without a model, so

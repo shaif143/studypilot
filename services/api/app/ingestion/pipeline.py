@@ -23,6 +23,15 @@ from pathlib import Path
 from app.config import Settings
 from app.ingestion.chunking import build_chunks
 from app.ingestion.media import MediaReader, is_audio, is_image, sniff_media_type
+from app.ingestion.notebook import (
+    HTML_MEDIA_TYPE,
+    NOTEBOOK_MEDIA_TYPE,
+    UnreadableNotebookError,
+    looks_like_html,
+    looks_like_notebook,
+    render_html_to_pdf,
+    render_notebook_to_pdf,
+)
 from app.ingestion.pdf import (
     ExtractedDocument,
     PageElement,
@@ -90,11 +99,27 @@ def validate_upload(filename: str, data: bytes, settings: Settings) -> str:
         return PPTX_MEDIA_TYPE
     if looks_like_ppt(data, filename):
         return PPT_MEDIA_TYPE
+    if looks_like_notebook(data, filename):
+        return NOTEBOOK_MEDIA_TYPE
+    if looks_like_html(data, filename):
+        return HTML_MEDIA_TYPE
     raise UnsupportedFileError(
-        "Supported files are PDF, PowerPoint (.pptx and .ppt), PNG, JPEG, WebP images, WAV, "
-        "MP3 or M4A audio, and .zip or .rar archives of those. This file does not look like "
-        "any of those."
+        "Supported files are PDF, PowerPoint (.pptx and .ppt), Jupyter notebooks (.ipynb), "
+        "HTML pages, PNG, JPEG, WebP images, WAV, MP3 or M4A audio, and .zip or .rar "
+        "archives of those. This file does not look like any of those."
     )
+
+
+#: Files that are laid out as a PDF first, and then read like one.
+RENDERED_MEDIA_TYPES = frozenset(
+    {PPTX_MEDIA_TYPE, PPT_MEDIA_TYPE, NOTEBOOK_MEDIA_TYPE, HTML_MEDIA_TYPE}
+)
+_RENDERERS = {
+    PPTX_MEDIA_TYPE: (render_pptx_to_pdf, "python-pptx+pymupdf"),
+    PPT_MEDIA_TYPE: (render_ppt_to_pdf, "olefile+pymupdf"),
+    NOTEBOOK_MEDIA_TYPE: (render_notebook_to_pdf, "notebook+pymupdf"),
+    HTML_MEDIA_TYPE: (render_html_to_pdf, "html+pymupdf"),
+}
 
 
 _SCAN_HINT = (
@@ -201,13 +226,13 @@ def _extract_presentation(
     blobs: BlobStore,
     preview_sink,
 ) -> ExtractedDocument:
-    """Render a .pptx to PDF, keep that PDF as an asset, and extract it like one.
+    """Lay a deck, a notebook or an HTML page out as a PDF, keep it, and extract it like one.
 
     The rendered PDF is what the reader shows and what citations highlight, so
     it is stored next to the page previews and its key recorded on the
     document; ``/documents/{id}/file`` serves it in place of the original.
     """
-    render = render_ppt_to_pdf if document.media_type == PPT_MEDIA_TYPE else render_pptx_to_pdf
+    render, extractor = _RENDERERS[document.media_type]
     deck = render(source_path, max_slides=settings.max_pdf_pages)
     rendered_key = blobs.put_asset(f"{document.id}/rendered.pdf", deck.pdf, "application/pdf")
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as handle:
@@ -216,9 +241,7 @@ def _extract_presentation(
         extracted = extract_pdf(
             Path(handle.name), max_pages=settings.max_pdf_pages, preview_sink=preview_sink
         )
-    extracted.extractor = (
-        "olefile+pymupdf" if document.media_type == PPT_MEDIA_TYPE else "python-pptx+pymupdf"
-    )
+    extracted.extractor = extractor
     extracted.warnings = deck.warnings + extracted.warnings
     if deck.title and not extracted.title:
         extracted.title = deck.title
@@ -284,7 +307,7 @@ def ingest_document(
                         title=document.title,
                         source_path=Path(working_path),
                     )
-            elif document.media_type in (PPTX_MEDIA_TYPE, PPT_MEDIA_TYPE):
+            elif document.media_type in RENDERED_MEDIA_TYPES:
                 extracted = _extract_presentation(
                     Path(working_path), document, settings, blobs, preview_sink
                 )
@@ -298,7 +321,7 @@ def ingest_document(
                     _read_scanned_pages(
                         extracted, Path(working_path), document, settings, media_reader
                     )
-    except (UnreadableDocumentError, UnreadablePresentationError) as exc:
+    except (UnreadableDocumentError, UnreadablePresentationError, UnreadableNotebookError) as exc:
         documents.set_status(document, "failed", str(exc))
         return IngestionResult(
             document_id=document.id,

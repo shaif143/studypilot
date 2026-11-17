@@ -4,7 +4,12 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { partitionFiles, relativePathOf, titleFor } from '../../packages/app/src/lib/uploads';
+import {
+  mayNeedModel,
+  partitionFiles,
+  relativePathOf,
+  titleFor,
+} from '../../packages/app/src/lib/uploads';
 
 function file(name: string, type = '', size = 10, path?: string): File {
   const made = new File([new Uint8Array(size)], name, { type });
@@ -48,6 +53,22 @@ describe('partitionFiles', () => {
     const { accepted, rejected } = partitionFiles([file('deck.pptx'), file('deck.key')]);
     expect(accepted.map((f) => f.name)).toEqual(['deck.pptx']);
     expect(rejected.map((f) => f.file.name)).toEqual(['deck.key']);
+  });
+
+  it('takes notebooks and HTML pages, which tutorials arrive as', () => {
+    const { accepted, rejected } = partitionFiles([
+      file('Tutorial_2.ipynb'),
+      file('Tutorial_2 - Copy.html', 'text/html'),
+      file('saved.htm'),
+      file('report.docx'),
+    ]);
+    expect(accepted.map((f) => f.name)).toEqual([
+      'saved.htm',
+      'Tutorial_2 - Copy.html',
+      'Tutorial_2.ipynb',
+    ]);
+    expect(rejected.map((f) => f.file.name)).toEqual(['report.docx']);
+    expect(mayNeedModel(file('Tutorial_2.ipynb'))).toBe(false);
   });
 });
 

@@ -24,6 +24,9 @@ import pymupdf
 
 log = logging.getLogger(__name__)
 
+#: The default for structured text, without keeping ligatures as single characters.
+_TEXT_FLAGS = pymupdf.TEXTFLAGS_DICT & ~pymupdf.TEXT_PRESERVE_LIGATURES
+
 #: Characters that strongly suggest mathematical content.
 _MATH_CHARS = set("∑∫∂√±×÷≤≥≠≈∞αβγδθλμπσφωΔΩ∇⊗⟨⟩")
 #: Notation that marks a line as mathematical even in plain ASCII exports:
@@ -224,7 +227,9 @@ def _extract_page(
     rect = page.rect
 
     try:
-        raw = page.get_text("dict")
+        # Ligatures are split back into their letters: a typeset "ﬁlter" must
+        # be found by a search for "filter", and read as that by a model.
+        raw = page.get_text("dict", flags=_TEXT_FLAGS)
     except Exception as exc:  # pragma: no cover - malformed page
         warnings.append(f"Page {page_number}: text extraction failed ({exc}).")
         raw = {"blocks": []}

@@ -7,12 +7,12 @@
  * here, from the name and declared type; the backend checks the bytes.
  */
 
-const SUPPORTED = /\.(pdf|pptx?|png|jpe?g|webp|gif|bmp|tiff?|wav|mp3|m4a|zip|rar)$/i;
+const SUPPORTED = /\.(pdf|pptx?|ipynb|html?|png|jpe?g|webp|gif|bmp|tiff?|wav|mp3|m4a|zip|rar)$/i;
 const NEEDS_MODEL = /\.(png|jpe?g|webp|gif|bmp|tiff?|wav|mp3|m4a|zip|rar)$/i;
 const ARCHIVE = /\.(zip|rar)$/i;
 
 export const SUPPORTED_DESCRIPTION =
-  'PDF, PowerPoint (.pptx and .ppt), PNG/JPEG/WebP/GIF/BMP/TIFF images, WAV/MP3/M4A audio, and .zip or .rar archives of those.';
+  'PDF, PowerPoint (.pptx and .ppt), Jupyter notebooks (.ipynb), HTML pages, PNG/JPEG/WebP/GIF/BMP/TIFF images, WAV/MP3/M4A audio, and .zip or .rar archives of those.';
 
 export const ACCEPT_ATTRIBUTE = [
   'application/pdf',
@@ -21,6 +21,11 @@ export const ACCEPT_ATTRIBUTE = [
   '.pptx',
   'application/vnd.ms-powerpoint',
   '.ppt',
+  'application/x-ipynb+json',
+  '.ipynb',
+  'text/html',
+  '.html',
+  '.htm',
   'application/zip',
   '.zip',
   'application/vnd.rar',

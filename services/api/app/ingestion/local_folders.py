@@ -43,7 +43,7 @@ log = logging.getLogger(__name__)
 
 #: What a folder scan takes on. Archives are left where they are: the
 #: student can upload one from the Library to unpack it.
-DOCUMENT_SUFFIXES = frozenset({".pdf", ".pptx", ".ppt"})
+DOCUMENT_SUFFIXES = frozenset({".pdf", ".pptx", ".ppt", ".ipynb", ".html", ".htm"})
 MEDIA_SUFFIXES = frozenset(
     {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".wav", ".mp3", ".m4a"}
 )

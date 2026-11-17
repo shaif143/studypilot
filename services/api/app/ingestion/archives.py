@@ -32,7 +32,7 @@ _RAR_MAGIC = b"Rar!\x1a\x07"
 
 #: Members with these suffixes are offered to the pipeline; the rest are
 #: reported as skipped with a reason.
-READABLE_SUFFIXES = frozenset({".pdf", ".pptx", ".ppt"})
+READABLE_SUFFIXES = frozenset({".pdf", ".pptx", ".ppt", ".ipynb", ".html", ".htm"})
 #: Read by a model (vision or speech); the route checks one is available
 #: before unpacking a dozen of them.
 MODEL_SUFFIXES = frozenset(

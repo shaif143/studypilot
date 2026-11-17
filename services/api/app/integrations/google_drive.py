@@ -43,6 +43,13 @@ from urllib.parse import urlencode
 
 import httpx
 
+from app.ingestion.notebook import (
+    HTML_MEDIA_TYPE,
+    HTML_SUFFIXES,
+    NOTEBOOK_MEDIA_TYPE,
+    NOTEBOOK_MIMES,
+    NOTEBOOK_SUFFIXES,
+)
 from app.ingestion.ppt import PPT_MEDIA_TYPE
 from app.ingestion.pptx import PPTX_MEDIA_TYPE
 
@@ -385,8 +392,21 @@ class DriveFile:
         return self.mime_type == FOLDER_MIME
 
     @property
+    def _suffix(self) -> str:
+        return Path(self.name).suffix.lower()
+
+    @property
+    def is_notebook(self) -> bool:
+        """A Jupyter or Colab notebook. Drive reports several types for one; the name settles it."""
+        return self.mime_type in NOTEBOOK_MIMES or self._suffix in NOTEBOOK_SUFFIXES
+
+    @property
+    def is_html(self) -> bool:
+        return self.mime_type == HTML_MEDIA_TYPE or self._suffix in HTML_SUFFIXES
+
+    @property
     def importable(self) -> bool:
-        return self.mime_type in IMPORTABLE_MIMES
+        return self.mime_type in IMPORTABLE_MIMES or self.is_notebook or self.is_html
 
     @property
     def exported(self) -> bool:
@@ -406,18 +426,26 @@ class DriveFile:
             return (
                 "Archives are not read from Drive; unpack it there or upload it from the Library."
             )
-        return "Not a PDF, PowerPoint, Google Doc or Google Slides file."
+        return "Not a PDF, PowerPoint, notebook, HTML page, Google Doc or Google Slides file."
 
     @property
     def imported_filename(self) -> str:
         """The name the document carries; exports become a .pdf."""
         if self.exported:
             return f"{Path(self.name).stem or self.name}.pdf"
+        if self.is_notebook and self._suffix not in NOTEBOOK_SUFFIXES:
+            return f"{self.name}.ipynb"  # a Colab notebook may be listed without its suffix
         return self.name
 
     @property
     def imported_media_type(self) -> str:
-        return "application/pdf" if self.exported else self.mime_type
+        if self.exported:
+            return "application/pdf"
+        if self.is_notebook:
+            return NOTEBOOK_MEDIA_TYPE
+        if self.is_html:
+            return HTML_MEDIA_TYPE
+        return self.mime_type
 
     def to_dict(self) -> dict[str, Any]:
         return {

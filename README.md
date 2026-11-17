@@ -57,6 +57,7 @@ This is an honest list. Everything marked ✅ was built, run and tested; see
 | Past exam papers | ✅ A course's past papers and solutions are analysed into the paper's format, its mix of question forms and a ranked forecast of topics, each with the question references behind it and the likely next variation. Likelihoods are clamped to what the number of papers supports and never reach certainty. Quizzes, mock exams and flashcards then follow it: the real exam's forms and marks, likeliest topics first, different questions each time, written from this year's lectures |
 | Stopping work in progress | ✅ A folder scan and an upload can be stopped. The file being read is finished or discarded, nothing is left half-added, and a cancelled upload is not kept |
 | Old metafile drawings | ✅ WMF and EMF pictures in PowerPoint decks (diagrams, MathType equations, pasted screenshots) are played back onto the slide as vector drawing by a built-in renderer; nothing on a Mac draws them otherwise |
+| Notebooks and HTML pages | ✅ A Jupyter notebook (`.ipynb`, including Colab's) and an HTML page are laid out as pages and then read like any lecture: Markdown as text, code as code, the outputs and figures saved in the notebook, pictures embedded in the file. A top-level heading starts a page, so a page is a section. Nothing is run, scripts are discarded, and a picture that would have to be fetched from the web is left out and reported |
 | Camera-based attention tracking | ❌ Interface and simulated data only — see [`docs/PRIVACY.md`](docs/PRIVACY.md) |
 | Federated learning | ❌ Design only — see [`research/federated_learning/`](research/federated_learning/) |
 | Knowledge graph / Graph RAG | ❌ Schema supports prerequisites; no graph store |
@@ -137,7 +138,7 @@ credentials are configured.
 npm run check
 ```
 
-Runs the TypeScript typecheck, ESLint, 161 frontend unit tests, Ruff, and 405
+Runs the TypeScript typecheck, ESLint, 162 frontend unit tests, Ruff, and 414
 backend tests. The 15 PostgreSQL integration tests need a database:
 
 ```bash
