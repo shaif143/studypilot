@@ -29,11 +29,13 @@ from app.storage.repositories import (
     AssignmentPlanRepository,
     AttentionRepository,
     ChunkRepository,
+    CouncilRepository,
     CourseRepository,
     DocumentRepository,
     DriveRepository,
     ExamProfileRepository,
     FlashcardRepository,
+    FolderRepository,
     LocalFolderRepository,
     MasteryRepository,
     NoteRepository,
@@ -316,6 +318,20 @@ def exam_profiles(session: SessionDep) -> ExamProfileRepository:
 
 
 ExamProfilesDep = Annotated[ExamProfileRepository, Depends(exam_profiles)]
+
+
+def folders(session: SessionDep) -> FolderRepository:
+    return FolderRepository(session)
+
+
+FoldersDep = Annotated[FolderRepository, Depends(folders)]
+
+
+def council_runs(session: SessionDep) -> CouncilRepository:
+    return CouncilRepository(session)
+
+
+CouncilDep = Annotated[CouncilRepository, Depends(council_runs)]
 
 
 PlansDep = Annotated[AssignmentPlanRepository, Depends(plans)]

@@ -48,6 +48,7 @@ SERVICE = "StudyPilot"
 ENV_FOR_PROVIDER: dict[str, str] = {
     "anthropic": "ANTHROPIC_API_KEY",
     "gemini": "GEMINI_API_KEY",
+    "openai": "OPENAI_API_KEY",
     # The Google Cloud OAuth client the desktop identifies itself with when
     # connecting Google Drive. Not a model provider, but the same shape: a
     # value typed once in Settings, kept in the Keychain, read from the

@@ -170,6 +170,9 @@ class Document(Base, TimestampMixin):
     source_ref: Mapped[str] = mapped_column(String(256), default="")
     #: The source's modification stamp when it was indexed; a sync compares it.
     source_version: Mapped[str] = mapped_column(String(64), default="")
+    #: The folder the student filed it in within its course, if any. Not a
+    #: foreign key: deleting a folder leaves its documents in the course.
+    folder_id: Mapped[str | None] = mapped_column(String(32), default=None)
 
     course: Mapped[Course] = relationship(back_populates="documents")
     pages: Mapped[list[Page]] = relationship(
@@ -807,3 +810,62 @@ class ExamProfile(Base, TimestampMixin):
     #: "llm:<provider>" when a model analysed the papers, "counted" for the fallback.
     generated_by: Mapped[str] = mapped_column(String(64), default="")
     model: Mapped[str] = mapped_column(String(128), default="")
+
+
+class CourseFolder(Base, TimestampMixin):
+    """A folder the student made to organise a course's files.
+
+    ``section`` says where it shows: among the course's lectures, or among its
+    assignments. It groups documents; it holds no files of its own, and
+    deleting it leaves the documents in the course.
+    """
+
+    __tablename__ = "course_folders"
+    __table_args__ = (Index("ix_course_folders_course", "course_id"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"))
+    course_id: Mapped[str] = mapped_column(String(32), ForeignKey("courses.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(200))
+    #: "course" | "assignments"
+    section: Mapped[str] = mapped_column(String(16), default="course")
+
+
+class CouncilRun(Base, TimestampMixin):
+    """One discussion between models about one assignment.
+
+    Kept whole: who took part, every draft, issue, ruling and vote, and the
+    version they ended on. The discussion is the evidence for the answer, so
+    it is stored beside it rather than thrown away.
+    """
+
+    __tablename__ = "council_runs"
+    __table_args__ = (
+        Index("ix_council_runs_document", "document_id"),
+        Index("ix_council_runs_user", "user_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"))
+    course_id: Mapped[str] = mapped_column(String(32), ForeignKey("courses.id", ondelete="CASCADE"))
+    #: The assignment brief it is about.
+    document_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("documents.id", ondelete="CASCADE")
+    )
+    #: "guide" (the step-by-step process) | "solution" (the completed assignment)
+    kind: Mapped[str] = mapped_column(String(16))
+    #: queued | running | done | failed | cancelled
+    status: Mapped[str] = mapped_column(String(16), default="queued")
+    phase: Mapped[str] = mapped_column(String(32), default="")
+    phase_detail: Mapped[str] = mapped_column(Text, default="")
+    #: [{"key", "name", "model", "local"}] for the models that took part.
+    members: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    reference_document_ids: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    #: The numbered passages the models were given, as citations.
+    citations: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    #: The discussion, in order: drafts, reviews, defences, rulings, votes.
+    events: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    result_markdown: Mapped[str] = mapped_column(Text, default="")
+    consensus: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    warnings: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    error: Mapped[str] = mapped_column(Text, default="")

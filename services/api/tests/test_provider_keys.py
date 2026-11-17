@@ -144,7 +144,7 @@ def test_the_api_reports_status_and_storage_but_never_the_value(client: TestClie
 
 
 def test_an_unknown_provider_is_404(client: TestClient):
-    assert client.post("/api/keys/openai", json={"key": "sk-whatever-000"}).status_code == 404
+    assert client.post("/api/keys/mistral", json={"key": "sk-whatever-000"}).status_code == 404
 
 
 def test_the_user_can_choose_the_active_provider(client: TestClient):

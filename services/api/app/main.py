@@ -25,6 +25,7 @@ from app.api import (
     routes_assessment,
     routes_assignments,
     routes_auth,
+    routes_council,
     routes_courses,
     routes_documents,
     routes_exams,
@@ -164,6 +165,7 @@ def create_app(
     app.include_router(routes_documents.router)
     app.include_router(routes_guides.router)
     app.include_router(routes_exams.router)
+    app.include_router(routes_council.router)
     app.include_router(routes_tutor.router)
     app.include_router(routes_assignments.router)
     app.include_router(routes_assessment.router)

@@ -73,6 +73,8 @@ async def upload_document(
     file: UploadFile = File(...),
     title: str = Form(default=""),
     kind: str = Form(default="lecture"),
+    #: The folder of this course to file it in, if any.
+    folder_id: str = Form(default=""),
     #: Per-request consent to read an image or audio brief with a cloud model,
     #: required in addition to the stored setting. Ignored for PDFs, which are
     #: read on this machine without any model.
@@ -102,6 +104,18 @@ async def upload_document(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if await request.is_disconnected():
         _discard_cancelled(context, documents, chunks, user.id, [result])
+        return result
+    if folder_id:
+        from app.storage.repositories import FolderRepository, NotFoundError
+
+        try:
+            folder = FolderRepository(documents.session).get(user.id, folder_id)
+        except NotFoundError:
+            folder = None
+        if folder is not None and folder.course_id == course_id:
+            documents.get(user.id, result.document.id).folder_id = folder.id
+            documents.session.flush()
+            result.document.folder_id = folder.id
     return result
 
 
@@ -410,9 +424,23 @@ def get_document(document_id: str, user: UserDep, documents: DocumentsDep) -> Do
 def update_document(
     document_id: str, payload: DocumentUpdate, user: UserDep, documents: DocumentsDep
 ) -> DocumentOut:
-    """Say what a document is: a lecture, a past exam paper, an assignment, a textbook."""
+    """Say what a document is, or file it in one of its course's folders."""
+    from app.storage.repositories import FolderRepository
+
     document = documents.get(user.id, document_id)
-    document.kind = payload.kind
+    if payload.kind is not None:
+        document.kind = payload.kind
+    if payload.folder_id is not None:
+        if payload.folder_id == "":
+            document.folder_id = None
+        else:
+            folder = FolderRepository(documents.session).get(user.id, payload.folder_id)
+            if folder.course_id != document.course_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="That folder belongs to another course.",
+                )
+            document.folder_id = folder.id
     documents.session.flush()
     return DocumentOut.model_validate(document)
 

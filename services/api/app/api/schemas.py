@@ -176,6 +176,7 @@ class DocumentOut(BaseModel):
     source: str = "upload"
     source_ref: str = ""
     created_at: datetime
+    folder_id: str | None = None
 
 
 class PageElementOut(BaseModel):
@@ -1036,4 +1037,77 @@ class ExamAnalyseRequest(BaseModel):
 
 
 class DocumentUpdate(BaseModel):
-    kind: Literal["lecture", "past_paper", "assignment", "textbook"]
+    kind: Literal["lecture", "past_paper", "assignment", "textbook"] | None = None
+    #: The folder to file it in; an empty string takes it out of its folder.
+    folder_id: str | None = None
+
+
+class FolderOut(BaseModel):
+    model_config = ORM
+
+    id: str
+    course_id: str
+    name: str
+    #: "course" | "assignments"
+    section: str
+    document_count: int = 0
+
+
+class FolderCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    section: Literal["course", "assignments"] = "course"
+
+
+class FolderUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+class CouncilSeatOut(BaseModel):
+    """One of the four models, and whether it can take part right now."""
+
+    key: str
+    name: str
+    model: str = ""
+    ready: bool = False
+    local: bool = False
+    #: Why it cannot take part, or what using it means.
+    detail: str = ""
+
+
+class CouncilRunOut(BaseModel):
+    model_config = ORM
+
+    id: str
+    document_id: str
+    #: "guide" | "solution"
+    kind: str
+    #: queued | running | done | failed | cancelled
+    status: str
+    phase: str = ""
+    phase_detail: str = ""
+    members: list[dict[str, Any]] = Field(default_factory=list)
+    reference_document_ids: list[str] = Field(default_factory=list)
+    citations: list[dict[str, Any]] = Field(default_factory=list)
+    events: list[dict[str, Any]] = Field(default_factory=list)
+    result_markdown: str = ""
+    consensus: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    error: str = ""
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class CouncilStateOut(BaseModel):
+    """Where an assignment stands: its seats, its guide and its completed work."""
+
+    seats: list[CouncilSeatOut]
+    guide: CouncilRunOut | None = None
+    solution: CouncilRunOut | None = None
+
+
+class CouncilStartRequest(BaseModel):
+    allow_cloud: bool = False
+    #: The files to use as references. Empty means every lecture in the course.
+    reference_document_ids: list[str] = Field(default_factory=list)
+    #: Seat only these models; empty seats every one that is ready.
+    members: list[Literal["anthropic", "openai", "gemini", "ollama"]] = Field(default_factory=list)

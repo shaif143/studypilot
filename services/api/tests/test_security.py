@@ -220,7 +220,9 @@ def test_providers_endpoint_declares_data_egress(client: TestClient):
     assert by_key["anthropic"]["sends_data_off_device"] is True
     assert by_key["gemini"]["sends_data_off_device"] is True
     assert by_key["gemini"]["accepts_audio"] is True
-    assert "openai" not in by_key
+    # ChatGPT is offered, sends data off the device, and is unusable without a key.
+    assert by_key["openai"]["sends_data_off_device"] is True
+    assert by_key["openai"]["available"] is False
     assert body["active_is_generative"] is False
 
 

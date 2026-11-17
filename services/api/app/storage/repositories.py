@@ -22,7 +22,9 @@ from app.storage.models import (
     AttentionSample,
     Chunk,
     Citation,
+    CouncilRun,
     Course,
+    CourseFolder,
     Document,
     DriveConnection,
     DriveLink,
@@ -1156,3 +1158,112 @@ class ExamProfileRepository:
         if row is not None:
             self.session.delete(row)
             self.session.flush()
+
+
+class FolderRepository:
+    """Folders a student made inside a course."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def list(self, user_id: str, course_id: str) -> list[CourseFolder]:
+        return list(
+            self.session.scalars(
+                select(CourseFolder)
+                .where(CourseFolder.user_id == user_id, CourseFolder.course_id == course_id)
+                .order_by(CourseFolder.section, CourseFolder.name)
+            )
+        )
+
+    def get(self, user_id: str, folder_id: str) -> CourseFolder:
+        row = self.session.scalar(
+            select(CourseFolder).where(
+                CourseFolder.id == folder_id, CourseFolder.user_id == user_id
+            )
+        )
+        if row is None:
+            raise NotFoundError("Folder not found.")
+        return row
+
+    def create(self, user_id: str, course_id: str, *, name: str, section: str) -> CourseFolder:
+        row = CourseFolder(user_id=user_id, course_id=course_id, name=name, section=section)
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def delete(self, user_id: str, folder_id: str) -> None:
+        """Remove the folder. Its documents stay in the course, unfiled."""
+        row = self.get(user_id, folder_id)
+        for document in self.session.scalars(
+            select(Document).where(Document.user_id == user_id, Document.folder_id == folder_id)
+        ):
+            document.folder_id = None
+        self.session.delete(row)
+        self.session.flush()
+
+    def counts(self, user_id: str, course_id: str) -> dict[str, int]:
+        rows = self.session.execute(
+            select(Document.folder_id, func.count(Document.id))
+            .where(
+                Document.user_id == user_id,
+                Document.course_id == course_id,
+                Document.folder_id.is_not(None),
+            )
+            .group_by(Document.folder_id)
+        )
+        return {str(folder_id): int(count) for folder_id, count in rows}
+
+
+class CouncilRepository:
+    """Discussions between models about an assignment."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def create(self, **values: object) -> CouncilRun:
+        row = CouncilRun(**values)
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def get(self, user_id: str, run_id: str) -> CouncilRun:
+        row = self.session.scalar(
+            select(CouncilRun).where(CouncilRun.id == run_id, CouncilRun.user_id == user_id)
+        )
+        if row is None:
+            raise NotFoundError("Discussion not found.")
+        return row
+
+    def latest(self, user_id: str, document_id: str, kind: str) -> CouncilRun | None:
+        return self.session.scalar(
+            select(CouncilRun)
+            .where(
+                CouncilRun.user_id == user_id,
+                CouncilRun.document_id == document_id,
+                CouncilRun.kind == kind,
+            )
+            .order_by(CouncilRun.created_at.desc())
+            .limit(1)
+        )
+
+    def latest_done(self, user_id: str, document_id: str, kind: str) -> CouncilRun | None:
+        return self.session.scalar(
+            select(CouncilRun)
+            .where(
+                CouncilRun.user_id == user_id,
+                CouncilRun.document_id == document_id,
+                CouncilRun.kind == kind,
+                CouncilRun.status == "done",
+            )
+            .order_by(CouncilRun.created_at.desc())
+            .limit(1)
+        )
+
+    def list(self, user_id: str) -> list[CouncilRun]:
+        return list(
+            self.session.scalars(
+                select(CouncilRun)
+                .where(CouncilRun.user_id == user_id)
+                .order_by(CouncilRun.created_at)
+            )
+        )

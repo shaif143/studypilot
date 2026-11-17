@@ -33,6 +33,16 @@ def _clear_settings_cache():
 
 
 @pytest.fixture(autouse=True)
+def _no_real_openai(monkeypatch):
+    """No test may reach OpenAI: with a key in the environment, listing models would."""
+    from app.models import llm
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    llm._openai_models_cache.clear()
+    llm.cached_llm.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def _no_real_google(monkeypatch):
     """No test may open a browser or reach Google; a Drive test installs its own fake."""
     from app import secrets

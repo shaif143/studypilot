@@ -26,8 +26,10 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import re
+import time
 from functools import lru_cache
 
 import httpx
@@ -39,6 +41,8 @@ from app.models.base import (
     ProviderInfo,
     ProviderUnavailableError,
 )
+
+log = logging.getLogger(__name__)
 
 _SENTENCE_RE = re.compile(r"(?<=[.!?;:])\s+|\n+")
 _WORD_RE = re.compile(r"[A-Za-z0-9']+")
@@ -259,6 +263,15 @@ class OllamaProvider:
             "options": {
                 "temperature": request.temperature,
                 "num_predict": request.max_output_tokens,
+                # Ollama's default window is small and it truncates what does not
+                # fit without saying so; size it to the prompt, within reason.
+                "num_ctx": min(
+                    16384,
+                    max(
+                        4096,
+                        (len(request.system) + len(request.user)) // 3 + request.max_output_tokens,
+                    ),
+                ),
             },
             "messages": [
                 {"role": "system", "content": request.system},
@@ -404,39 +417,123 @@ class AnthropicProvider:
         )
 
 
-class OpenAIProvider:
-    """Hosted OpenAI models. Sends content off-device."""
+#: Words in an OpenAI model id that mark something other than a chat model.
+_OPENAI_NOT_CHAT = (
+    "audio", "realtime", "image", "tts", "transcribe", "whisper", "embedding", "moderation",
+    "search", "instruct", "codex", "dall", "sora", "computer", "babbage", "davinci",
+)  # fmt: skip
+_OPENAI_ID = re.compile(r"^gpt-(\d+)(?:\.(\d+))?(?:-([a-z0-9.-]+))?$")
+#: (fetched at, models) per API key, so the list is asked for at most now and then.
+_openai_models_cache: dict[str, tuple[float, list[dict[str, str]]]] = {}
+_OPENAI_MODELS_TTL = 900.0
 
-    DEFAULT_MODEL = "gpt-4o-mini"
+
+def rank_openai_models(ids: list[str]) -> list[str]:
+    """Chat models, newest and largest first.
+
+    OpenAI renames its models often and an id that was right when this was
+    written will not stay right, so nothing is hard-coded: the account's own
+    list is asked for and ordered. The newest version wins; within a version
+    the plain id comes before its variants, and the small ones come last.
+    """
+    ranked: list[tuple[tuple[int, int, int, str], str]] = []
+    for model_id in ids:
+        match = _OPENAI_ID.match(model_id)
+        if not match or any(word in model_id for word in _OPENAI_NOT_CHAT):
+            continue
+        suffix = match.group(3) or ""
+        if re.search(r"\d{4}-\d{2}-\d{2}|\d{4}$|preview", suffix):
+            continue  # a dated snapshot or a preview of something listed plainly
+        size = 0 if not suffix else 2 if any(s in suffix for s in ("mini", "nano")) else 1
+        version = (int(match.group(1)), int(match.group(2) or 0))
+        ranked.append(((-version[0], -version[1], size, suffix), model_id))
+    return [model_id for _key, model_id in sorted(ranked)]
+
+
+def openai_models(api_key: str, base_url: str) -> list[dict[str, str]]:
+    """The chat models this key can use, best first. Empty if they cannot be listed."""
+    if not api_key:
+        return []
+    cached = _openai_models_cache.get(api_key)
+    if cached and time.time() - cached[0] < _OPENAI_MODELS_TTL:
+        return cached[1]
+    models: list[dict[str, str]] = []
+    try:
+        response = httpx.get(
+            f"{base_url}/models", headers={"Authorization": f"Bearer {api_key}"}, timeout=6.0
+        )
+        response.raise_for_status()
+        ids = [str(item.get("id", "")) for item in response.json().get("data", [])]
+        models = [
+            {"id": model_id, "label": model_id + (" — default" if index == 0 else "")}
+            for index, model_id in enumerate(rank_openai_models(ids)[:12])
+        ]
+    except Exception as exc:
+        log.warning("openai_models_unavailable", extra={"reason": str(exc)[:200]})
+    _openai_models_cache[api_key] = (time.time(), models)
+    return models
+
+
+class OpenAIProvider:
+    """ChatGPT's models through the OpenAI API. Sends content off-device."""
 
     def __init__(self, model: str = "", api_key: str | None = None) -> None:
-        self.model = model or self.DEFAULT_MODEL
+        self._model = model
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self.base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 
     @property
+    def model(self) -> str:
+        """The chosen model, or the best one this key lists."""
+        if self._model:
+            return self._model
+        listed = openai_models(self.api_key, self.base_url)
+        return listed[0]["id"] if listed else ""
+
+    @property
     def info(self) -> ProviderInfo:
+        model = self.model if self.api_key else ""
         return ProviderInfo(
             key="openai",
-            label=f"OpenAI API ({self.model})",
+            label=f"ChatGPT (OpenAI{', ' + model if model else ''})",
             sends_data_off_device=True,
-            available=bool(self.api_key),
+            available=bool(self.api_key and model),
             generative=True,
             requires_api_key=True,
             detail=(
-                "Lecture text and your questions are sent to OpenAI and billed per token."
-                if self.api_key
-                else "Add an OpenAI API key in Settings to enable this provider."
+                "Add an OpenAI API key in Settings to use ChatGPT's models."
+                if not self.api_key
+                else "Lecture text and your questions are sent to OpenAI and billed per token."
+                if model
+                else "The OpenAI key was not accepted, or it lists no chat model."
             ),
-            model=self.model,
+            model=model,
+            models=openai_models(self.api_key, self.base_url) if self.api_key else [],
+        )
+
+    def _post(self, body: dict[str, object], timeout: float) -> httpx.Response:
+        return httpx.post(
+            f"{self.base_url}/chat/completions",
+            json=body,
+            headers={"Authorization": f"Bearer {self.api_key}", "content-type": "application/json"},
+            timeout=timeout,
         )
 
     def generate(self, request: GenerationRequest) -> GenerationResult:
         if not self.api_key:
             raise ProviderUnavailableError("No OpenAI API key configured.")
+        model = self.model
+        if not model:
+            raise ProviderUnavailableError("The OpenAI key lists no chat model that can be used.")
+        if request.attachments:
+            raise ProviderUnavailableError(
+                "ChatGPT is used for text here; images and audio are read by Claude or Gemini."
+            )
         body: dict[str, object] = {
-            "model": self.model,
-            "max_completion_tokens": request.max_output_tokens,
+            "model": model,
+            # Reasoning models spend part of this budget thinking before they
+            # write, so the answer is given room beyond what was asked for.
+            "max_completion_tokens": request.max_output_tokens * 2 + 2000,
             "temperature": request.temperature,
             "messages": [
                 {"role": "system", "content": request.system},
@@ -446,24 +543,29 @@ class OpenAIProvider:
         if request.json_schema:
             body["response_format"] = {"type": "json_object"}
         try:
-            response = httpx.post(
-                f"{self.base_url}/chat/completions",
-                json=body,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "content-type": "application/json",
-                },
-                timeout=request.timeout_seconds,
-            )
-            response.raise_for_status()
+            response = self._post(body, request.timeout_seconds)
+            if response.status_code == 400 and "temperature" in response.text:
+                # Reasoning models take only their default temperature.
+                body.pop("temperature", None)
+                response = self._post(body, request.timeout_seconds)
+            if response.status_code >= 400:
+                raise ProviderUnavailableError(
+                    f"OpenAI returned {response.status_code} for {model}: "
+                    f"{_api_error_text(response)}"
+                )
             data = response.json()
+        except ProviderUnavailableError:
+            raise
         except Exception as exc:
             raise ProviderUnavailableError(f"OpenAI request failed: {exc}") from exc
         usage = data.get("usage", {})
+        text = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+        if not text.strip():
+            raise ProviderUnavailableError(f"OpenAI's {model} returned an empty answer.")
         return GenerationResult(
-            text=data["choices"][0]["message"].get("content", ""),
+            text=text,
             provider="openai",
-            model=self.model,
+            model=model,
             generative=True,
             input_tokens=usage.get("prompt_tokens"),
             output_tokens=usage.get("completion_tokens"),
@@ -622,7 +724,6 @@ def build_llm(provider: str, model: str = "") -> LLMProvider:
     if provider == "gemini":
         return GeminiProvider(model)
     if provider == "openai":
-        # Still constructible for anyone who pinned it, but no longer offered.
         return OpenAIProvider(model)
     raise ProviderUnavailableError(f"Unknown LLM provider: {provider}")
 
@@ -639,6 +740,7 @@ def probe_llm_providers(model: str = "") -> list[ProviderInfo]:
         OllamaProvider(model).info,
         AnthropicProvider().info,
         GeminiProvider().info,
+        OpenAIProvider().info,
     ]
 
 

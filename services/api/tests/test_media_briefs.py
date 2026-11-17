@@ -366,12 +366,12 @@ def test_gemini_with_no_candidates_is_an_error_not_an_empty_answer(monkeypatch):
         GeminiProvider(api_key="g").generate(GenerationRequest(system="s", user="u"))
 
 
-def test_the_provider_catalogue_offers_gemini_not_openai():
+def test_the_provider_catalogue_offers_all_four_models():
+    """Claude, ChatGPT, Gemini and a local model: the four seats of a discussion."""
     from app.models.llm import probe_llm_providers
 
     keys = [p.key for p in probe_llm_providers()]
-    assert "gemini" in keys
-    assert "openai" not in keys
+    assert keys == ["extractive", "ollama", "anthropic", "gemini", "openai"]
 
 
 def test_json_helpers_are_unaffected():
