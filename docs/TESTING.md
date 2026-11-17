@@ -29,7 +29,7 @@ Nothing in the suite needs the network, a model download, or a running server.
 
 | Suite | Tests | Status |
 | --- | --- | --- |
-| Backend (`services/api/tests`) | 490 | ✅ all passing (475 + 15 PostgreSQL integration) |
+| Backend (`services/api/tests`) | 494 | ✅ all passing (478 + 16 PostgreSQL integration) |
 | Frontend (`tests/frontend`) | 201 | ✅ all passing |
 | ESLint | — | ✅ clean |
 | TypeScript | — | ✅ clean |
@@ -253,6 +253,17 @@ npm run fixtures
 ```
 
 ---
+
+### A hosted deploy that would not start
+
+Adding a boolean column to an existing table wrote `BOOLEAN DEFAULT 0`.
+SQLite accepts that; PostgreSQL refuses it, so the hosted API exited at
+startup on the first release that added one, while every test passed, because
+the suite runs on SQLite unless a PostgreSQL is supplied. Defaults are now
+spelled per database. Three tests hold it: the spelling itself, every scalar
+default in the schema compiled for PostgreSQL without needing one, and, in
+the PostgreSQL integration file, columns dropped from real tables and added
+back. **Run `npm run api:test:pg` before a release that adds a column.**
 
 ## Gaps — what is **not** tested
 

@@ -120,3 +120,69 @@ def test_a_quoted_dsn_is_accepted():
         assert normalise_database_url(quoted) == bare
     assert bare.startswith("postgresql+psycopg://")
     assert "sslmode=require" in bare
+
+
+# --- adding a column to a database that predates it --------------------------
+def test_a_boolean_default_is_spelled_for_the_database_it_goes_to():
+    """PostgreSQL refuses ``BOOLEAN DEFAULT 0``; that stopped a hosted start.
+
+    SQLite takes the integer, so every test on it passed while the statement
+    was wrong for the deployment.
+    """
+    from app.storage.db import default_literal
+
+    assert default_literal(False, "postgresql") == "FALSE"
+    assert default_literal(True, "postgresql") == "TRUE"
+    assert default_literal(False, "sqlite") == "0"
+    assert default_literal(True, "sqlite") == "1"
+    # A bool is an int in Python; an int must still come out as a number.
+    assert default_literal(0, "postgresql") == "0"
+    assert default_literal(5, "postgresql") == "5"
+    assert default_literal(0.5, "postgresql") == "0.5"
+    assert default_literal("it's", "postgresql") == "'it''s'"
+    assert default_literal(None, "postgresql") == "NULL"
+    assert default_literal(object(), "postgresql") is None
+
+
+def test_every_scalar_default_in_the_schema_has_a_postgres_spelling():
+    """Each column that could one day be added to an older database.
+
+    Compiled for PostgreSQL without needing one: a boolean column must never
+    be given a number, and no default may be left without a spelling.
+    """
+    from sqlalchemy import Boolean
+    from sqlalchemy.dialects import postgresql
+
+    from app.storage.db import default_literal
+    from app.storage.models import Base
+
+    dialect = postgresql.dialect()
+    checked = 0
+    for table in Base.metadata.sorted_tables:
+        for column in table.columns:
+            if column.default is None or not column.default.is_scalar:
+                continue
+            literal = default_literal(column.default.arg, "postgresql")
+            assert literal is not None, f"{table.name}.{column.name} has no SQL default"
+            if isinstance(column.type, Boolean):
+                assert literal in {"TRUE", "FALSE"}, f"{table.name}.{column.name}: {literal}"
+            assert column.type.compile(dialect)
+            checked += 1
+    assert checked > 20
+
+
+def test_a_column_missing_from_an_older_database_is_added_with_its_default(tmp_path):
+    from sqlalchemy import inspect, text
+
+    database = Database(f"sqlite:///{tmp_path / 'old.sqlite3'}")
+    database.create_all()
+    with database.ddl_engine.begin() as conn:
+        conn.execute(text("ALTER TABLE slide_guides DROP COLUMN used_transcript"))
+        conn.execute(text("ALTER TABLE documents DROP COLUMN folder_id"))
+    database.create_all()
+    columns = {c["name"]: c for c in inspect(database.ddl_engine).get_columns("slide_guides")}
+    assert "used_transcript" in columns
+    assert str(columns["used_transcript"]["default"]) == "0"
+    assert "folder_id" in {c["name"] for c in inspect(database.ddl_engine).get_columns("documents")}
+    database.create_all()  # and a second start has nothing left to do
+    database.dispose()

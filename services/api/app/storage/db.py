@@ -149,17 +149,16 @@ class Database:
                     ddl = column.type.compile(self.engine.dialect)
                     statement = f"ALTER TABLE {table.name} ADD COLUMN {column.name} {ddl}"
                     if column.default is not None and column.default.is_scalar:
-                        value = column.default.arg
-                        literal = (
-                            "NULL"
-                            if value is None
-                            else str(int(value))
-                            if isinstance(value, bool)
-                            else repr(value)
-                            if isinstance(value, str)
-                            else str(value)
-                        )
-                        statement += f" DEFAULT {literal}"
+                        literal = default_literal(column.default.arg, self.dialect)
+                        if literal is None:
+                            # Added without one rather than refusing to start:
+                            # existing rows read NULL until they are written.
+                            log.warning(
+                                "column_default_not_written",
+                                extra={"table": table.name, "column": column.name},
+                            )
+                        else:
+                            statement += f" DEFAULT {literal}"
                     log.info("adding_column", extra={"table": table.name, "column": column.name})
                     conn.execute(text(statement))
 
@@ -244,6 +243,32 @@ class Database:
         self.engine.dispose()
         if self.ddl_engine is not self.engine:
             self.ddl_engine.dispose()
+
+
+def default_literal(value: object, dialect: str) -> str | None:
+    """A column default written as SQL for ``ALTER TABLE ... ADD COLUMN``.
+
+    The spelling of a boolean is the part that differs. SQLite keeps booleans
+    as integers and takes ``0``; PostgreSQL has a real boolean type and
+    refuses an integer default for it ("column is of type boolean but default
+    expression is of type integer"), which stopped a hosted deployment from
+    starting the first time a boolean column was added. ``bool`` is tested
+    before ``int`` because in Python it is one. ``None`` is returned for a
+    value with no safe spelling here, and the column is then added without a
+    default.
+    """
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        if dialect == "sqlite":
+            return "1" if value else "0"
+        return "TRUE" if value else "FALSE"
+    if isinstance(value, int | float):
+        return str(value)
+    if isinstance(value, str):
+        # Standard SQL quoting: a quote inside the text is doubled.
+        return "'" + value.replace("'", "''") + "'"
+    return None
 
 
 def normalise_database_url(url: str) -> str:

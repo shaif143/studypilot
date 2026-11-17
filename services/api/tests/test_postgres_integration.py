@@ -100,6 +100,32 @@ def test_postgres_selects_the_right_backends(pg_context: RuntimeContext):
     assert pg_context.vector_store.backend == "pgvector"
 
 
+def test_columns_missing_from_an_older_postgres_are_added(pg_database: Database):
+    """The real thing: a boolean and a text column added to tables that lack them.
+
+    A hosted deployment stopped starting on exactly this, with
+    ``BOOLEAN DEFAULT 0`` refused, while the SQLite suite stayed green.
+    """
+    from sqlalchemy import text
+
+    with pg_database.ddl_engine.begin() as conn:
+        conn.execute(text("ALTER TABLE slide_guides DROP COLUMN used_transcript"))
+        conn.execute(text("ALTER TABLE user_settings DROP COLUMN explanation_level"))
+    pg_database.create_all()
+    with pg_database.ddl_engine.begin() as conn:
+        defaults = dict(
+            conn.execute(
+                text(
+                    "SELECT column_name, column_default FROM information_schema.columns "
+                    "WHERE (table_name = 'slide_guides' AND column_name = 'used_transcript') "
+                    "OR (table_name = 'user_settings' AND column_name = 'explanation_level')"
+                )
+            ).all()
+        )
+    assert defaults["used_transcript"] == "false"
+    assert defaults["explanation_level"].startswith("'intermediate'")
+
+
 def test_url_normalisation_handles_provider_dsns():
     # The bare postgres:// alias SQLAlchemy dropped.
     assert normalise_database_url("postgres://u:p@h/db").startswith("postgresql+psycopg://")
