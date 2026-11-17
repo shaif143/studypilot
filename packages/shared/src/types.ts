@@ -1095,3 +1095,116 @@ export interface CouncilStartRequest {
   reference_document_ids?: string[];
   members?: Array<CouncilSeat['key']>;
 }
+
+// --- the Claude chat ---------------------------------------------------------
+export interface AssistantModel {
+  id: string;
+  label: string;
+  detail: string;
+}
+
+/** Whether this account has a Claude API key. The value is never sent back. */
+export interface AssistantKey {
+  configured: boolean;
+  /** "account" (saved in the chat) or "installation" (this machine's own key). */
+  source: '' | 'account' | 'installation';
+  /** The last four characters of the saved key. */
+  hint: string;
+}
+
+export interface AssistantStatus {
+  key: AssistantKey;
+  models: AssistantModel[];
+  default_model: string;
+  /** The operator's switch: may anything here go to a cloud model at all. */
+  installation_allows_cloud: boolean;
+  /** This account's own switch, in Settings. */
+  account_allows_cloud: boolean;
+  /** True when a message can be sent. */
+  ready: boolean;
+  max_upload_bytes: number;
+}
+
+export interface AssistantFile {
+  id: string;
+  filename: string;
+  kind: 'image' | 'pdf' | 'text' | 'file';
+  media_type: string;
+  byte_size: number;
+  created_at?: string | null;
+  /** False once the stored bytes are gone (message attachments only). */
+  available?: boolean;
+}
+
+/** One step Claude took: a tool call and, once it has run, what came of it. */
+export interface AssistantToolBlock {
+  type: 'tool';
+  id: string;
+  name: string;
+  /** Plain text; its first line says what happened. */
+  result: string;
+  is_error: boolean;
+  done: boolean;
+}
+
+export type AssistantBlock = { type: 'text'; text: string } | AssistantToolBlock;
+
+export interface AssistantItem {
+  role: 'user' | 'assistant';
+  /** The student's own words (their messages only). */
+  text: string;
+  attachments: AssistantFile[];
+  /** An assistant reply in order: text, and the steps it took. */
+  blocks: AssistantBlock[];
+}
+
+export interface AssistantThreadSummary {
+  id: string;
+  title: string;
+  model: string;
+  project_id: string | null;
+  created_at: string;
+  updated_at: string;
+  running: boolean;
+}
+
+export interface AssistantThread extends AssistantThreadSummary {
+  items: AssistantItem[];
+  /** Tokens so far, and an estimate of their cost at list prices. */
+  usage: { input: number; output: number; cost_usd: number };
+}
+
+export interface AssistantProject {
+  id: string;
+  name: string;
+  description: string;
+  instructions: string;
+  thread_count: number;
+  file_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssistantProjectDetail extends AssistantProject {
+  files: AssistantFile[];
+  threads: AssistantThreadSummary[];
+}
+
+export interface AssistantMessageRequest {
+  text: string;
+  attachment_ids: string[];
+  model: string;
+}
+
+/** What arrives, a line at a time, while a reply is being written. */
+export type AssistantEvent =
+  | { type: 'thinking'; text: string }
+  | { type: 'text'; text: string }
+  | { type: 'tool_pending'; id: string; name: string }
+  | { type: 'tool_start'; id: string; name: string }
+  | { type: 'tool_end'; id: string; name: string; result: string; is_error: boolean }
+  | { type: 'notice'; text: string }
+  /** Discard what has streamed of the current reply; it is being asked for again. */
+  | { type: 'reset' }
+  | { type: 'error'; message: string }
+  | { type: 'done'; thread: AssistantThread };

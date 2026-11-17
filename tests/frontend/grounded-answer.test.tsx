@@ -90,6 +90,22 @@ describe('GroundedAnswer', () => {
     expect(link).toHaveAttribute('target', '_blank');
   });
 
+  it('never loads a picture an answer points at', () => {
+    const { container } = render(
+      <GroundedAnswer
+        markdown="Here ![a chart](https://elsewhere.example/p.png?q=what-it-read) and ![](data:image/png;base64,AAAA)."
+        citations={[]}
+      />,
+    );
+
+    // A picture's address is chosen by the text's author; fetching it would
+    // tell their server whatever the address carries.
+    expect(container.querySelector('img')).toBeNull();
+    const link = screen.getByRole('link', { name: '[a chart]' });
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    expect(container.textContent).toContain('[image]');
+  });
+
   it('renders markdown structure and mathematics', () => {
     const { container } = render(
       <GroundedAnswer

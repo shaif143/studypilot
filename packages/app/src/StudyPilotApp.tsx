@@ -17,6 +17,7 @@ import { AppProvider } from './context';
 import { describeError, useAuthStatus } from './hooks/queries';
 import { AnalyticsScreen } from './screens/AnalyticsScreen';
 import { AssessmentScreen } from './screens/AssessmentScreen';
+import { AssistantScreen } from './screens/AssistantScreen';
 import { AssignmentsScreen } from './screens/AssignmentsScreen';
 import { ConceptMapScreen } from './screens/ConceptMapScreen';
 import { CourseSlidesScreen } from './screens/CourseSlidesScreen';
@@ -83,6 +84,9 @@ export function StudyPilotApp({ platform }: StudyPilotAppProps) {
               <Route path="/notes" element={<NotesScreen />} />
               <Route path="/analytics" element={<AnalyticsScreen />} />
               <Route path="/settings" element={<SettingsScreen />} />
+              {platform.kind === 'web' ? (
+                <Route path="/claude/*" element={<AssistantScreen />} />
+              ) : null}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </AppShell>

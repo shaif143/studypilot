@@ -9,6 +9,12 @@
 import { ApiError } from '@studypilot/api-client';
 import type {
   ArchiveUploadResult,
+  AssistantFile,
+  AssistantProject,
+  AssistantProjectDetail,
+  AssistantStatus,
+  AssistantThread,
+  AssistantThreadSummary,
   Assignment,
   AttemptReview,
   ConceptMap,
@@ -92,6 +98,11 @@ export const keys = {
   examProfile: (courseId: string) => ['courses', courseId, 'exam-profile'] as const,
   folders: (courseId: string) => ['courses', courseId, 'folders'] as const,
   council: (documentId: string) => ['assignments', documentId, 'council'] as const,
+  assistant: ['assistant', 'status'] as const,
+  assistantThreads: ['assistant', 'threads'] as const,
+  assistantThread: (id: string) => ['assistant', 'threads', id] as const,
+  assistantProjects: ['assistant', 'projects'] as const,
+  assistantProject: (id: string) => ['assistant', 'projects', id] as const,
   sessions: ['sessions'] as const,
   session: (id: string) => ['sessions', id] as const,
   messages: (id: string) => ['sessions', id, 'messages'] as const,
@@ -655,6 +666,148 @@ export function useDeleteAllData() {
 }
 
 /** Turn any thrown value into a sentence worth showing a student. */
+// --- the Claude chat -----------------------------------------------------------
+
+export function useAssistantStatus() {
+  const client = useClient();
+  return useQuery<AssistantStatus>({
+    queryKey: keys.assistant,
+    queryFn: () => client.assistantStatus(),
+  });
+}
+
+/** Save or remove this account's Claude API key; the status comes back either way. */
+export function useAssistantKey() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  const onSuccess = (status: AssistantStatus) => queryClient.setQueryData(keys.assistant, status);
+  const save = useMutation<AssistantStatus, Error, string>({
+    mutationFn: (key) => client.saveAssistantKey(key),
+    onSuccess,
+  });
+  const remove = useMutation<AssistantStatus, Error, void>({
+    mutationFn: () => client.deleteAssistantKey(),
+    onSuccess,
+  });
+  return { save, remove };
+}
+
+export function useAssistantThreads() {
+  const client = useClient();
+  return useQuery<AssistantThreadSummary[]>({
+    queryKey: keys.assistantThreads,
+    queryFn: () => client.assistantThreads(),
+  });
+}
+
+export function useAssistantThread(threadId: string | null) {
+  const client = useClient();
+  return useQuery<AssistantThread>({
+    queryKey: keys.assistantThread(threadId ?? ''),
+    queryFn: () => client.assistantThread(threadId as string),
+    enabled: Boolean(threadId),
+  });
+}
+
+export function useAssistantProjects() {
+  const client = useClient();
+  return useQuery<AssistantProject[]>({
+    queryKey: keys.assistantProjects,
+    queryFn: () => client.assistantProjects(),
+  });
+}
+
+export function useAssistantProject(projectId: string | null) {
+  const client = useClient();
+  return useQuery<AssistantProjectDetail>({
+    queryKey: keys.assistantProject(projectId ?? ''),
+    queryFn: () => client.assistantProject(projectId as string),
+    enabled: Boolean(projectId),
+  });
+}
+
+/** Everything that changes a chat or a project, with the lists kept in step. */
+export function useAssistantActions() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  const refreshLists = () => {
+    void queryClient.invalidateQueries({ queryKey: keys.assistantThreads });
+    void queryClient.invalidateQueries({ queryKey: keys.assistantProjects });
+  };
+  const keepProject = (project: AssistantProjectDetail) => {
+    queryClient.setQueryData(keys.assistantProject(project.id), project);
+    refreshLists();
+  };
+
+  const createProject = useMutation<
+    AssistantProjectDetail,
+    Error,
+    { name: string; description?: string; instructions?: string }
+  >({
+    mutationFn: (body) => client.createAssistantProject(body),
+    onSuccess: keepProject,
+  });
+  const updateProject = useMutation<
+    AssistantProjectDetail,
+    Error,
+    { id: string; name?: string; description?: string; instructions?: string }
+  >({
+    mutationFn: ({ id, ...body }) => client.updateAssistantProject(id, body),
+    onSuccess: keepProject,
+  });
+  const deleteProject = useMutation<void, Error, string>({
+    mutationFn: (id) => client.deleteAssistantProject(id),
+    onSuccess: (_nothing, id) => {
+      queryClient.removeQueries({ queryKey: keys.assistantProject(id) });
+      refreshLists();
+    },
+  });
+  const addProjectFile = useMutation<AssistantFile, Error, { projectId: string; file: File }>({
+    mutationFn: ({ projectId, file }) => client.addAssistantProjectFile(projectId, file),
+    onSuccess: (_file, { projectId }) => {
+      void queryClient.invalidateQueries({ queryKey: keys.assistantProject(projectId) });
+      refreshLists();
+    },
+  });
+  const removeProjectFile = useMutation<void, Error, { projectId: string; fileId: string }>({
+    mutationFn: ({ fileId }) => client.deleteAssistantAttachment(fileId),
+    onSuccess: (_nothing, { projectId }) => {
+      void queryClient.invalidateQueries({ queryKey: keys.assistantProject(projectId) });
+      refreshLists();
+    },
+  });
+  const updateThread = useMutation<
+    AssistantThread,
+    Error,
+    { id: string; title?: string; project_id?: string }
+  >({
+    mutationFn: ({ id, ...body }) => client.updateAssistantThread(id, body),
+    onSuccess: (thread) => {
+      queryClient.setQueryData(keys.assistantThread(thread.id), thread);
+      void queryClient.invalidateQueries({ queryKey: ['assistant', 'projects'] });
+      refreshLists();
+    },
+  });
+  const deleteThread = useMutation<void, Error, string>({
+    mutationFn: (id) => client.deleteAssistantThread(id),
+    onSuccess: (_nothing, id) => {
+      queryClient.removeQueries({ queryKey: keys.assistantThread(id) });
+      void queryClient.invalidateQueries({ queryKey: ['assistant', 'projects'] });
+      refreshLists();
+    },
+  });
+
+  return {
+    createProject,
+    updateProject,
+    deleteProject,
+    addProjectFile,
+    removeProjectFile,
+    updateThread,
+    deleteThread,
+  };
+}
+
 export function describeError(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.isUnauthorised) {

@@ -13,6 +13,7 @@ import {
   FileQuestion,
   GraduationCap,
   LayoutDashboard,
+  MessagesSquare,
   NotebookPen,
   PanelLeftClose,
   PanelLeftOpen,
@@ -110,6 +111,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     // course itself ("Add files", "Ask about this course") rather than from
     // two more destinations here.
     { to: '/courses', label: 'My Courses', icon: <GraduationCap size={16} /> },
+    // The Claude chat is on the website only: it runs on a key each account
+    // brings, which the Mac app has no account to hold.
+    ...(desktop
+      ? []
+      : [{ to: '/claude', label: 'Claude', icon: <MessagesSquare size={16} /> }]),
   ];
   const study: NavItem[] = [
     { to: '/flashcards', label: 'Flashcards', icon: <BookMarked size={16} />, badge: due },

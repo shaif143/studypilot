@@ -1,5 +1,13 @@
 import type {
   ArchiveUploadResult,
+  AssistantEvent,
+  AssistantFile,
+  AssistantMessageRequest,
+  AssistantProject,
+  AssistantProjectDetail,
+  AssistantStatus,
+  AssistantThread,
+  AssistantThreadSummary,
   AttemptReview,
   ConceptMap,
   CouncilStartRequest,
@@ -653,6 +661,134 @@ export class StudyPilotClient {
     this.request<{ deleted: boolean; detail: string }>(`/api/attention/${documentId}`, {
       method: 'DELETE',
     });
+
+  // --- the Claude chat -------------------------------------------------
+  assistantStatus = () => this.request<AssistantStatus>('/api/assistant');
+  saveAssistantKey = (key: string) =>
+    this.request<AssistantStatus>('/api/assistant/key', { method: 'PUT', body: { key } });
+  deleteAssistantKey = () =>
+    this.request<AssistantStatus>('/api/assistant/key', { method: 'DELETE' });
+
+  assistantProjects = () => this.request<AssistantProject[]>('/api/assistant/projects');
+  assistantProject = (projectId: string) =>
+    this.request<AssistantProjectDetail>(`/api/assistant/projects/${projectId}`);
+  createAssistantProject = (body: { name: string; description?: string; instructions?: string }) =>
+    this.request<AssistantProjectDetail>('/api/assistant/projects', { method: 'POST', body });
+  updateAssistantProject = (
+    projectId: string,
+    body: { name?: string; description?: string; instructions?: string },
+  ) =>
+    this.request<AssistantProjectDetail>(`/api/assistant/projects/${projectId}`, {
+      method: 'PATCH',
+      body,
+    });
+  deleteAssistantProject = (projectId: string) =>
+    this.request<void>(`/api/assistant/projects/${projectId}`, { method: 'DELETE' });
+  addAssistantProjectFile = (projectId: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return this.request<AssistantFile>(`/api/assistant/projects/${projectId}/files`, {
+      method: 'POST',
+      form,
+    });
+  };
+
+  assistantThreads = (projectId?: string) =>
+    this.request<AssistantThreadSummary[]>('/api/assistant/threads', {
+      query: { project_id: projectId },
+    });
+  assistantThread = (threadId: string) =>
+    this.request<AssistantThread>(`/api/assistant/threads/${threadId}`);
+  createAssistantThread = (body: { project_id?: string | null; model?: string }) =>
+    this.request<AssistantThread>('/api/assistant/threads', { method: 'POST', body });
+  updateAssistantThread = (threadId: string, body: { title?: string; project_id?: string }) =>
+    this.request<AssistantThread>(`/api/assistant/threads/${threadId}`, {
+      method: 'PATCH',
+      body,
+    });
+  deleteAssistantThread = (threadId: string) =>
+    this.request<void>(`/api/assistant/threads/${threadId}`, { method: 'DELETE' });
+  addAssistantAttachment = (threadId: string, file: File, signal?: AbortSignal) => {
+    const form = new FormData();
+    form.append('file', file);
+    return this.request<AssistantFile>(`/api/assistant/threads/${threadId}/attachments`, {
+      method: 'POST',
+      form,
+      signal,
+    });
+  };
+  deleteAssistantAttachment = (attachmentId: string) =>
+    this.request<void>(`/api/assistant/attachments/${attachmentId}`, { method: 'DELETE' });
+  assistantAttachmentPath = (attachmentId: string) =>
+    `/api/assistant/attachments/${attachmentId}/content`;
+  stopAssistant = (threadId: string) =>
+    this.request<void>(`/api/assistant/threads/${threadId}/stop`, { method: 'POST' });
+
+  /**
+   * Send a message and hand each event of the reply to `onEvent` as it arrives.
+   *
+   * The reply is a stream of JSON lines rather than one JSON body, so it does
+   * not go through `request`: the body is read a chunk at a time, and a line
+   * split across two chunks is held until its end arrives. Resolves when the
+   * stream closes; a refusal before the stream starts rejects like any other
+   * request.
+   */
+  async sendAssistantMessage(
+    threadId: string,
+    body: AssistantMessageRequest,
+    onEvent: (event: AssistantEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const headers = await this.#authHeaders();
+    headers['content-type'] = 'application/json';
+    let response: Response;
+    try {
+      response = await fetch(this.url(`/api/assistant/threads/${threadId}/messages`), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal,
+        credentials: 'same-origin',
+      });
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') throw cause;
+      throw new NetworkError('Could not reach the StudyPilot backend. Check that it is running.');
+    }
+    if (!response.ok) {
+      let detail = `Request failed with status ${response.status}`;
+      try {
+        const payload = (await response.json()) as { detail?: unknown };
+        if (typeof payload.detail === 'string') detail = payload.detail;
+      } catch {
+        // Not JSON; the status says enough.
+      }
+      if (response.status === 401) this.resetToken();
+      throw new ApiError(detail, response.status);
+    }
+    if (!response.body) throw new NetworkError('The reply could not be read.');
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = '';
+    const emit = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      try {
+        onEvent(JSON.parse(trimmed) as AssistantEvent);
+      } catch {
+        // A line that is not JSON is not an event; skip it rather than end the reply.
+      }
+    };
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      const lines = pending.split('\n');
+      pending = lines.pop() ?? '';
+      lines.forEach(emit);
+    }
+    emit(pending + decoder.decode());
+  }
 
   // --- privacy ---------------------------------------------------------
   exportData = () => this.request<Record<string, unknown>>('/api/privacy/export');

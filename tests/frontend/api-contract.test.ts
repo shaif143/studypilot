@@ -167,6 +167,32 @@ describe('API contract', () => {
     ['deleteFolder', () => client.deleteFolder('f1')],
     ['setDocumentFolder', () => client.setDocumentFolder('d1', 'f1')],
     ['guidedPages', () => client.guidedPages('d1')],
+    ['assistantStatus', () => client.assistantStatus()],
+    ['saveAssistantKey', () => client.saveAssistantKey('sk-ant-example')],
+    ['deleteAssistantKey', () => client.deleteAssistantKey()],
+    ['assistantProjects', () => client.assistantProjects()],
+    ['assistantProject', () => client.assistantProject('p1')],
+    ['createAssistantProject', () => client.createAssistantProject({ name: 'Thesis' })],
+    ['updateAssistantProject', () => client.updateAssistantProject('p1', { name: 'T' })],
+    ['deleteAssistantProject', () => client.deleteAssistantProject('p1')],
+    ['addAssistantProjectFile', () => client.addAssistantProjectFile('p1', new File(['x'], 'a.md'))],
+    ['assistantThreads', () => client.assistantThreads()],
+    ['assistantThread', () => client.assistantThread('t1')],
+    ['createAssistantThread', () => client.createAssistantThread({ project_id: 'p1' })],
+    ['updateAssistantThread', () => client.updateAssistantThread('t1', { title: 'New' })],
+    ['deleteAssistantThread', () => client.deleteAssistantThread('t1')],
+    ['addAssistantAttachment', () => client.addAssistantAttachment('t1', new File(['x'], 'a.png'))],
+    ['deleteAssistantAttachment', () => client.deleteAssistantAttachment('a1')],
+    ['stopAssistant', () => client.stopAssistant('t1')],
+    [
+      'sendAssistantMessage',
+      () =>
+        client.sendAssistantMessage(
+          't1',
+          { text: 'hi', attachment_ids: [], model: 'claude-opus-5-5' },
+          () => {},
+        ),
+    ],
   ])('%s calls a route the backend actually exposes', async (_name, invoke) => {
     const { path, method } = await record(invoke);
     expect(
@@ -178,6 +204,7 @@ describe('API contract', () => {
   it('builds binary URLs that match real routes', () => {
     expect(isKnownRoute(client.documentFileUrl('d1'), 'get')).toBe(true);
     expect(isKnownRoute(client.pagePreviewUrl('d1', 4), 'get')).toBe(true);
+    expect(isKnownRoute(client.assistantAttachmentPath('a1'), 'get')).toBe(true);
   });
 
   it('covers a meaningful share of the backend surface', () => {

