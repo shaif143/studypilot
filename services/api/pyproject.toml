@@ -10,6 +10,9 @@ dependencies = [
   "pydantic-settings>=2.6",
   "python-multipart>=0.0.12",
   "httpx>=0.27",
+  # The Claude chat: streaming replies and tool calls. The older single-shot
+  # providers still speak to their APIs over httpx directly.
+  "anthropic>=2.10,<3",
   "sqlalchemy>=2.0",
   "pymupdf>=1.24",
   # PowerPoint decks. Pure Python; the slides are laid out as a PDF with PyMuPDF.

@@ -27,6 +27,7 @@ from app.storage.repositories import (
     AssessmentRepository,
     AssignmentAttemptRepository,
     AssignmentPlanRepository,
+    AssistantRepository,
     AttentionRepository,
     ChunkRepository,
     CouncilRepository,
@@ -332,6 +333,13 @@ def council_runs(session: SessionDep) -> CouncilRepository:
 
 
 CouncilDep = Annotated[CouncilRepository, Depends(council_runs)]
+
+
+def assistant_repo(session: SessionDep) -> AssistantRepository:
+    return AssistantRepository(session)
+
+
+AssistantDep = Annotated[AssistantRepository, Depends(assistant_repo)]
 
 
 PlansDep = Annotated[AssignmentPlanRepository, Depends(plans)]

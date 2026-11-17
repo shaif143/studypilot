@@ -12,13 +12,17 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from app.storage.models import (
     Assessment,
     AssessmentAttempt,
     AssignmentAttempt,
     AssignmentPlan,
+    AssistantAttachment,
+    AssistantKey,
+    AssistantProject,
+    AssistantThread,
     AttentionSample,
     Chunk,
     Citation,
@@ -1267,3 +1271,189 @@ class CouncilRepository:
                 .order_by(CouncilRun.created_at)
             )
         )
+
+
+class AssistantRepository:
+    """The chat: an account's key, its projects, its conversations and their files."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    # --- the key ---------------------------------------------------------
+    def key(self, user_id: str) -> AssistantKey | None:
+        return self.session.get(AssistantKey, user_id)
+
+    def save_key(self, user_id: str, ciphertext: str, hint: str) -> AssistantKey:
+        row = self.key(user_id)
+        if row is None:
+            row = AssistantKey(user_id=user_id, ciphertext=ciphertext, hint=hint)
+            self.session.add(row)
+        else:
+            row.ciphertext = ciphertext
+            row.hint = hint
+        self.session.flush()
+        return row
+
+    def delete_key(self, user_id: str) -> None:
+        row = self.key(user_id)
+        if row is not None:
+            self.session.delete(row)
+            self.session.flush()
+
+    # --- projects --------------------------------------------------------
+    def projects(self, user_id: str) -> list[AssistantProject]:
+        return list(
+            self.session.scalars(
+                select(AssistantProject)
+                .where(AssistantProject.user_id == user_id)
+                .order_by(AssistantProject.updated_at.desc())
+            )
+        )
+
+    def project(self, user_id: str, project_id: str) -> AssistantProject:
+        row = self.session.get(AssistantProject, project_id)
+        if row is None or row.user_id != user_id:
+            raise NotFoundError("project")
+        return row
+
+    def create_project(self, user_id: str, **values: object) -> AssistantProject:
+        row = AssistantProject(user_id=user_id, **values)
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def delete_project(self, user_id: str, project_id: str) -> list[AssistantAttachment]:
+        """Remove a project and its files; its conversations stay, outside any project.
+
+        Returns the files removed, so their bytes can be removed as well.
+        """
+        row = self.project(user_id, project_id)
+        files = self.project_files(user_id, project_id)
+        for attachment in files:
+            self.session.delete(attachment)
+        for thread in self.threads(
+            user_id, project_id=project_id, limit=10_000, include_empty=True
+        ):
+            thread.project_id = None
+        self.session.delete(row)
+        self.session.flush()
+        return files
+
+    def project_files(self, user_id: str, project_id: str) -> list[AssistantAttachment]:
+        return list(
+            self.session.scalars(
+                select(AssistantAttachment)
+                .where(
+                    AssistantAttachment.user_id == user_id,
+                    AssistantAttachment.project_id == project_id,
+                )
+                .order_by(AssistantAttachment.created_at, AssistantAttachment.id)
+            )
+        )
+
+    def project_counts(self, user_id: str) -> dict[str, dict[str, int]]:
+        """Per project: how many conversations and files it holds."""
+        counts: dict[str, dict[str, int]] = {}
+        for project_id, total in self.session.execute(
+            select(AssistantThread.project_id, func.count())
+            .where(
+                AssistantThread.user_id == user_id,
+                AssistantThread.project_id.is_not(None),
+                AssistantThread.message_count > 0,
+            )
+            .group_by(AssistantThread.project_id)
+        ):
+            counts.setdefault(project_id, {"threads": 0, "files": 0})["threads"] = total
+        for project_id, total in self.session.execute(
+            select(AssistantAttachment.project_id, func.count())
+            .where(
+                AssistantAttachment.user_id == user_id,
+                AssistantAttachment.project_id.is_not(None),
+            )
+            .group_by(AssistantAttachment.project_id)
+        ):
+            counts.setdefault(project_id, {"threads": 0, "files": 0})["files"] = total
+        return counts
+
+    # --- conversations ---------------------------------------------------
+    def threads(
+        self,
+        user_id: str,
+        *,
+        project_id: str | None = None,
+        limit: int = 200,
+        include_empty: bool = False,
+        with_messages: bool = False,
+    ) -> list[AssistantThread]:
+        """An account's conversations, newest first.
+
+        For a list: the conversations themselves are left unread unless asked
+        for, and one that was opened but never written in is left out.
+        """
+        query = select(AssistantThread).where(AssistantThread.user_id == user_id)
+        if project_id is not None:
+            query = query.where(AssistantThread.project_id == project_id)
+        if not include_empty:
+            query = query.where(AssistantThread.message_count > 0)
+        if not with_messages:
+            query = query.options(defer(AssistantThread.messages))
+        return list(
+            self.session.scalars(query.order_by(AssistantThread.updated_at.desc()).limit(limit))
+        )
+
+    def thread(self, user_id: str, thread_id: str) -> AssistantThread:
+        row = self.session.get(AssistantThread, thread_id)
+        if row is None or row.user_id != user_id:
+            raise NotFoundError("conversation")
+        return row
+
+    def create_thread(
+        self, user_id: str, *, model: str = "", project_id: str | None = None
+    ) -> AssistantThread:
+        row = AssistantThread(
+            user_id=user_id, model=model, project_id=project_id, messages=[], usage={}
+        )
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def delete_thread(self, user_id: str, thread_id: str) -> list[AssistantAttachment]:
+        """Remove a conversation; returns its attachments so their bytes can go too."""
+        row = self.thread(user_id, thread_id)
+        attached = self.attachments(user_id, thread_id)
+        for attachment in attached:
+            self.session.delete(attachment)
+        self.session.delete(row)
+        self.session.flush()
+        return attached
+
+    # --- attachments -----------------------------------------------------
+    def attachments(self, user_id: str, thread_id: str) -> list[AssistantAttachment]:
+        return list(
+            self.session.scalars(
+                select(AssistantAttachment)
+                .where(
+                    AssistantAttachment.user_id == user_id,
+                    AssistantAttachment.thread_id == thread_id,
+                )
+                .order_by(AssistantAttachment.created_at, AssistantAttachment.id)
+            )
+        )
+
+    def attachment(self, user_id: str, attachment_id: str) -> AssistantAttachment:
+        row = self.session.get(AssistantAttachment, attachment_id)
+        if row is None or row.user_id != user_id:
+            raise NotFoundError("attachment")
+        return row
+
+    def add_attachment(self, **values: object) -> AssistantAttachment:
+        row = AssistantAttachment(**values)
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def delete_attachment(self, user_id: str, attachment_id: str) -> AssistantAttachment:
+        row = self.attachment(user_id, attachment_id)
+        self.session.delete(row)
+        self.session.flush()
+        return row

@@ -869,3 +869,97 @@ class CouncilRun(Base, TimestampMixin):
     consensus: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     warnings: Mapped[list[Any]] = mapped_column(JSON, default=list)
     error: Mapped[str] = mapped_column(Text, default="")
+
+
+class AssistantKey(Base, TimestampMixin):
+    """The Claude API key one account typed in for the chat, encrypted at rest.
+
+    One row per account. The ciphertext is a Fernet token; the key that opens
+    it is kept where the installation keeps its secrets, never in this table,
+    so a copy of the database alone gives nobody a usable key. ``hint`` is the
+    last four characters, so the screen can say which key is saved without
+    the value ever leaving the server again.
+    """
+
+    __tablename__ = "assistant_keys"
+
+    user_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    ciphertext: Mapped[str] = mapped_column(Text)
+    hint: Mapped[str] = mapped_column(String(8), default="")
+
+
+class AssistantProject(Base, TimestampMixin):
+    """A project in the chat: instructions and files shared by its conversations.
+
+    Every conversation started in a project is given the project's
+    instructions and can see its files, so a course or a piece of work is
+    explained once rather than at the top of every chat.
+    """
+
+    __tablename__ = "assistant_projects"
+    __table_args__ = (Index("ix_assistant_projects_user", "user_id"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    #: What Claude is told at the start of every conversation in the project.
+    instructions: Mapped[str] = mapped_column(Text, default="")
+
+
+class AssistantThread(Base, TimestampMixin):
+    """One conversation with Claude in the chat.
+
+    ``messages`` is the conversation exactly as it is sent to the Messages
+    API, and it is only ever appended to: the model's thinking blocks are
+    signed against everything before them, so an edited history is refused.
+    Attached files are held as small placeholders here and their bytes in the
+    blob store, so a photo is not stored again in every row that follows it.
+    """
+
+    __tablename__ = "assistant_threads"
+    __table_args__ = (Index("ix_assistant_threads_user", "user_id"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"))
+    #: The project it belongs to, if any. Not a foreign key: deleting a project
+    #: leaves its conversations, outside any project.
+    project_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    title: Mapped[str] = mapped_column(String(200), default="")
+    #: The model the last turn was asked of.
+    model: Mapped[str] = mapped_column(String(64), default="")
+    messages: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    #: How many messages it holds, kept beside them so a list of chats can
+    #: leave the conversations themselves unread, and skip the empty ones.
+    message_count: Mapped[int] = mapped_column(Integer, default=0)
+    #: Running token counts: {"input", "output", "cache_read", "cache_write", "cost_usd"}.
+    usage: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class AssistantAttachment(Base, TimestampMixin):
+    """A file or photo in the chat: attached to a message, or kept in a project.
+
+    Exactly one of ``thread_id`` and ``project_id`` is set. Neither is a
+    foreign key, so the row outlives nothing by accident: the repository
+    removes a conversation's or a project's files with it, bytes included.
+    """
+
+    __tablename__ = "assistant_attachments"
+    __table_args__ = (
+        Index("ix_assistant_attachments_thread", "thread_id"),
+        Index("ix_assistant_attachments_project", "project_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"))
+    thread_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    project_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    filename: Mapped[str] = mapped_column(String(512))
+    media_type: Mapped[str] = mapped_column(String(128), default="application/octet-stream")
+    byte_size: Mapped[int] = mapped_column(Integer, default=0)
+    #: How Claude is shown it: "image" | "pdf" | "text" | "file" (named, not shown).
+    kind: Mapped[str] = mapped_column(String(16), default="file")
+    #: Where the bytes are in the blob store's keyed area.
+    asset_key: Mapped[str] = mapped_column(String(256))

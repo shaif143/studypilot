@@ -409,6 +409,32 @@ width and meaning — so re-upload your documents afterwards.
 
 ---
 
+## The Claude chat
+
+**Claude** in the website's sidebar is a chat that runs on a Claude API key
+each account saves for itself. Three things have to be true before a message
+can be sent, and the chat lists whichever are missing:
+
+1. **On the API:** `STUDYPILOT_ALLOW_CLOUD_PROCESSING=true`. Set it in the
+   Render dashboard and let the service restart.
+2. **In the account:** *Allow cloud AI processing* in Settings (the chat has a
+   button for it).
+3. **In the chat:** a Claude API key from the Claude Console
+   (`platform.claude.com` → API keys). The key needs credit on its
+   organisation; Claude Fable 5.2 also needs the organisation's default
+   30-day data retention.
+
+The operator's `ANTHROPIC_API_KEY` is **not** used by the chat on a hosted
+site. Each account's key is encrypted with a key derived from
+`STUDYPILOT_TOKEN_ENCRYPTION_KEY`, or from `STUDYPILOT_JWT_SECRET` when that
+is empty, which the blueprint already generates. Changing that secret makes
+the saved keys unreadable; accounts then paste theirs again.
+
+Replies are streamed, so a proxy in front of the API must not buffer
+responses. Render and the cross-origin setup above need nothing extra.
+
+---
+
 ## Google Drive on a hosted site
 
 The desktop build ships the app's own Google OAuth client when

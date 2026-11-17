@@ -135,6 +135,11 @@ services:
       #                                        Settings toggle take effect
       #   ANTHROPIC_API_KEY                    drafts guides, reads image briefs
       #   GEMINI_API_KEY                       second provider; transcribes audio
+      #
+      # The Claude chat (the "Claude" button on the website) needs only the
+      # first of these. It never uses the ANTHROPIC_API_KEY set here: each
+      # account pastes its own Claude API key into the chat, which is stored
+      # encrypted with a key derived from STUDYPILOT_JWT_SECRET above.
       - key: STUDYPILOT_ALLOW_CLOUD_PROCESSING
         sync: false
       - key: ANTHROPIC_API_KEY

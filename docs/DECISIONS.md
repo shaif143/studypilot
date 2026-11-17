@@ -612,6 +612,33 @@ cached, filtered to chat models and ordered newest first.
 
 ---
 
+## 37. The Claude chat runs on each account's own key, through the SDK
+
+**Decision.** The website's chat uses a Claude API key saved by the account,
+encrypted at rest. On a hosted site there is no fallback to the operator's
+key. It is the one part of the backend that calls Anthropic through the
+`anthropic` SDK; the older single-shot providers keep their direct `httpx`
+calls.
+
+**Why.** A chat with tools can run the most expensive model for dozens of
+requests in one turn. Lent the operator's key, every account that can sign up
+could spend it; with their own key, the cost lands on the person choosing to
+incur it and the operator's key stays out of reach. The SDK earns its place
+here and nowhere else yet: a streamed tool loop needs partial-JSON tool
+inputs, typed errors, retries and the fallback parameter, which the
+single-request providers never did.
+
+**The conversation is append-only by construction**, because the current
+models refuse a replayed thinking block after any edit to what preceded it.
+That rules out the usual conveniences (trimming old tool results, rewriting
+the system prompt per request, re-encoding attachments) and is why an
+attachment is stored once and expanded identically each time.
+
+**No tool deletes a file or a course.** A chat that misreads a request can
+then cost a folder at most, and a folder's files stay in the course.
+
+---
+
 ## 25. Deferred deliberately
 
 | Deferred | Reason |

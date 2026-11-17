@@ -615,6 +615,10 @@ class ExportResponse(BaseModel):
     lecture_transcripts: list[dict[str, Any]] = Field(default_factory=list)
     slide_notes: list[dict[str, Any]] = Field(default_factory=list)
     exam_profiles: list[dict[str, Any]] = Field(default_factory=list)
+    #: Projects of the Claude chat, with the names of their files.
+    assistant_projects: list[dict[str, Any]] = Field(default_factory=list)
+    #: Conversations of the Claude chat as they read on screen. Never the key.
+    assistant_chats: list[dict[str, Any]] = Field(default_factory=list)
     note: str
 
 
@@ -1111,3 +1115,130 @@ class CouncilStartRequest(BaseModel):
     reference_document_ids: list[str] = Field(default_factory=list)
     #: Seat only these models; empty seats every one that is ready.
     members: list[Literal["anthropic", "openai", "gemini", "ollama"]] = Field(default_factory=list)
+
+
+# --- the Claude chat ---------------------------------------------------------
+class AssistantModelOut(BaseModel):
+    id: str
+    label: str
+    detail: str = ""
+
+
+class AssistantKeyOut(BaseModel):
+    """Whether this account has a Claude API key. The value is never returned."""
+
+    configured: bool
+    #: "account" (saved in the chat) | "installation" (this machine's own key) | ""
+    source: str = ""
+    #: The last four characters, so the screen can say which key is saved.
+    hint: str = ""
+
+
+class AssistantStatusOut(BaseModel):
+    """What the chat needs before it can be used, and which of it is in place."""
+
+    key: AssistantKeyOut
+    models: list[AssistantModelOut]
+    default_model: str
+    #: The operator's switch: may anything here go to a cloud model at all.
+    installation_allows_cloud: bool
+    #: This account's own switch, in Settings.
+    account_allows_cloud: bool
+    #: True when a message can be sent: both switches on and a key present.
+    ready: bool
+    max_upload_bytes: int
+
+
+class AssistantKeyIn(BaseModel):
+    key: str = Field(min_length=1, max_length=400)
+
+
+class AssistantFileOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    filename: str
+    #: "image" | "pdf" | "text" | "file"
+    kind: str
+    media_type: str
+    byte_size: int
+    created_at: datetime | None = None
+
+
+class AssistantThreadSummaryOut(BaseModel):
+    id: str
+    title: str
+    model: str
+    project_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    #: A reply is being written for it right now.
+    running: bool = False
+
+
+class AssistantItemOut(BaseModel):
+    """One message as the screen draws it."""
+
+    role: Literal["user", "assistant"]
+    #: A student's own words (their messages only).
+    text: str = ""
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
+    #: An assistant reply in order: text, and the steps it took.
+    blocks: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AssistantUsageOut(BaseModel):
+    input: int = 0
+    output: int = 0
+    #: An estimate at list prices, not a bill.
+    cost_usd: float = 0.0
+
+
+class AssistantThreadOut(AssistantThreadSummaryOut):
+    items: list[AssistantItemOut] = Field(default_factory=list)
+    usage: AssistantUsageOut = Field(default_factory=AssistantUsageOut)
+
+
+class AssistantThreadCreate(BaseModel):
+    project_id: str | None = None
+    model: str = ""
+
+
+class AssistantThreadUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    #: A project to move it into; an empty string takes it out of its project.
+    project_id: str | None = None
+
+
+class AssistantMessageIn(BaseModel):
+    text: str = Field(default="", max_length=400_000)
+    attachment_ids: list[str] = Field(default_factory=list, max_length=10)
+    model: str = ""
+
+
+class AssistantProjectOut(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    instructions: str = ""
+    thread_count: int = 0
+    file_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class AssistantProjectDetailOut(AssistantProjectOut):
+    files: list[AssistantFileOut] = Field(default_factory=list)
+    threads: list[AssistantThreadSummaryOut] = Field(default_factory=list)
+
+
+class AssistantProjectCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=2000)
+    instructions: str = Field(default="", max_length=40_000)
+
+
+class AssistantProjectUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    instructions: str | None = Field(default=None, max_length=40_000)

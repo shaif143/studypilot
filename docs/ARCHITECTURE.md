@@ -574,6 +574,51 @@ assignments (`section`). `documents.folder_id` is a plain column, not a
 foreign key: deleting a folder clears it and leaves the documents in the
 course. A document can only be filed in a folder of its own course.
 
+## The Claude chat
+
+Website only. `app/assistant/` is a chat that runs on a Claude API key the
+account brings, with the shape of a chat application: conversations
+(`assistant_threads`), projects (`assistant_projects`) whose instructions and
+files every conversation in them is given, and attachments
+(`assistant_attachments`, bytes in the blob store's keyed area).
+
+**The key.** `assistant_keys` holds one Fernet ciphertext per account, opened
+by a key derived from the operator's secret (hosted) or generated into the
+Keychain (single-user). It is checked against Anthropic before it is saved and
+is never returned; the API reports that one exists and its last four
+characters. On a hosted site the operator's own `ANTHROPIC_API_KEY` is not a
+fallback: anyone who can sign up would be spending it.
+
+**A turn** (`service.run_turn`) is a manual tool loop over the Anthropic SDK's
+streaming Messages API: the reply's text is passed to the browser as JSON
+lines while it is written; a tool call is run here by `tools.Toolbox` and its
+result sent back; repeat until there is nothing more to do. It runs on its
+own database session, because the request's is closed once the response is
+streaming.
+
+**The stored conversation is append-only**, and stored exactly as the API
+returned it. Claude Fable 5.2 and Opus 5.5 sign each thinking block against
+everything before it — system prompt, tools, earlier messages — and refuse a
+request that replays one after an edit. So a turn only appends; an attachment
+is a small placeholder in the stored message and is expanded to the same
+bytes on every request; the system prompt and tool list are fixed text. Two
+things can still change a conversation's opening: an edit to its project's
+instructions or files, and a new release changing the prompt. Either is
+answered once, by dropping the thinking blocks and sending again.
+
+**What is never run.** A reply cut off at the length limit or declined
+part-way can hold a tool call with half its input, so those calls are
+answered with an error. Tool inputs are checked against their schemas here,
+since streamed inputs are not validated by the API. A declined request is
+removed from the conversation rather than left to be declined again; declines
+are first retried by Anthropic on its recommended fallback model.
+
+**The tools** act as the signed-in account through the same repositories the
+screens use: list and create courses, list files, make, rename and remove
+folders, move and rename files, add an attachment to a course (the ordinary
+upload path), search and read course text, save a note. None deletes a file
+or a course. Each commits or rolls back on its own.
+
 ## Concept map
 
 `app/learning/concept_map.py` builds the course's topic graph with no model:

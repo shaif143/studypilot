@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import (
     AssessmentsDep,
+    AssistantDep,
     AttentionDep,
     ContextDep,
     CoursesDep,
@@ -38,6 +39,7 @@ from app.api.schemas import (
     DeleteResultOut,
     ExportResponse,
 )
+from app.assistant import service as assistant_service
 from app.storage.models import AttentionSample
 
 router = APIRouter(prefix="/api", tags=["privacy"], dependencies=[Depends(require_token)])
@@ -59,6 +61,7 @@ def export_data(
     transcripts: TranscriptsDep,
     slide_notes: SlideNotesDep,
     exam_profiles: ExamProfilesDep,
+    assistant: AssistantDep,
 ) -> ExportResponse:
     """Everything stored about this profile, as JSON.
 
@@ -153,6 +156,31 @@ def export_data(
         exam_profiles=[
             {column.name: getattr(row, column.name) for column in row.__table__.columns}
             for row in exam_profiles.list(user.id)
+        ],
+        assistant_projects=[
+            {
+                "id": project.id,
+                "name": project.name,
+                "description": project.description,
+                "instructions": project.instructions,
+                "files": [row.filename for row in assistant.project_files(user.id, project.id)],
+                "created_at": project.created_at.isoformat(),
+            }
+            for project in assistant.projects(user.id)
+        ],
+        assistant_chats=[
+            {
+                "id": thread.id,
+                "title": thread.title,
+                "project_id": thread.project_id,
+                "model": thread.model,
+                "created_at": thread.created_at.isoformat(),
+                "messages": assistant_service.transcript(
+                    list(thread.messages or []),
+                    {row.id: row for row in assistant.attachments(user.id, thread.id)},
+                ),
+            }
+            for thread in assistant.threads(user.id, limit=10_000, with_messages=True)
         ],
         note=(
             "Uploaded files are stored on this device under the data directory and are "
