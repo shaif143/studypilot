@@ -282,6 +282,17 @@ test('a course opens as slides, a slide opens explained beside its original', as
 
   // --- the study view: explanation, original, and the prompt -------------------
   await expect(page.getByLabel('Original slide')).toBeVisible();
+  // The bar between the two can be moved from the keyboard, and gives the slide more room.
+  const bar = page.getByRole('separator', { name: 'Resize the two panes' });
+  await expect(bar).toHaveAttribute('aria-valuenow', '33');
+  const before = (await page.getByLabel('Original slide').boundingBox())?.width ?? 0;
+  await bar.focus();
+  await page.keyboard.press('Shift+ArrowLeft');
+  await expect(bar).toHaveAttribute('aria-valuenow', '43');
+  const after = (await page.getByLabel('Original slide').boundingBox())?.width ?? 0;
+  expect(after).toBeGreaterThan(before + 40);
+  await page.keyboard.press('Enter');
+  await expect(bar).toHaveAttribute('aria-valuenow', '33');
   await expect(page.getByLabel('Slide', { exact: true })).toHaveValue('4');
   // No model in this run, so what comes back is the slide's own text, said to be that.
   await expect(page.getByText(/slide’s own text|slide's own text/).first()).toBeVisible({

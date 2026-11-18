@@ -39,12 +39,13 @@ import {
   Sparkles,
   SquarePlay,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { ErrorPanel } from '../components/AppShell';
 import { GroundedAnswer } from '../components/GroundedAnswer';
 import { PdfPageView } from '../components/PdfPageView';
+import { SplitHandle, type SplitLimits, useSplitShare } from '../components/SplitHandle';
 import { TurnView } from '../components/TutorPanel';
 import { useApp } from '../context';
 import {
@@ -65,6 +66,9 @@ import {
 
 /** How long a slide must stay open before it is sent to be explained. */
 const DWELL_MS = 600;
+/** The original slide's share of the width: a third to start, and never out of reach. */
+const SLIDE_SPLIT: SplitLimits = { min: 18, max: 78, initial: 33.3 };
+const SLIDE_SPLIT_KEY = 'studypilot.study.split';
 
 const KINDS: Record<string, { label: string; icon: React.ReactNode }> = {
   overview: { label: 'Overview', icon: <BookOpen size={11} /> },
@@ -113,6 +117,8 @@ export function SlideStudyScreen() {
   const [level, setLevel] = useState<ExplanationLevel | ''>('');
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const splitRef = useRef<HTMLDivElement>(null);
+  const [slideShare, setSlideShare, resetSlideShare] = useSplitShare(SLIDE_SPLIT_KEY, SLIDE_SPLIT);
 
   const goToPage = useCallback(
     (next: number) => {
@@ -153,7 +159,9 @@ export function SlideStudyScreen() {
         (target.tagName === 'INPUT' ||
           target.tagName === 'TEXTAREA' ||
           target.tagName === 'SELECT' ||
-          target.isContentEditable)
+          target.isContentEditable ||
+          // The bar between the panes uses the arrows itself.
+          target.getAttribute('role') === 'separator')
       ) {
         return;
       }
@@ -295,12 +303,20 @@ export function SlideStudyScreen() {
         </div>
       </div>
 
-      {/* ---- two thirds explanation, one third original ------------------ */}
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      {/* ---- the explanation, and the original beside it ------------------
+          Side by side on a wide window, with a bar between them to drag: two
+          thirds to one third to begin with, and wherever the reader last left
+          it after that. Stacked on a narrow one, where there is no width to
+          share out. */}
+      <div
+        ref={splitRef}
+        className="flex min-h-0 flex-1 flex-col lg:flex-row"
+        style={{ '--slide-share': `${slideShare}%` } as CSSProperties}
+      >
         <section
           ref={scrollRef}
           aria-label="Explanation of this slide"
-          className="sp-scroll order-2 min-h-0 flex-1 overflow-y-auto px-5 py-4 lg:order-1 lg:basis-2/3"
+          className="sp-scroll order-2 min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-4 lg:order-1 lg:basis-0"
         >
           <div className="mx-auto max-w-3xl space-y-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -381,9 +397,19 @@ export function SlideStudyScreen() {
           </div>
         </section>
 
+        <SplitHandle
+          rowRef={splitRef}
+          share={slideShare}
+          limits={SLIDE_SPLIT}
+          onChange={setSlideShare}
+          onReset={resetSlideShare}
+          label="Resize the two panes"
+          className="order-2 hidden bg-[var(--surface-sunken)] lg:order-2 lg:block"
+        />
+
         <aside
           aria-label="Original slide"
-          className="sp-scroll order-1 max-h-[36vh] shrink-0 overflow-y-auto border-b border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 lg:order-2 lg:max-h-none lg:basis-1/3 lg:border-b-0 lg:border-l"
+          className="sp-scroll order-1 max-h-[36vh] min-w-0 shrink-0 overflow-y-auto border-b border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 lg:order-3 lg:max-h-none lg:basis-[var(--slide-share)] lg:border-b-0"
         >
           <p className="mb-2 flex items-center justify-between text-[0.6875rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">
             Original slide
