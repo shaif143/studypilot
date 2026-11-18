@@ -20,7 +20,9 @@ from app.storage.models import (
     AssignmentAttempt,
     AssignmentPlan,
     AssistantAttachment,
+    AssistantConnector,
     AssistantKey,
+    AssistantPlugin,
     AssistantProject,
     AssistantThread,
     AttentionSample,
@@ -1457,3 +1459,54 @@ class AssistantRepository:
         self.session.delete(row)
         self.session.flush()
         return row
+
+    # --- connectors and plugins --------------------------------------------
+    def connectors(self, user_id: str, *, enabled_only: bool = False) -> list[AssistantConnector]:
+        query = select(AssistantConnector).where(AssistantConnector.user_id == user_id)
+        if enabled_only:
+            query = query.where(AssistantConnector.enabled.is_(True))
+        # By name: the order they are sent in must not change between requests.
+        return list(self.session.scalars(query.order_by(AssistantConnector.name)))
+
+    def connector(self, user_id: str, connector_id: str) -> AssistantConnector:
+        row = self.session.get(AssistantConnector, connector_id)
+        if row is None or row.user_id != user_id:
+            raise NotFoundError("connector")
+        return row
+
+    def add_connector(self, **values: object) -> AssistantConnector:
+        row = AssistantConnector(**values)
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def delete_connector(self, user_id: str, connector_id: str) -> None:
+        self.session.delete(self.connector(user_id, connector_id))
+        self.session.flush()
+
+    def plugins(self, user_id: str, *, enabled_only: bool = False) -> list[AssistantPlugin]:
+        query = select(AssistantPlugin).where(AssistantPlugin.user_id == user_id)
+        if enabled_only:
+            query = query.where(AssistantPlugin.enabled.is_(True))
+        return list(self.session.scalars(query.order_by(AssistantPlugin.name, AssistantPlugin.id)))
+
+    def plugin(self, user_id: str, plugin_id: str) -> AssistantPlugin:
+        row = self.session.get(AssistantPlugin, plugin_id)
+        if row is None or row.user_id != user_id:
+            raise NotFoundError("plugin")
+        return row
+
+    def add_plugin(self, **values: object) -> AssistantPlugin:
+        row = AssistantPlugin(**values)
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def delete_plugin(self, user_id: str, plugin_id: str) -> None:
+        """Remove a plugin, and the connectors that came with it."""
+        row = self.plugin(user_id, plugin_id)
+        for connector in self.connectors(user_id):
+            if connector.plugin_id == row.id:
+                self.session.delete(connector)
+        self.session.delete(row)
+        self.session.flush()

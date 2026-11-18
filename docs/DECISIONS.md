@@ -639,6 +639,26 @@ then cost a folder at most, and a folder's files stay in the course.
 
 ---
 
+## 38. Connectors go through Anthropic; plugins are read, never run
+
+**Decision.** A connector in the chat is a remote MCP server that Anthropic's
+API connects to, named in each request. A plugin contributes text only: its
+skills and commands.
+
+**Why.** Speaking MCP from this backend would mean this server making
+requests to addresses a user typed in, holding the connection for the length
+of a turn, and running the tool loop for them; passing the address to the API
+gives the same result with none of that, and the access token is the only
+thing kept here. The cost is that only public servers work and that sign-in
+is by a pasted token, not a "Connect" button.
+
+A plugin's scripts, hooks and local servers would have to run on the host,
+with the account's data in reach. On a shared website that is not something
+an uploaded archive should be able to do, so they are listed as left out and
+Claude is told a skill's scripts cannot be run.
+
+---
+
 ## 25. Deferred deliberately
 
 | Deferred | Reason |

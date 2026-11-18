@@ -182,6 +182,20 @@ def export_data(
             }
             for thread in assistant.threads(user.id, limit=10_000, with_messages=True)
         ],
+        assistant_connectors=[
+            {"label": row.label, "url": row.url, "enabled": row.enabled}
+            for row in assistant.connectors(user.id)
+        ],
+        assistant_plugins=[
+            {
+                "name": row.name,
+                "version": row.version,
+                "enabled": row.enabled,
+                "skills": row.skills,
+                "commands": row.commands,
+            }
+            for row in assistant.plugins(user.id)
+        ],
         note=(
             "Uploaded files are stored on this device under the data directory and are "
             "not included inline in this export."

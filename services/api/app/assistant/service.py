@@ -84,6 +84,10 @@ MAX_INLINE_PDF_BYTES = 20 * 1024 * 1024
 MAX_TEXT_CHARS = 400_000
 MAX_ATTACHMENTS_PER_MESSAGE = 10
 MAX_PROJECT_FILES = 30
+MAX_CONNECTORS = 10
+#: Lets the API reach the account's connectors, and records each one's tool
+#: list in the conversation so it stays the same from request to request.
+MCP_BETA = "mcp-client-2026-09-15"
 
 _TEXT_SUFFIXES = frozenset(
     {
@@ -159,6 +163,44 @@ def check_key(api_key: str) -> None:
             f"Anthropic could not check the key right now (status {exc.status_code}). "
             "Try again in a moment."
         ) from exc
+
+
+def probe_connector(api_key: str, *, name: str, url: str, token: str) -> list[str]:
+    """Have Anthropic reach a connector, and return the names of its tools.
+
+    Raises ``ValueError`` with words for the student when it cannot be used.
+    One small request: the API lists the server's tools at the start of the
+    reply, which is all that is wanted from it.
+    """
+    import anthropic
+
+    server: dict[str, str] = {"type": "url", "url": url, "name": name}
+    if token:
+        server["authorization_token"] = token
+    try:
+        message = client_for(api_key).beta.messages.create(
+            model=DEFAULT_MODEL,
+            max_tokens=2000,
+            betas=[MCP_BETA],
+            mcp_servers=[server],
+            tools=[{"type": "mcp_toolset", "mcp_server_name": name}],
+            output_config={"effort": "low"},
+            messages=[{"role": "user", "content": "Reply with the single word: ready"}],
+        )
+    except anthropic.BadRequestError as exc:
+        raise ValueError(f"Anthropic could not use this connector: {_api_message(exc)}") from exc
+    except anthropic.APIError as exc:
+        raise ValueError(_error_message(exc, DEFAULT_MODEL)) from exc
+    names: list[str] = []
+    for block in message.content:
+        if getattr(block, "type", "") == "mcp_tool_listing":
+            for tool in getattr(block, "tools", None) or []:
+                tool_name = (
+                    tool.get("name") if isinstance(tool, dict) else getattr(tool, "name", "")
+                )
+                if tool_name:
+                    names.append(str(tool_name))
+    return names
 
 
 # --- attachments -------------------------------------------------------------
@@ -364,6 +406,18 @@ class Expander:
         out: list[dict[str, Any]] = []
         for index, message in enumerate(stored):
             content = message.get("content")
+            if message.get("role") == "assistant" and isinstance(content, list):
+                # A call to a connector that is gone is sent as a plain account
+                # of what happened. Left out altogether, Claude would read its
+                # own earlier answer as having had no source.
+                sent = [
+                    {"type": "text", "text": _retired_step_text(block)}
+                    if block.get("type") == "sp_step"
+                    else block
+                    for block in content
+                ]
+                out.append({"role": "assistant", "content": sent})
+                continue
             if message.get("role") != "user" or not isinstance(content, list):
                 out.append(message)
                 continue
@@ -389,7 +443,21 @@ class Expander:
         return out
 
 
-def user_blocks(text: str, attachments: list[AssistantAttachment]) -> list[dict[str, Any]]:
+def _retired_step_text(step: dict[str, Any]) -> str:
+    _prefix, _, rest = str(step.get("name", "")).partition("mcp__")
+    server, _, tool = rest.partition("__")
+    outcome = "It failed" if step.get("is_error") else "It returned"
+    result = str(step.get("result", "")).strip()[:1500] or "nothing"
+    return (
+        f"[At this point the connector {server or 'unknown'} was asked to run its tool "
+        f"{tool or 'unknown'}. {outcome}: {result}\n"
+        "That connector has since been disconnected and cannot be used now.]"
+    )
+
+
+def user_blocks(
+    text: str, attachments: list[AssistantAttachment], note: str | None = None
+) -> list[dict[str, Any]]:
     """A student's message as it is stored: placeholders first, then their words."""
     blocks: list[dict[str, Any]] = [
         {
@@ -407,24 +475,106 @@ def user_blocks(text: str, attachments: list[AssistantAttachment]) -> list[dict[
         blocks.append(
             {"type": "text", "text": f"Attached to this message:\n{listing}", "sp_role": "note"}
         )
+    if note:
+        # What a typed command stands for. Claude reads it; the screen shows
+        # only what the student typed.
+        blocks.append({"type": "text", "text": note, "sp_role": "note"})
     if text:
         blocks.append({"type": "text", "text": text, "sp_role": "message"})
     return blocks
 
 
-def system_for(project: AssistantProject | None) -> str:
-    """The system prompt of a conversation: the same text for its whole life."""
-    if project is None:
-        return SYSTEM
-    parts = [SYSTEM, f"# Project: {project.name}"]
-    if project.description.strip():
-        parts.append(project.description.strip())
-    if project.instructions.strip():
-        parts.append(
-            "## The student's instructions for this project\n"
-            "Follow these in every conversation in the project.\n\n" + project.instructions.strip()
+@dataclass
+class Extensions:
+    """What an account has added to its chat, as one turn uses it."""
+
+    #: Connectors that are switched on: [{"name", "url", "token"}], by name.
+    connectors: list[dict[str, str]]
+    #: Skills by the name Claude loads them under ("plugin:skill").
+    skills: dict[str, dict[str, Any]]
+    #: Commands by the name typed after "/" ("plugin:command").
+    commands: dict[str, dict[str, Any]]
+
+    def command_for(self, word: str) -> tuple[str, dict[str, Any]] | None:
+        """The command a typed name means: its full name, or its short one if unique."""
+        if word in self.commands:
+            return word, self.commands[word]
+        short = [name for name in self.commands if name.split(":", 1)[-1] == word]
+        return (short[0], self.commands[short[0]]) if len(short) == 1 else None
+
+
+def extensions_for(repo: AssistantRepository, settings: Settings, user_id: str) -> Extensions:
+    from app.assistant.plugins import slug
+
+    connectors = [
+        {"name": row.name, "url": row.url, "token": keys.unseal(settings, row.token_ciphertext)}
+        for row in repo.connectors(user_id, enabled_only=True)
+    ][:MAX_CONNECTORS]
+    skills: dict[str, dict[str, Any]] = {}
+    commands: dict[str, dict[str, Any]] = {}
+    for plugin in repo.plugins(user_id, enabled_only=True):
+        prefix = slug(plugin.name, "plugin")
+        for skill in plugin.skills or []:
+            skills[f"{prefix}:{skill['name']}"] = {**skill, "plugin": plugin.name}
+        for command in plugin.commands or []:
+            commands[f"{prefix}:{command['name']}"] = {**command, "plugin": plugin.name}
+    return Extensions(connectors=connectors, skills=skills, commands=commands)
+
+
+def system_for(project: AssistantProject | None, skills: dict[str, dict[str, Any]]) -> str:
+    """The system prompt of a conversation.
+
+    The same text for as long as the project and the installed skills stay as
+    they are. When either changes, the conversation's opening has changed, and
+    the turn loop drops the thinking that was signed against the old one.
+    """
+    parts = [SYSTEM]
+    if skills:
+        listing = "\n".join(
+            f"- {name}: {skill.get('description') or 'No description.'}"
+            for name, skill in sorted(skills.items())
         )
+        parts.append(
+            "# Skills\n"
+            "The student has installed these skills. Each is a set of instructions for one "
+            "kind of task. When a request matches one, call load_skill with its name before "
+            "you start, and follow what it says. A skill may name further files; read them "
+            "with read_skill_file when the instructions point to them. Scripts in a skill "
+            "cannot be run here, so do by hand what a script would have done, or say that "
+            "it cannot be done.\n\n" + listing
+        )
+    if project is not None:
+        parts.append(f"# Project: {project.name}")
+        if project.description.strip():
+            parts.append(project.description.strip())
+        if project.instructions.strip():
+            parts.append(
+                "## The student's instructions for this project\n"
+                "Follow these in every conversation in the project.\n\n"
+                + project.instructions.strip()
+            )
     return "\n\n".join(parts)
+
+
+def command_note(text: str, extensions: Extensions) -> str | None:
+    """The instructions behind a typed "/command", or ``None`` if it is not one."""
+    if not text.startswith("/"):
+        return None
+    word, _, arguments = text[1:].partition(" ")
+    found = extensions.command_for(word.strip())
+    if found is None:
+        return None
+    name, command = found
+    body = str(command.get("body", ""))
+    arguments = arguments.strip()
+    body = body.replace("$ARGUMENTS", arguments) if "$ARGUMENTS" in body else body
+    note = (
+        f'The student ran the command /{name} from the plugin "{command.get("plugin", "")}". '
+        f"Carry out these instructions for it:\n\n{body.strip()}"
+    )
+    if arguments and "$ARGUMENTS" not in str(command.get("body", "")):
+        note += f"\n\nWhat the student typed after the command: {arguments}"
+    return note
 
 
 # --- what the API returned ---------------------------------------------------
@@ -471,9 +621,84 @@ def strip_thinking(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+#: Blocks that are not, on their own, a reply: nothing was said or done.
+_SILENT_BLOCKS = frozenset({"thinking", "redacted_thinking", "mcp_tool_listing", "fallback"})
+
+
+def retire_connectors(
+    messages: list[dict[str, Any]], connected: set[str]
+) -> tuple[list[dict[str, Any]], bool]:
+    """The conversation with the calls to connectors that are gone taken out of it.
+
+    The API refuses a history that mentions a connector it has not been given,
+    so a chat that used one would stop working the moment that connector was
+    switched off or removed. Its calls are replaced by a record the screen can
+    still show (``sp_step``) and the API is never sent. Returns the new
+    history and whether anything changed; when it did, the conversation has
+    been edited and its thinking blocks must go too.
+    """
+    out: list[dict[str, Any]] = []
+    changed = False
+    for message in messages:
+        content = message.get("content")
+        if message.get("role") != "assistant" or not isinstance(content, list):
+            out.append(message)
+            continue
+        gone = {
+            block.get("id"): block
+            for block in content
+            if block.get("type") == "mcp_tool_use" and block.get("server_name") not in connected
+        }
+        results = {
+            block.get("tool_use_id"): block
+            for block in content
+            if block.get("type") == "mcp_tool_result" and block.get("tool_use_id") in gone
+        }
+        kept: list[dict[str, Any]] = []
+        for block in content:
+            kind = block.get("type")
+            if kind == "mcp_tool_listing" and block.get("mcp_server_name") not in connected:
+                changed = True
+            elif kind == "mcp_tool_use" and block.get("id") in gone:
+                result = results.get(block.get("id"))
+                kept.append(
+                    {
+                        "type": "sp_step",
+                        "id": block.get("id", ""),
+                        "name": connector_tool_name(
+                            block.get("server_name", ""), block.get("name", "")
+                        ),
+                        "result": _result_text(result)[:4000] if result else "",
+                        "is_error": bool(result and result.get("is_error")),
+                    }
+                )
+                changed = True
+            elif kind == "mcp_tool_result" and block.get("tool_use_id") in gone:
+                changed = True
+            else:
+                kept.append(block)
+        out.append({**message, "content": kept})
+    return (strip_thinking(out), True) if changed else (messages, False)
+
+
+def _api_message(exc: Exception) -> str:
+    """What the API said was wrong, without the envelope it came in."""
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        error = body.get("error")
+        if isinstance(error, dict) and isinstance(error.get("message"), str):
+            return error["message"]
+    return str(getattr(exc, "message", "") or exc)
+
+
+def connector_tool_name(server: str, tool: str) -> str:
+    """How a connector's tool is named to the screen, apart from the chat's own."""
+    return f"mcp__{server}__{tool}"
+
+
 def _is_binding_error(exc: Exception) -> bool:
     """Whether a refused request is the signed-thinking check, which has no class of its own."""
-    text = str(getattr(exc, "message", "") or exc).lower()
+    text = _api_message(exc).lower()
     return "thinking" in text and ("signature" in text or "different conversation" in text)
 
 
@@ -549,6 +774,39 @@ def transcript(
         for block in content:
             if block.get("type") == "text":
                 blocks.append({"type": "text", "text": block.get("text", "")})
+            elif block.get("type") == "sp_step":
+                blocks.append(
+                    {
+                        "type": "tool",
+                        "id": block.get("id", ""),
+                        "name": block.get("name", ""),
+                        "result": block.get("result", ""),
+                        "is_error": bool(block.get("is_error")),
+                        "done": True,
+                    }
+                )
+            elif block.get("type") == "mcp_tool_use":
+                result = next(
+                    (
+                        other
+                        for other in content
+                        if other.get("type") == "mcp_tool_result"
+                        and other.get("tool_use_id") == block.get("id")
+                    ),
+                    None,
+                )
+                blocks.append(
+                    {
+                        "type": "tool",
+                        "id": block.get("id", ""),
+                        "name": connector_tool_name(
+                            block.get("server_name", ""), block.get("name", "")
+                        ),
+                        "result": _result_text(result)[:4000] if result else "",
+                        "is_error": bool(result and result.get("is_error")),
+                        "done": result is not None,
+                    }
+                )
             elif block.get("type") == "tool_use":
                 result = results.get(block.get("id", ""))
                 blocks.append(
@@ -689,7 +947,13 @@ def _error_message(exc: Exception, model: str) -> str:
     if isinstance(exc, anthropic.RateLimitError):
         return "Anthropic is limiting this key right now. Wait a minute and send it again."
     if isinstance(exc, anthropic.BadRequestError):
-        return f"Anthropic refused the request: {exc.message}"
+        said = _api_message(exc)
+        if "mcp" in said.lower():
+            return (
+                f"A connector could not be used: {said} Check its address and token "
+                "under Connectors and plugins, or switch it off, and send again."
+            )
+        return f"Anthropic refused the request: {said}"
     if isinstance(exc, anthropic.APIStatusError):
         return (
             f"Anthropic is having trouble right now (status {exc.status_code}). "
@@ -750,21 +1014,43 @@ def run_turn(
                 project_files = repo.project_files(user_id, project.id)
             except NotFoundError:
                 project = None
-        system = system_for(project)
+        extensions = extensions_for(repo, context.settings, user_id)
+        system = system_for(project, extensions.skills)
+        tools: list[dict[str, Any]] = list(TOOLS)
+        betas = [FALLBACK_BETA]
+        connected: dict[str, Any] = {}
+        if extensions.connectors:
+            betas.append(MCP_BETA)
+        if extensions.connectors:
+            servers = []
+            for connector in extensions.connectors:
+                server = {"type": "url", "url": connector["url"], "name": connector["name"]}
+                if connector["token"]:
+                    server["authorization_token"] = connector["token"]
+                servers.append(server)
+                tools.append({"type": "mcp_toolset", "mcp_server_name": connector["name"]})
+            connected["mcp_servers"] = servers
         expander = Expander(
             context.blobs, {**attachments, **{row.id: row for row in project_files}}
         )
 
         new_files = [attachments[item] for item in attachment_ids if item in attachments]
-        messages: list[dict[str, Any]] = list(thread.messages or [])
+        messages, _retired = retire_connectors(
+            list(thread.messages or []), {connector["name"] for connector in extensions.connectors}
+        )
         turn_start = len(messages)
-        messages.append({"role": "user", "content": user_blocks(text, new_files)})
+        messages.append(
+            {
+                "role": "user",
+                "content": user_blocks(text, new_files, command_note(text, extensions)),
+            }
+        )
         if not thread.title:
             thread.title = title_from(text, new_files)
         thread.model = model
         _save(session, thread, messages)
 
-        toolbox = Toolbox(context, session, user)
+        toolbox = Toolbox(context, session, user, skills=extensions.skills)
         recovered = False
         bad_json = 0
         rounds = 0
@@ -787,15 +1073,16 @@ def run_turn(
                     model=model,
                     max_tokens=MAX_TOKENS,
                     system=system,
-                    tools=TOOLS,
+                    tools=tools,
                     messages=expander.messages(messages, project_files),
                     thinking={"type": "adaptive", "display": "summarized"},
                     output_config={"effort": EFFORT},
                     # Caches everything up to the newest message, so each
                     # request of a long turn pays for its history once.
                     cache_control={"type": "ephemeral"},
-                    betas=[FALLBACK_BETA],
+                    betas=betas,
                     fallbacks="default",
+                    **connected,
                 ) as stream:
                     for event in stream:
                         if stopped.is_set():
@@ -809,6 +1096,24 @@ def run_turn(
                                     "type": "tool_pending",
                                     "id": event.content_block.id,
                                     "name": event.content_block.name,
+                                }
+                            elif kind == "mcp_tool_use":
+                                # A connector's tool: Anthropic runs it, so it
+                                # starts the moment it is asked for.
+                                block = event.content_block
+                                yield {
+                                    "type": "tool_start",
+                                    "id": block.id,
+                                    "name": connector_tool_name(block.server_name, block.name),
+                                }
+                            elif kind == "mcp_tool_result":
+                                block = event.content_block
+                                yield {
+                                    "type": "tool_end",
+                                    "id": block.tool_use_id,
+                                    "name": "",
+                                    "result": _result_text(block.to_dict(mode="json"))[:4000],
+                                    "is_error": bool(getattr(block, "is_error", False)),
                                 }
                         elif event.type == "content_block_delta":
                             if event.delta.type == "text_delta":
@@ -895,7 +1200,7 @@ def run_turn(
                 for index, block in enumerate(content)
                 if block.get("type") == "tool_use" and index > last_fallback
             ]
-            spoken = any(block.get("type") == "text" for block in content)
+            spoken = any(block.get("type") not in _SILENT_BLOCKS for block in content)
             if not (spoken or tool_uses):
                 _save(session, thread, messages)
                 detail = (

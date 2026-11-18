@@ -21,24 +21,33 @@ from fastapi.responses import Response, StreamingResponse
 
 from app.api.deps import AssistantDep, ContextDep, UserDep, UsersDep, require_token
 from app.api.schemas import (
+    AssistantCommandOut,
+    AssistantConnectorCreate,
+    AssistantConnectorOut,
+    AssistantConnectorTestOut,
+    AssistantConnectorUpdate,
+    AssistantExtensionsOut,
     AssistantFileOut,
     AssistantKeyIn,
     AssistantKeyOut,
     AssistantMessageIn,
     AssistantModelOut,
+    AssistantPluginOut,
+    AssistantPluginUpdate,
     AssistantProjectCreate,
     AssistantProjectDetailOut,
     AssistantProjectOut,
     AssistantProjectUpdate,
+    AssistantSkillOut,
     AssistantStatusOut,
     AssistantThreadCreate,
     AssistantThreadOut,
     AssistantThreadSummaryOut,
     AssistantThreadUpdate,
 )
-from app.assistant import keys, service
+from app.assistant import keys, plugins, service
 from app.storage.files import BlobNotFoundError
-from app.storage.models import AssistantProject
+from app.storage.models import AssistantConnector, AssistantPlugin, AssistantProject
 
 log = logging.getLogger(__name__)
 
@@ -428,3 +437,230 @@ def stop_message(thread_id: str, user: UserDep, repo: AssistantDep) -> None:
     """Stop the reply being written. What was finished so far is kept."""
     repo.thread(user.id, thread_id)  # ownership
     service.stop(thread_id)
+
+
+# --- connectors and plugins ------------------------------------------------------
+def _connector_out(row: AssistantConnector) -> AssistantConnectorOut:
+    return AssistantConnectorOut(
+        id=row.id,
+        name=row.name,
+        label=row.label,
+        url=row.url,
+        has_token=bool(row.token_ciphertext),
+        enabled=row.enabled,
+        plugin_id=row.plugin_id,
+        created_at=row.created_at,
+    )
+
+
+def _plugin_out(row: AssistantPlugin) -> AssistantPluginOut:
+    prefix = plugins.slug(row.name, "plugin")
+    return AssistantPluginOut(
+        id=row.id,
+        name=row.name,
+        version=row.version,
+        description=row.description,
+        enabled=row.enabled,
+        skills=[
+            AssistantSkillOut(
+                name=f"{prefix}:{skill['name']}",
+                description=skill.get("description", ""),
+                file_count=len(skill.get("files") or {}),
+            )
+            for skill in row.skills or []
+        ],
+        commands=[
+            AssistantCommandOut(
+                name=f"{prefix}:{command['name']}",
+                description=command.get("description", ""),
+                plugin=row.name,
+            )
+            for command in row.commands or []
+        ],
+        notes=[str(note) for note in row.notes or []],
+        created_at=row.created_at,
+    )
+
+
+def _extensions(user_id: str, repo: AssistantDep) -> AssistantExtensionsOut:
+    installed = [_plugin_out(row) for row in repo.plugins(user_id)]
+    return AssistantExtensionsOut(
+        connectors=[_connector_out(row) for row in repo.connectors(user_id)],
+        plugins=installed,
+        commands=[command for plugin in installed if plugin.enabled for command in plugin.commands],
+        max_connectors=service.MAX_CONNECTORS,
+    )
+
+
+def _free_name(user_id: str, repo: AssistantDep, label: str) -> str:
+    """A name for the API that no other connector of this account has."""
+    taken = {row.name for row in repo.connectors(user_id)}
+    base = plugins.slug(label, "connector")
+    name, number = base, 2
+    while name in taken:
+        name = f"{base[:44]}-{number}"
+        number += 1
+    return name
+
+
+def _require_room(user_id: str, repo: AssistantDep, *, adding: int = 1) -> None:
+    switched_on = len(repo.connectors(user_id, enabled_only=True))
+    if switched_on + adding > service.MAX_CONNECTORS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Up to {service.MAX_CONNECTORS} connectors can be switched on at once. "
+                "Switch one off first."
+            ),
+        )
+
+
+@router.get("/extensions", response_model=AssistantExtensionsOut)
+def list_extensions(user: UserDep, repo: AssistantDep) -> AssistantExtensionsOut:
+    """The connectors and plugins this account has added to its chat."""
+    return _extensions(user.id, repo)
+
+
+@router.post(
+    "/connectors", response_model=AssistantExtensionsOut, status_code=status.HTTP_201_CREATED
+)
+def add_connector(
+    payload: AssistantConnectorCreate, context: ContextDep, user: UserDep, repo: AssistantDep
+) -> AssistantExtensionsOut:
+    """Connect a remote MCP server. Anthropic reaches it; this site only keeps the details."""
+    _require_room(user.id, repo)
+    label = " ".join(payload.label.split())
+    token = payload.token.strip()
+    try:
+        ciphertext = keys.seal(context.settings, token) if token else ""
+    except keys.KeyStorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    repo.add_connector(
+        user_id=user.id,
+        name=_free_name(user.id, repo, label),
+        label=label,
+        url=plugins.check_url(payload.url),
+        token_ciphertext=ciphertext,
+        enabled=True,
+    )
+    return _extensions(user.id, repo)
+
+
+@router.patch("/connectors/{connector_id}", response_model=AssistantExtensionsOut)
+def update_connector(
+    connector_id: str,
+    payload: AssistantConnectorUpdate,
+    context: ContextDep,
+    user: UserDep,
+    repo: AssistantDep,
+) -> AssistantExtensionsOut:
+    row = repo.connector(user.id, connector_id)
+    if payload.label is not None:
+        row.label = " ".join(payload.label.split()) or row.label
+    if payload.url is not None:
+        row.url = plugins.check_url(payload.url)
+    if payload.token is not None:
+        token = payload.token.strip()
+        try:
+            row.token_ciphertext = keys.seal(context.settings, token) if token else ""
+        except keys.KeyStorageError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+            ) from exc
+    if payload.enabled is not None and payload.enabled != row.enabled:
+        if payload.enabled:
+            _require_room(user.id, repo)
+        row.enabled = payload.enabled
+    repo.session.flush()
+    return _extensions(user.id, repo)
+
+
+@router.delete("/connectors/{connector_id}", response_model=AssistantExtensionsOut)
+def delete_connector(
+    connector_id: str, user: UserDep, repo: AssistantDep
+) -> AssistantExtensionsOut:
+    repo.delete_connector(user.id, connector_id)
+    return _extensions(user.id, repo)
+
+
+@router.post("/connectors/{connector_id}/test", response_model=AssistantConnectorTestOut)
+def test_connector(
+    connector_id: str,
+    context: ContextDep,
+    user: UserDep,
+    users: UsersDep,
+    repo: AssistantDep,
+) -> AssistantConnectorTestOut:
+    """Ask Anthropic to reach the connector, and report the tools it offers.
+
+    A real, small request on the account's key: it is the only way to know
+    that the address answers and the token is accepted before a chat depends
+    on it.
+    """
+    _require_cloud(context, user.id, users)
+    row = repo.connector(user.id, connector_id)
+    resolved = keys.resolve(repo, context.settings, user.id)
+    if resolved is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Save a Claude API key first."
+        )
+    try:
+        tools = service.probe_connector(
+            resolved.value,
+            name=row.name,
+            url=row.url,
+            token=keys.unseal(context.settings, row.token_ciphertext),
+        )
+    except ValueError as exc:
+        return AssistantConnectorTestOut(ok=False, detail=str(exc))
+    return AssistantConnectorTestOut(ok=True, tools=tools)
+
+
+@router.post("/plugins", response_model=AssistantExtensionsOut, status_code=status.HTTP_201_CREATED)
+async def add_plugin(
+    user: UserDep, repo: AssistantDep, file: UploadFile = File(...)
+) -> AssistantExtensionsOut:
+    """Add a plugin from its archive: its skills, its commands, its remote connectors."""
+    data = await file.read()
+    parsed = plugins.parse(file.filename or "plugin.zip", data)
+    row = repo.add_plugin(
+        user_id=user.id,
+        name=parsed.name,
+        version=parsed.version,
+        description=parsed.description,
+        enabled=True,
+        skills=parsed.skills,
+        commands=parsed.commands,
+        notes=parsed.notes,
+    )
+    for connector in parsed.connectors:
+        # Switched off to begin with: one that needs a token would stop every
+        # chat until it had one, so it is for the student to turn on.
+        repo.add_connector(
+            user_id=user.id,
+            name=_free_name(user.id, repo, connector["label"]),
+            label=connector["label"],
+            url=connector["url"],
+            token_ciphertext="",
+            enabled=False,
+            plugin_id=row.id,
+        )
+    return _extensions(user.id, repo)
+
+
+@router.patch("/plugins/{plugin_id}", response_model=AssistantExtensionsOut)
+def update_plugin(
+    plugin_id: str, payload: AssistantPluginUpdate, user: UserDep, repo: AssistantDep
+) -> AssistantExtensionsOut:
+    repo.plugin(user.id, plugin_id).enabled = payload.enabled
+    repo.session.flush()
+    return _extensions(user.id, repo)
+
+
+@router.delete("/plugins/{plugin_id}", response_model=AssistantExtensionsOut)
+def delete_plugin(plugin_id: str, user: UserDep, repo: AssistantDep) -> AssistantExtensionsOut:
+    """Remove a plugin, with the connectors that came with it."""
+    repo.delete_plugin(user.id, plugin_id)
+    return _extensions(user.id, repo)

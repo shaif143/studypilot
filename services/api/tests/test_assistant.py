@@ -95,7 +95,10 @@ class Scripted:
         self.requests: list[dict[str, Any]] = []
         self.on_event = None
         self.key_checks = 0
-        self.beta = SimpleNamespace(messages=SimpleNamespace(stream=self._stream))
+        self.probe: Any = None
+        self.beta = SimpleNamespace(
+            messages=SimpleNamespace(stream=self._stream, create=self._create)
+        )
         self.models = SimpleNamespace(list=self._list_models)
 
     def _stream(self, **request: Any) -> Stream:
@@ -105,6 +108,12 @@ class Scripted:
         if isinstance(step, Exception):
             raise step
         return Stream(step, self.on_event)
+
+    def _create(self, **request: Any) -> Any:
+        self.requests.append(json.loads(json.dumps(request)))
+        if isinstance(self.probe, Exception):
+            raise self.probe
+        return self.probe
 
     def _list_models(self, limit: int = 1) -> list[Any]:
         self.key_checks += 1
@@ -734,3 +743,380 @@ def test_tools_tidy_a_course_and_read_it(
 def test_no_tool_deletes_a_file_or_a_course():
     names = {tool["name"] for tool in tools.TOOLS}
     assert not {name for name in names if "delete" in name or "remove" in name} - {"delete_folder"}
+
+
+# --- connectors ---------------------------------------------------------------------
+def add_connector(client: TestClient, **body: Any) -> dict:
+    body.setdefault("label", "Deep Wiki")
+    body.setdefault("url", "https://mcp.example.com/mcp")
+    made = client.post("/api/assistant/connectors", json=body)
+    assert made.status_code == 201, made.text
+    return made.json()
+
+
+def mcp_use(tool: str = "ask", server: str = "deep-wiki", id: str = "mcptoolu_1") -> Block:
+    return Block(type="mcp_tool_use", id=id, name=tool, server_name=server, input={"q": "x"})
+
+
+def mcp_result(text_: str = "An answer.", id: str = "mcptoolu_1", is_error: bool = False) -> Block:
+    return Block(
+        type="mcp_tool_result",
+        tool_use_id=id,
+        is_error=is_error,
+        content=[{"type": "text", "text": text_}],
+    )
+
+
+def mcp_listing(server: str = "deep-wiki") -> Block:
+    return Block(type="mcp_tool_listing", mcp_server_name=server, tools=[{"name": "ask"}])
+
+
+def test_a_connector_is_sent_with_its_token_and_the_token_is_never_returned(
+    ready: TestClient, scripted: Scripted, context: RuntimeContext
+):
+    extensions = add_connector(ready, token="secret-token-123")
+    connector = extensions["connectors"][0]
+    assert connector["name"] == "deep-wiki" and connector["has_token"] is True
+    assert "secret-token-123" not in json.dumps(extensions)
+    with context.database.session() as session:
+        user = UserRepository(session).ensure_local_profile()
+        row = AssistantRepository(session).connectors(user.id)[0]
+        assert "secret-token-123" not in row.token_ciphertext
+
+    # A second with the same label gets a name of its own; a third is switched off.
+    add_connector(ready)
+    off = add_connector(ready, label="Other")["connectors"]
+    other = next(row for row in off if row["label"] == "Other")
+    ready.patch(f"/api/assistant/connectors/{other['id']}", json={"enabled": False})
+
+    scripted.steps = [reply(text("Hello."))]
+    send(ready, new_thread(ready), text="Hi")
+    request = scripted.requests[-1]
+    assert request["mcp_servers"] == [
+        {
+            "type": "url",
+            "url": "https://mcp.example.com/mcp",
+            "name": "deep-wiki",
+            "authorization_token": "secret-token-123",
+        },
+        {"type": "url", "url": "https://mcp.example.com/mcp", "name": "deep-wiki-2"},
+    ]
+    assert request["tools"][-2:] == [
+        {"type": "mcp_toolset", "mcp_server_name": "deep-wiki"},
+        {"type": "mcp_toolset", "mcp_server_name": "deep-wiki-2"},
+    ]
+    assert request["betas"] == ["server-side-fallback-2026-07-01", "mcp-client-2026-09-15"]
+
+
+def test_without_connectors_nothing_about_them_is_sent(ready: TestClient, scripted: Scripted):
+    scripted.steps = [reply(text("Hello."))]
+    send(ready, new_thread(ready), text="Hi")
+    request = scripted.requests[-1]
+    assert "mcp_servers" not in request
+    assert request["betas"] == ["server-side-fallback-2026-07-01"]
+    assert all(tool.get("type") != "mcp_toolset" for tool in request["tools"])
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://mcp.example.com/mcp",
+        "https://localhost/mcp",
+        "https://printer.local/mcp",
+        "https://user:pw@mcp.example.com/mcp",
+        "ftp://mcp.example.com",
+    ],
+)
+def test_a_connector_must_be_a_public_https_address(ready: TestClient, url: str):
+    refused = ready.post("/api/assistant/connectors", json={"label": "X", "url": url})
+    assert refused.status_code == 400, refused.text
+    assert ready.get("/api/assistant/extensions").json()["connectors"] == []
+
+
+def test_only_so_many_connectors_can_be_on_at_once(ready: TestClient):
+    for number in range(service.MAX_CONNECTORS):
+        add_connector(ready, label=f"C{number}")
+    over = ready.post(
+        "/api/assistant/connectors", json={"label": "One more", "url": "https://a.example.com/"}
+    )
+    assert over.status_code == 400 and "Switch one off" in over.json()["detail"]
+
+
+def test_what_a_connector_did_is_shown_as_a_step(ready: TestClient, scripted: Scripted):
+    add_connector(ready)
+    scripted.steps = [
+        reply(
+            mcp_listing(),
+            thinking("s1"),
+            mcp_use(),
+            mcp_result("Python SDK for MCP."),
+            text("It is an SDK."),
+        )
+    ]
+    events = send(ready, new_thread(ready), text="What is it?")
+    started = next(e for e in events if e["type"] == "tool_start")
+    ended = next(e for e in events if e["type"] == "tool_end")
+    assert started["name"] == "mcp__deep-wiki__ask" and started["id"] == ended["id"]
+    assert ended["result"] == "Python SDK for MCP." and ended["is_error"] is False
+    blocks = events[-1]["thread"]["items"][1]["blocks"]
+    assert blocks[0] == {
+        "type": "tool",
+        "id": "mcptoolu_1",
+        "name": "mcp__deep-wiki__ask",
+        "result": "Python SDK for MCP.",
+        "is_error": False,
+        "done": True,
+    }
+    assert blocks[1] == {"type": "text", "text": "It is an SDK."}
+
+
+def test_a_chat_outlives_the_connector_it_used(ready: TestClient, scripted: Scripted):
+    """The API refuses a history that names a connector it was not given."""
+    connector = add_connector(ready)["connectors"][0]
+    thread_id = new_thread(ready)
+    scripted.steps = [
+        reply(mcp_listing(), thinking("s1"), mcp_use(), mcp_result("Python SDK."), text("An SDK."))
+    ]
+    send(ready, thread_id, text="What is it?")
+
+    # Still connected: the reply goes back exactly as it came.
+    scripted.steps = [reply(text("Yes."))]
+    send(ready, thread_id, text="Sure?")
+    kept = [block["type"] for block in scripted.requests[-1]["messages"][1]["content"]]
+    assert kept == ["mcp_tool_listing", "thinking", "mcp_tool_use", "mcp_tool_result", "text"]
+
+    assert ready.delete(f"/api/assistant/connectors/{connector['id']}").status_code == 200
+    scripted.steps = [reply(text("Still here."))]
+    events = send(ready, thread_id, text="And now?")
+    assert "error" not in kinds(events)
+    request = scripted.requests[-1]
+    assert "mcp_servers" not in request
+    sent = request["messages"][1]["content"]
+    assert [block["type"] for block in sent] == ["text", "text"]  # no thinking, no mcp blocks
+    assert "deep-wiki" in sent[0]["text"] and "Python SDK." in sent[0]["text"]
+    assert "disconnected" in sent[0]["text"]
+    # ...and the screen still shows the step that was taken.
+    first_reply = events[-1]["thread"]["items"][1]["blocks"]
+    assert first_reply[0]["name"] == "mcp__deep-wiki__ask" and first_reply[0]["done"] is True
+
+
+def test_a_reply_that_only_used_a_connector_is_not_an_empty_reply(
+    ready: TestClient, scripted: Scripted
+):
+    add_connector(ready)
+    scripted.steps = [
+        reply(mcp_listing(), mcp_use(), mcp_result("x"), stop_reason="pause_turn"),
+        reply(text("Finished.")),
+    ]
+    events = send(ready, new_thread(ready), text="Go")
+    assert "error" not in kinds(events)
+    assert len(scripted.requests) == 2
+
+
+def test_a_connector_can_be_tried_before_a_chat_depends_on_it(
+    ready: TestClient, scripted: Scripted
+):
+    connector = add_connector(ready, token="tok")["connectors"][0]
+    url = f"/api/assistant/connectors/{connector['id']}/test"
+    scripted.probe = SimpleNamespace(
+        content=[
+            Block(
+                type="mcp_tool_listing",
+                mcp_server_name="deep-wiki",
+                tools=[{"name": "ask"}, {"name": "read"}],
+            ),
+            text("ready"),
+        ]
+    )
+    assert ready.post(url).json() == {"ok": True, "tools": ["ask", "read"], "detail": ""}
+    assert scripted.requests[-1]["mcp_servers"][0]["authorization_token"] == "tok"
+
+    scripted.probe = anthropic.BadRequestError(
+        "400",
+        response=httpx2.Response(400, request=httpx2.Request("POST", "https://x")),
+        body={"error": {"message": "MCP server returned 401 Unauthorized"}},
+    )
+    failed = ready.post(url).json()
+    assert failed["ok"] is False and "401 Unauthorized" in failed["detail"]
+    assert "tok" not in failed["detail"]
+
+
+# --- plugins --------------------------------------------------------------------------
+def plugin_zip(**extra: str) -> bytes:
+    import io
+    import zipfile
+
+    files = {
+        "kit/.claude-plugin/plugin.json": json.dumps(
+            {"name": "Study Kit", "version": "1.2.0", "description": "Revision helpers."}
+        ),
+        "kit/skills/cornell-notes/SKILL.md": (
+            "---\nname: cornell-notes\ndescription: >\n  Turn a topic into Cornell notes.\n"
+            "  Use when asked for them.\n---\n# Cornell notes\nWrite Cues, Notes, Summary.\n"
+        ),
+        "kit/skills/cornell-notes/layout.md": "At most four cues.\n",
+        "kit/skills/cornell-notes/scripts/render.py": "print('never run')\n",
+        "kit/skills/cornell-notes/logo.png": "\x89PNG\x00\x00",
+        "kit/commands/quiz-me.md": (
+            "---\ndescription: Three quick questions\n---\nAsk three questions about: $ARGUMENTS\n"
+        ),
+        "kit/.mcp.json": json.dumps(
+            {
+                "mcpServers": {
+                    "wiki": {"type": "http", "url": "https://mcp.example.com/mcp"},
+                    "files": {"command": "npx", "args": ["server"]},
+                }
+            }
+        ),
+        "kit/agents/reviewer.md": "An agent.",
+        "../outside.md": "not part of it",
+    }
+    files.update(extra)
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for path, content in files.items():
+            archive.writestr(path, content)
+    return buffer.getvalue()
+
+
+def test_a_plugin_is_read_for_its_skills_commands_and_remote_connectors():
+    from app.assistant import plugins
+
+    parsed = plugins.parse("kit.zip", plugin_zip())
+    assert (parsed.name, parsed.version) == ("Study Kit", "1.2.0")
+    skill = parsed.skills[0]
+    assert skill["name"] == "cornell-notes"
+    assert skill["description"] == "Turn a topic into Cornell notes. Use when asked for them."
+    assert skill["body"].startswith("# Cornell notes")
+    # Text only: the reference page and the script to read, never the picture.
+    assert sorted(skill["files"]) == ["layout.md", "scripts/render.py"]
+    assert parsed.commands == [
+        {
+            "name": "quiz-me",
+            "description": "Three quick questions",
+            "body": "Ask three questions about: $ARGUMENTS\n",
+        }
+    ]
+    assert parsed.connectors == [{"label": "wiki", "url": "https://mcp.example.com/mcp"}]
+    notes = " ".join(parsed.notes)
+    assert "1 connector starts a program" in notes
+    assert "agents are not used" in notes and "not run here" in notes
+
+
+def test_a_skill_packed_on_its_own_is_a_plugin_of_one_skill():
+    import io
+    import zipfile
+
+    from app.assistant import plugins
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("summarise/SKILL.md", "---\nname: Summarise It\n---\nBe brief.\n")
+        archive.writestr("summarise/examples.md", "One example.\n")
+    parsed = plugins.parse("summarise.skill", buffer.getvalue())
+    assert parsed.name == "summarise"
+    assert [(s["name"], sorted(s["files"])) for s in parsed.skills] == [
+        ("summarise-it", ["examples.md"])
+    ]
+
+
+def test_what_is_not_a_plugin_is_refused_with_a_reason():
+    import io
+    import zipfile
+
+    from app.assistant import plugins
+
+    with pytest.raises(plugins.PluginError, match="not a plugin archive"):
+        plugins.parse("notes.zip", b"just some text")
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("readme.txt", "hello")
+    with pytest.raises(plugins.PluginError, match="Nothing usable"):
+        plugins.parse("empty.zip", buffer.getvalue())
+    with pytest.raises(plugins.PluginError, match="larger than"):
+        plugins.parse("big.zip", b"0" * (plugins.MAX_ARCHIVE_BYTES + 1))
+
+
+def install(client: TestClient, data: bytes | None = None) -> dict:
+    made = client.post("/api/assistant/plugins", files={"file": ("kit.zip", data or plugin_zip())})
+    assert made.status_code == 201, made.text
+    return made.json()
+
+
+def test_an_installed_skill_is_offered_loaded_and_its_files_read(
+    ready: TestClient, scripted: Scripted
+):
+    extensions = install(ready)
+    plugin = extensions["plugins"][0]
+    assert [skill["name"] for skill in plugin["skills"]] == ["study-kit:cornell-notes"]
+    assert plugin["skills"][0]["file_count"] == 2
+    # Its remote connector arrives switched off; the local one is only mentioned.
+    assert [(c["label"], c["enabled"]) for c in extensions["connectors"]] == [("wiki", False)]
+
+    scripted.steps = [
+        reply(tool_use("load_skill", {"name": "study-kit:cornell-notes"}), stop_reason="tool_use"),
+        reply(
+            tool_use("read_skill_file", {"name": "cornell-notes", "path": "layout.md"}, id="t2"),
+            stop_reason="tool_use",
+        ),
+        reply(text("Here they are.")),
+    ]
+    events = send(ready, new_thread(ready), text="Cornell notes on overfitting")
+    system = scripted.requests[0]["system"]
+    assert "# Skills" in system
+    assert "- study-kit:cornell-notes: Turn a topic into Cornell notes." in system
+    assert "mcp_servers" not in scripted.requests[0]
+    results = [e["result"] for e in events if e["type"] == "tool_end"]
+    assert results[0].startswith('Loaded the skill "study-kit:cornell-notes".')
+    assert "Write Cues, Notes, Summary." in results[0] and "- layout.md" in results[0]
+    assert results[1].rstrip().endswith("At most four cues.")
+
+
+def test_a_command_runs_its_instructions_and_shows_only_what_was_typed(
+    ready: TestClient, scripted: Scripted
+):
+    extensions = install(ready)
+    assert extensions["commands"] == [
+        {"name": "study-kit:quiz-me", "description": "Three quick questions", "plugin": "Study Kit"}
+    ]
+    scripted.steps = [reply(text("1. ...")), reply(text("Not a command."))]
+    thread_id = new_thread(ready)
+    events = send(ready, thread_id, text="/quiz-me backpropagation")
+    sent = scripted.requests[0]["messages"][0]["content"]
+    assert "ran the command /study-kit:quiz-me" in sent[0]["text"]
+    assert "Ask three questions about: backpropagation" in sent[0]["text"]
+    assert sent[1] == {"type": "text", "text": "/quiz-me backpropagation"}
+    assert events[-1]["thread"]["items"][0]["text"] == "/quiz-me backpropagation"
+
+    # Something that only looks like a command is an ordinary message.
+    send(ready, thread_id, text="/unknown thing")
+    assert scripted.requests[1]["messages"][-1]["content"] == [
+        {"type": "text", "text": "/unknown thing"}
+    ]
+
+
+def test_a_plugin_switched_off_or_removed_takes_its_parts_with_it(
+    ready: TestClient, scripted: Scripted
+):
+    plugin = install(ready)["plugins"][0]
+    off = ready.patch(f"/api/assistant/plugins/{plugin['id']}", json={"enabled": False}).json()
+    assert off["commands"] == [] and off["plugins"][0]["enabled"] is False
+    scripted.steps = [
+        reply(tool_use("load_skill", {"name": "study-kit:cornell-notes"}), stop_reason="tool_use"),
+        reply(text("No such skill.")),
+    ]
+    events = send(ready, new_thread(ready), text="/quiz-me x")
+    assert "# Skills" not in scripted.requests[0]["system"]
+    assert scripted.requests[0]["messages"][0]["content"] == [
+        {"type": "text", "text": "/quiz-me x"}
+    ]
+    ended = next(e for e in events if e["type"] == "tool_end")
+    assert ended["is_error"] is True and "none are installed" in ended["result"]
+
+    gone = ready.delete(f"/api/assistant/plugins/{plugin['id']}").json()
+    assert gone == {"connectors": [], "plugins": [], "commands": [], "max_connectors": 10}
+
+
+def test_an_archive_that_is_not_a_plugin_is_refused_by_the_api(ready: TestClient):
+    refused = ready.post("/api/assistant/plugins", files={"file": ("x.zip", b"not a zip")})
+    assert refused.status_code == 400 and "not a plugin archive" in refused.json()["detail"]

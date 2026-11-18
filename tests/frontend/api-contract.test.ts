@@ -184,6 +184,17 @@ describe('API contract', () => {
     ['addAssistantAttachment', () => client.addAssistantAttachment('t1', new File(['x'], 'a.png'))],
     ['deleteAssistantAttachment', () => client.deleteAssistantAttachment('a1')],
     ['stopAssistant', () => client.stopAssistant('t1')],
+    ['assistantExtensions', () => client.assistantExtensions()],
+    [
+      'addAssistantConnector',
+      () => client.addAssistantConnector({ label: 'Wiki', url: 'https://mcp.example.com/mcp' }),
+    ],
+    ['updateAssistantConnector', () => client.updateAssistantConnector('c1', { enabled: false })],
+    ['deleteAssistantConnector', () => client.deleteAssistantConnector('c1')],
+    ['testAssistantConnector', () => client.testAssistantConnector('c1')],
+    ['addAssistantPlugin', () => client.addAssistantPlugin(new File(['x'], 'kit.zip'))],
+    ['updateAssistantPlugin', () => client.updateAssistantPlugin('p1', false)],
+    ['deleteAssistantPlugin', () => client.deleteAssistantPlugin('p1')],
     [
       'sendAssistantMessage',
       () =>

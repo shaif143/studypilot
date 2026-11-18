@@ -9,6 +9,8 @@
 import { ApiError } from '@studypilot/api-client';
 import type {
   ArchiveUploadResult,
+  AssistantConnectorTest,
+  AssistantExtensions,
   AssistantFile,
   AssistantProject,
   AssistantProjectDetail,
@@ -102,6 +104,7 @@ export const keys = {
   assistantThreads: ['assistant', 'threads'] as const,
   assistantThread: (id: string) => ['assistant', 'threads', id] as const,
   assistantProjects: ['assistant', 'projects'] as const,
+  assistantExtensions: ['assistant', 'extensions'] as const,
   assistantProject: (id: string) => ['assistant', 'projects', id] as const,
   sessions: ['sessions'] as const,
   session: (id: string) => ['sessions', id] as const,
@@ -805,6 +808,62 @@ export function useAssistantActions() {
     removeProjectFile,
     updateThread,
     deleteThread,
+  };
+}
+
+export function useAssistantExtensions() {
+  const client = useClient();
+  return useQuery<AssistantExtensions>({
+    queryKey: keys.assistantExtensions,
+    queryFn: () => client.assistantExtensions(),
+  });
+}
+
+/** Adding, changing and removing connectors and plugins; each answers with the whole list. */
+export function useAssistantExtensionActions() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  const onSuccess = (extensions: AssistantExtensions) =>
+    queryClient.setQueryData(keys.assistantExtensions, extensions);
+
+  const addConnector = useMutation<
+    AssistantExtensions,
+    Error,
+    { label: string; url: string; token?: string }
+  >({ mutationFn: (body) => client.addAssistantConnector(body), onSuccess });
+  const updateConnector = useMutation<
+    AssistantExtensions,
+    Error,
+    { id: string; label?: string; url?: string; token?: string; enabled?: boolean }
+  >({ mutationFn: ({ id, ...body }) => client.updateAssistantConnector(id, body), onSuccess });
+  const deleteConnector = useMutation<AssistantExtensions, Error, string>({
+    mutationFn: (id) => client.deleteAssistantConnector(id),
+    onSuccess,
+  });
+  const testConnector = useMutation<AssistantConnectorTest, Error, string>({
+    mutationFn: (id) => client.testAssistantConnector(id),
+  });
+  const addPlugin = useMutation<AssistantExtensions, Error, File>({
+    mutationFn: (file) => client.addAssistantPlugin(file),
+    onSuccess,
+  });
+  const updatePlugin = useMutation<AssistantExtensions, Error, { id: string; enabled: boolean }>({
+    mutationFn: ({ id, enabled }) => client.updateAssistantPlugin(id, enabled),
+    onSuccess,
+  });
+  const deletePlugin = useMutation<AssistantExtensions, Error, string>({
+    mutationFn: (id) => client.deleteAssistantPlugin(id),
+    onSuccess,
+  });
+
+  return {
+    addConnector,
+    updateConnector,
+    deleteConnector,
+    testConnector,
+    addPlugin,
+    updatePlugin,
+    deletePlugin,
   };
 }
 

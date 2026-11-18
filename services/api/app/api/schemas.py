@@ -619,6 +619,9 @@ class ExportResponse(BaseModel):
     assistant_projects: list[dict[str, Any]] = Field(default_factory=list)
     #: Conversations of the Claude chat as they read on screen. Never the key.
     assistant_chats: list[dict[str, Any]] = Field(default_factory=list)
+    #: Connectors (never their tokens) and plugins added to the Claude chat.
+    assistant_connectors: list[dict[str, Any]] = Field(default_factory=list)
+    assistant_plugins: list[dict[str, Any]] = Field(default_factory=list)
     note: str
 
 
@@ -1242,3 +1245,78 @@ class AssistantProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
     instructions: str | None = Field(default=None, max_length=40_000)
+
+
+class AssistantConnectorOut(BaseModel):
+    """A remote MCP server connected to the chat. Its token is never returned."""
+
+    id: str
+    #: The name the API knows it by.
+    name: str
+    label: str
+    url: str
+    has_token: bool
+    enabled: bool
+    #: The plugin it came with, if any.
+    plugin_id: str | None = None
+    created_at: datetime
+
+
+class AssistantConnectorCreate(BaseModel):
+    label: str = Field(min_length=1, max_length=120)
+    url: str = Field(min_length=1, max_length=1000)
+    token: str = Field(default="", max_length=8000)
+
+
+class AssistantConnectorUpdate(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=120)
+    url: str | None = Field(default=None, min_length=1, max_length=1000)
+    #: A new token; an empty string removes the saved one; absent keeps it.
+    token: str | None = Field(default=None, max_length=8000)
+    enabled: bool | None = None
+
+
+class AssistantConnectorTestOut(BaseModel):
+    ok: bool
+    #: The tools the server offered, when it answered.
+    tools: list[str] = Field(default_factory=list)
+    detail: str = ""
+
+
+class AssistantSkillOut(BaseModel):
+    #: The name Claude loads it under.
+    name: str
+    description: str = ""
+    file_count: int = 0
+
+
+class AssistantCommandOut(BaseModel):
+    #: What is typed after "/".
+    name: str
+    description: str = ""
+    plugin: str = ""
+
+
+class AssistantPluginOut(BaseModel):
+    id: str
+    name: str
+    version: str = ""
+    description: str = ""
+    enabled: bool
+    skills: list[AssistantSkillOut] = Field(default_factory=list)
+    commands: list[AssistantCommandOut] = Field(default_factory=list)
+    #: What its archive held that is not used here.
+    notes: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
+class AssistantPluginUpdate(BaseModel):
+    enabled: bool
+
+
+class AssistantExtensionsOut(BaseModel):
+    connectors: list[AssistantConnectorOut] = Field(default_factory=list)
+    plugins: list[AssistantPluginOut] = Field(default_factory=list)
+    #: The commands of the plugins that are switched on, for the "/" menu.
+    commands: list[AssistantCommandOut] = Field(default_factory=list)
+    max_connectors: int = 10

@@ -12,11 +12,12 @@
 import type { AssistantStatus, AssistantThreadSummary } from '@studypilot/shared';
 import { Button, Dialog, Field, Input, Spinner } from '@studypilot/ui';
 import { useQueryClient } from '@tanstack/react-query';
-import { FolderKanban, KeyRound, Pencil, Plus, Trash2 } from 'lucide-react';
+import { FolderKanban, KeyRound, Pencil, Plug, Plus, Trash2 } from 'lucide-react';
 import { type FormEvent, type ReactNode, useMemo, useState } from 'react';
 import { Link, NavLink, useLocation, useMatch, useNavigate } from 'react-router-dom';
 
 import { ChatView } from '../components/assistant/ChatView';
+import { ExtensionsView } from '../components/assistant/ExtensionsView';
 import { ProjectPage, ProjectsList } from '../components/assistant/ProjectViews';
 import {
   describeError,
@@ -36,6 +37,7 @@ export function AssistantScreen() {
   const chatMatch = useMatch('/claude/chat/:threadId');
   const projectMatch = useMatch('/claude/projects/:projectId');
   const projectsMatch = useMatch('/claude/projects');
+  const extensionsMatch = useMatch('/claude/extensions');
   const [keyOpen, setKeyOpen] = useState(false);
 
   const routeThreadId = chatMatch?.params.threadId ?? null;
@@ -87,6 +89,10 @@ export function AssistantScreen() {
   ) : projectsMatch ? (
     <div className="sp-scroll h-full overflow-y-auto">
       <ProjectsList />
+    </div>
+  ) : extensionsMatch ? (
+    <div className="sp-scroll h-full overflow-y-auto">
+      <ExtensionsView />
     </div>
   ) : (
     <ChatView
@@ -169,6 +175,10 @@ function ChatList({
         <NavLink to="/claude/projects" className={linkClass}>
           <FolderKanban size={15} />
           Projects
+        </NavLink>
+        <NavLink to="/claude/extensions" className={linkClass}>
+          <Plug size={15} />
+          Connectors and plugins
         </NavLink>
       </div>
 

@@ -1,6 +1,8 @@
 import type {
   ArchiveUploadResult,
+  AssistantConnectorTest,
   AssistantEvent,
+  AssistantExtensions,
   AssistantFile,
   AssistantMessageRequest,
   AssistantProject,
@@ -723,6 +725,39 @@ export class StudyPilotClient {
     `/api/assistant/attachments/${attachmentId}/content`;
   stopAssistant = (threadId: string) =>
     this.request<void>(`/api/assistant/threads/${threadId}/stop`, { method: 'POST' });
+
+  // Connectors and plugins: every change answers with the whole list.
+  assistantExtensions = () => this.request<AssistantExtensions>('/api/assistant/extensions');
+  addAssistantConnector = (body: { label: string; url: string; token?: string }) =>
+    this.request<AssistantExtensions>('/api/assistant/connectors', { method: 'POST', body });
+  updateAssistantConnector = (
+    connectorId: string,
+    body: { label?: string; url?: string; token?: string; enabled?: boolean },
+  ) =>
+    this.request<AssistantExtensions>(`/api/assistant/connectors/${connectorId}`, {
+      method: 'PATCH',
+      body,
+    });
+  deleteAssistantConnector = (connectorId: string) =>
+    this.request<AssistantExtensions>(`/api/assistant/connectors/${connectorId}`, {
+      method: 'DELETE',
+    });
+  testAssistantConnector = (connectorId: string) =>
+    this.request<AssistantConnectorTest>(`/api/assistant/connectors/${connectorId}/test`, {
+      method: 'POST',
+    });
+  addAssistantPlugin = (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return this.request<AssistantExtensions>('/api/assistant/plugins', { method: 'POST', form });
+  };
+  updateAssistantPlugin = (pluginId: string, enabled: boolean) =>
+    this.request<AssistantExtensions>(`/api/assistant/plugins/${pluginId}`, {
+      method: 'PATCH',
+      body: { enabled },
+    });
+  deleteAssistantPlugin = (pluginId: string) =>
+    this.request<AssistantExtensions>(`/api/assistant/plugins/${pluginId}`, { method: 'DELETE' });
 
   /**
    * Send a message and hand each event of the reply to `onEvent` as it arrives.

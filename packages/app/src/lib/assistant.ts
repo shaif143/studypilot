@@ -109,10 +109,26 @@ const TOOL_LABELS: Record<string, [doing: string, done: string]> = {
   search_materials: ['Searching your course material', 'Searched your course material'],
   read_file: ['Reading a file', 'Read a file'],
   write_note: ['Saving a note', 'Saved a note'],
+  load_skill: ['Loading a skill', 'Loaded a skill'],
+  read_skill_file: ['Reading a skill file', 'Read a skill file'],
 };
+
+/** A connector's tool, taken apart: `mcp__server__tool`. */
+export function connectorTool(name: string): { server: string; tool: string } | null {
+  if (!name.startsWith('mcp__')) return null;
+  const rest = name.slice('mcp__'.length);
+  const cut = rest.indexOf('__');
+  if (cut < 0) return { server: rest, tool: '' };
+  return { server: rest.slice(0, cut), tool: rest.slice(cut + 2) };
+}
 
 /** What a step is doing, in words, before its result is known. */
 export function toolLabel(name: string, done: boolean): string {
+  const connector = connectorTool(name);
+  if (connector) {
+    const what = connector.tool ? `${connector.server}: ${connector.tool}` : connector.server;
+    return done ? `Used the connector ${what}` : `Using the connector ${what}`;
+  }
   const labels = TOOL_LABELS[name];
   if (!labels) return done ? 'Finished a step' : 'Working';
   return done ? labels[1] : labels[0];
@@ -167,4 +183,22 @@ export function recencyGroup(iso: string, now: Date = new Date()): string {
   if (at >= startOfToday - 7 * day) return 'Previous 7 days';
   if (at >= startOfToday - 30 * day) return 'Previous 30 days';
   return 'Older';
+}
+
+/**
+ * The commands a half-typed "/name" could mean, best first.
+ *
+ * Offered only while the message is still just the command's name: once there
+ * is a space, the student is writing what the command should work on.
+ */
+export function matchingCommands<T extends { name: string }>(text: string, commands: T[]): T[] {
+  if (!text.startsWith('/') || /\s/.test(text)) return [];
+  const typed = text.slice(1).toLowerCase();
+  const short = (name: string) => name.split(':').pop() ?? name;
+  return commands
+    .filter((command) => {
+      const name = command.name.toLowerCase();
+      return name.startsWith(typed) || short(name).startsWith(typed);
+    })
+    .slice(0, 8);
 }

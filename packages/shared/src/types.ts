@@ -1208,3 +1208,59 @@ export type AssistantEvent =
   | { type: 'reset' }
   | { type: 'error'; message: string }
   | { type: 'done'; thread: AssistantThread };
+
+/** A remote MCP server connected to the chat. Its token is never sent back. */
+export interface AssistantConnector {
+  id: string;
+  /** The name the API knows it by. */
+  name: string;
+  label: string;
+  url: string;
+  has_token: boolean;
+  enabled: boolean;
+  /** The plugin it came with, if any. */
+  plugin_id: string | null;
+  created_at: string;
+}
+
+export interface AssistantSkill {
+  /** The name Claude loads it under: "plugin:skill". */
+  name: string;
+  description: string;
+  file_count: number;
+}
+
+export interface AssistantCommand {
+  /** What is typed after "/": "plugin:command". */
+  name: string;
+  description: string;
+  plugin: string;
+}
+
+export interface AssistantPlugin {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  enabled: boolean;
+  skills: AssistantSkill[];
+  commands: AssistantCommand[];
+  /** What its archive held that is not used here. */
+  notes: string[];
+  created_at: string;
+}
+
+export interface AssistantExtensions {
+  connectors: AssistantConnector[];
+  plugins: AssistantPlugin[];
+  /** The commands of the plugins that are switched on. */
+  commands: AssistantCommand[];
+  max_connectors: number;
+}
+
+export interface AssistantConnectorTest {
+  ok: boolean;
+  /** The tools the server offered, when it answered. */
+  tools: string[];
+  detail: string;
+}

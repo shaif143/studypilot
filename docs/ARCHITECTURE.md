@@ -619,6 +619,36 @@ folders, move and rename files, add an attachment to a course (the ordinary
 upload path), search and read course text, save a note. None deletes a file
 or a course. Each commits or rolls back on its own.
 
+### Connectors and plugins
+
+**A connector** is a remote MCP server (`assistant_connectors`). The chat
+never speaks MCP itself: each request names the account's switched-on
+connectors in `mcp_servers`, with a matching `mcp_toolset`, and Anthropic's
+API reaches them. This application stores an address and, encrypted like the
+Claude key, an optional access token. A call arrives in the reply as
+`mcp_tool_use` and `mcp_tool_result` blocks, which are stored and echoed like
+everything else; the tool list each server gave is recorded in the
+conversation (`mcp_tool_listing`), so it stays the same from request to
+request.
+
+The API refuses a history that names a connector it was not given. So when a
+connector is switched off or removed, a conversation that used it is rewritten
+once at the start of its next turn (`retire_connectors`): the calls become a
+record the screen still shows and that is sent to Claude as a plain account of
+what was returned, and the thinking blocks go, because the history has been
+edited.
+
+**A plugin** (`assistant_plugins`) is an archive in the layout Claude's own
+plugins use. Only text is read from it, in memory, under limits; nothing is
+unpacked or run. Its skills are listed in the system prompt by name and
+description and read on demand through two tools (`load_skill`,
+`read_skill_file`), which is how a large skill costs nothing until it is
+used. A command is a prompt: typing `/name` stores its instructions beside
+the message for Claude, while the screen shows only what was typed. Remote
+MCP servers a plugin declares become connectors, switched off until the
+student turns them on. Agents, hooks and servers that start a local program
+are reported as left out.
+
 ## Concept map
 
 `app/learning/concept_map.py` builds the course's topic graph with no model:

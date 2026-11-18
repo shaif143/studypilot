@@ -9,8 +9,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   EMPTY_REPLY,
   applyEvent,
+  connectorTool,
   formatCost,
   formatTokens,
+  matchingCommands,
   recencyGroup,
   replyText,
   resultDetail,
@@ -116,6 +118,41 @@ describe('what a step says', () => {
         { type: 'text', text: 'Two.' },
       ]),
     ).toBe('One.\n\nTwo.');
+  });
+});
+
+describe('connectors and commands', () => {
+  it('names a step taken through a connector by its server and tool', () => {
+    expect(connectorTool('mcp__deep-wiki__ask_question')).toEqual({
+      server: 'deep-wiki',
+      tool: 'ask_question',
+    });
+    expect(connectorTool('create_folder')).toBeNull();
+    expect(toolLabel('mcp__deep-wiki__ask_question', false)).toBe(
+      'Using the connector deep-wiki: ask_question',
+    );
+    expect(toolLabel('mcp__deep-wiki__ask_question', true)).toBe(
+      'Used the connector deep-wiki: ask_question',
+    );
+    expect(toolLabel('load_skill', true)).toBe('Loaded a skill');
+  });
+
+  it('offers commands only while the name is still being typed', () => {
+    const commands = [
+      { name: 'study-kit:quiz-me' },
+      { name: 'study-kit:summarise' },
+      { name: 'other:quick' },
+    ];
+    expect(matchingCommands('/', commands)).toHaveLength(3);
+    expect(matchingCommands('/qu', commands).map((c) => c.name)).toEqual([
+      'study-kit:quiz-me',
+      'other:quick',
+    ]);
+    expect(matchingCommands('/study-kit:s', commands).map((c) => c.name)).toEqual([
+      'study-kit:summarise',
+    ]);
+    expect(matchingCommands('/quiz-me backprop', commands)).toEqual([]);
+    expect(matchingCommands('what is /quiz', commands)).toEqual([]);
   });
 });
 

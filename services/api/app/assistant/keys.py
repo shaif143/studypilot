@@ -112,3 +112,20 @@ def resolve(repo: AssistantRepository, settings: Settings, user_id: str) -> Reso
         if value:
             return ResolvedKey(value=value, source=SOURCE_INSTALLATION, hint=value[-4:])
     return None
+
+
+def seal(settings: Settings, value: str) -> str:
+    """Encrypt another secret of the chat's (a connector's token) the same way."""
+    return _fernet(settings).encrypt(value.encode("utf-8")).decode("ascii")
+
+
+def unseal(settings: Settings, ciphertext: str) -> str:
+    """The secret back, or "" when it can no longer be read."""
+    if not ciphertext:
+        return ""
+    from cryptography.fernet import InvalidToken
+
+    try:
+        return _fernet(settings).decrypt(ciphertext.encode("ascii")).decode("utf-8")
+    except (InvalidToken, KeyStorageError):
+        return ""

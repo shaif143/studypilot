@@ -963,3 +963,55 @@ class AssistantAttachment(Base, TimestampMixin):
     kind: Mapped[str] = mapped_column(String(16), default="file")
     #: Where the bytes are in the blob store's keyed area.
     asset_key: Mapped[str] = mapped_column(String(256))
+
+
+class AssistantConnector(Base, TimestampMixin):
+    """A remote MCP server an account has connected to the chat.
+
+    Anthropic's API reaches the server; this application only stores where it
+    is and, if it needs one, the access token for it, encrypted like the
+    account's Claude key and never returned.
+    """
+
+    __tablename__ = "assistant_connectors"
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_assistant_connectors_user_name"),
+        Index("ix_assistant_connectors_user", "user_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"))
+    #: The name the API knows it by: lower-case letters, digits, "-" and "_".
+    name: Mapped[str] = mapped_column(String(64))
+    #: What the student called it.
+    label: Mapped[str] = mapped_column(String(120))
+    url: Mapped[str] = mapped_column(String(1000))
+    token_ciphertext: Mapped[str] = mapped_column(Text, default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: The plugin it came with, if it was not added by hand.
+    plugin_id: Mapped[str | None] = mapped_column(String(32), default=None)
+
+
+class AssistantPlugin(Base, TimestampMixin):
+    """A plugin added to the chat: its skills and commands, read from its archive.
+
+    Only text is kept. A skill's instructions and reference files are read by
+    Claude when a task calls for them; a command is a prompt run by typing its
+    name. Nothing in a plugin is executed here.
+    """
+
+    __tablename__ = "assistant_plugins"
+    __table_args__ = (Index("ix_assistant_plugins_user", "user_id"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(120))
+    version: Mapped[str] = mapped_column(String(40), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: [{"name", "description", "body", "files": {path: text}}]
+    skills: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    #: [{"name", "description", "body"}]
+    commands: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    #: What the archive held that is not used here, for the screen to say.
+    notes: Mapped[list[Any]] = mapped_column(JSON, default=list)

@@ -40,14 +40,22 @@ import {
 import { Link } from 'react-router-dom';
 
 import { useClient } from '../../context';
-import { describeError, keys, useAssistantProject, useAssistantThread } from '../../hooks/queries';
+import {
+  describeError,
+  keys,
+  useAssistantExtensions,
+  useAssistantProject,
+  useAssistantThread,
+} from '../../hooks/queries';
 import {
   EMPTY_REPLY,
   type LiveReply,
   applyEvent,
+  connectorTool,
   formatBytes,
   formatCost,
   formatTokens,
+  matchingCommands,
   replyText,
   resultDetail,
   resultSummary,
@@ -99,6 +107,7 @@ export function ChatView({
   const inProject = thread.data?.project_id ?? (threadId ? null : projectId);
   const project = useAssistantProject(inProject);
 
+  const extensions = useAssistantExtensions();
   const [text, setText] = useState('');
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [model, setModel] = useState(() => rememberedModel(status));
@@ -345,6 +354,8 @@ export function ChatView({
       ? savedTitle
       : pendingUser?.text.split('\n', 1)[0]?.slice(0, 60) || savedTitle || 'New chat';
 
+  const suggestions = matchingCommands(text, extensions.data?.commands ?? []);
+
   const usage = thread.data?.usage;
   const composer = status.ready ? (
     <div
@@ -375,6 +386,32 @@ export function ChatView({
                 className="shrink-0 rounded p-0.5 hover:bg-[var(--surface-hover)]"
               >
                 <X size={11} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {suggestions.length > 0 ? (
+        <ul
+          aria-label="Commands"
+          className="mx-3 mt-3 overflow-hidden rounded-lg border border-[var(--border-subtle)]"
+        >
+          {suggestions.map((command) => (
+            <li key={command.name}>
+              <button
+                type="button"
+                onClick={() => {
+                  setText(`/${command.name} `);
+                  inputRef.current?.focus();
+                }}
+                className="flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-[0.8125rem] hover:bg-[var(--surface-hover)]"
+              >
+                <span className="shrink-0 font-[family-name:var(--font-mono)] text-[var(--text-primary)]">
+                  /{command.name}
+                </span>
+                <span className="min-w-0 truncate text-[var(--text-muted)]">
+                  {command.description || command.plugin}
+                </span>
               </button>
             </li>
           ))}
@@ -723,8 +760,11 @@ function AssistantMessage({
 }
 
 function Step({ block }: { block: Extract<AssistantItem['blocks'][number], { type: 'tool' }> }) {
-  const summary = block.done ? resultSummary(block.result) : '';
-  const detail = block.done ? resultDetail(block.result) : '';
+  // A connector's result is whatever its server sent, not a line written to
+  // be read as a headline, so the step is named and the result sits under it.
+  const external = connectorTool(block.name) !== null;
+  const summary = block.done && !external ? resultSummary(block.result) : '';
+  const detail = !block.done ? '' : external ? block.result.trim() : resultDetail(block.result);
   const label = summary || toolLabel(block.name, block.done);
   const icon = !block.done ? (
     <Spinner size={12} />

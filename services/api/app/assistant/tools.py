@@ -187,6 +187,23 @@ TOOLS: list[dict[str, Any]] = [
         },
         ["course_id", "title", "body_markdown"],
     ),
+    _tool(
+        "load_skill",
+        "Load one of the student's installed skills: the instructions for a kind of task. "
+        "Call it with a name from the Skills list before starting a task the skill covers.",
+        {"name": {"type": "string", "description": "A skill name from the Skills list."}},
+        ["name"],
+    ),
+    _tool(
+        "read_skill_file",
+        "Read a further file that belongs to a skill, when the skill's instructions point "
+        "to it. Its files are listed when the skill is loaded.",
+        {
+            "name": {"type": "string", "description": "The skill's name."},
+            "path": {"type": "string", "description": "The file's path within the skill."},
+        },
+        ["name", "path"],
+    ),
 ]
 
 _SCHEMAS = {tool["name"]: tool["input_schema"] for tool in TOOLS}
@@ -234,7 +251,16 @@ def _clean_name(value: str, limit: int) -> str:
 class Toolbox:
     """The tools, bound to one account for one turn of the conversation."""
 
-    def __init__(self, context: RuntimeContext, session: Any, user: User) -> None:
+    def __init__(
+        self,
+        context: RuntimeContext,
+        session: Any,
+        user: User,
+        *,
+        skills: dict[str, dict[str, Any]] | None = None,
+    ) -> None:
+        #: Installed skills by the name they are loaded under.
+        self.skills = skills or {}
         self.context = context
         self.session = session
         self.user = user
@@ -556,3 +582,34 @@ class Toolbox:
         return self._listing(
             f'Saved the note "{note.title}" to My Notes for "{course.title}".', {"note_id": note.id}
         )
+
+    # --- skills ------------------------------------------------------------
+    def _skill(self, name: str) -> dict[str, Any]:
+        skill = self.skills.get(name)
+        if skill is None:
+            # Asked for by its short name, when only one skill has it.
+            short = [key for key in self.skills if key.split(":", 1)[-1] == name]
+            skill = self.skills[short[0]] if len(short) == 1 else None
+        if skill is None:
+            listed = ", ".join(sorted(self.skills)) or "none are installed"
+            raise ValueError(f"There is no skill called {name}. The skills are: {listed}.")
+        return skill
+
+    def _load_skill(self, name: str) -> ToolOutcome:
+        skill = self._skill(name)
+        files = sorted(skill.get("files") or {})
+        text = f'Loaded the skill "{name}".\n{str(skill.get("body", "")).strip()}'
+        if files:
+            text += "\n\nFiles in this skill, read with read_skill_file:\n" + "\n".join(
+                f"- {path}" for path in files
+            )
+        return ToolOutcome(text)
+
+    def _read_skill_file(self, name: str, path: str) -> ToolOutcome:
+        skill = self._skill(name)
+        files = skill.get("files") or {}
+        wanted = path.strip().lstrip("./")
+        if wanted not in files:
+            listed = ", ".join(sorted(files)) or "it has no further files"
+            raise ValueError(f"That skill has no file {path}. Its files are: {listed}.")
+        return ToolOutcome(f'Read {wanted} from the skill "{name}".\n{files[wanted]}')
