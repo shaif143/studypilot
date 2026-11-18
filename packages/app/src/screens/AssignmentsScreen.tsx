@@ -20,6 +20,7 @@ import {
   Button,
   Callout,
   Card,
+  Dialog,
   EmptyState,
   SectionHeading,
   Skeleton,
@@ -38,6 +39,7 @@ import {
   MessageSquareText,
   Presentation,
   Sparkles,
+  Trash2,
   Upload,
   X,
 } from 'lucide-react';
@@ -54,6 +56,7 @@ import {
   useAttemptReviews,
   useCheckAttempt,
   useCourse,
+  useDeleteDocument,
   useDraftAssignmentPlan,
   useFolders,
   useSetStepApproval,
@@ -367,8 +370,9 @@ function AssignmentDetail({ courseId, assignment }: { courseId: string; assignme
             model: the brief's requirements with matching lecture passages, not written steps.
           </p>
         ) : null}
-        <div className="mt-3">
+        <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
           <MoveToFolder courseId={courseId} document={assignment.document} section="assignments" />
+          <DeleteBrief assignment={assignment} />
         </div>
       </Card>
 
@@ -376,6 +380,60 @@ function AssignmentDetail({ courseId, assignment }: { courseId: string; assignme
 
       {plan ? <PlanView courseId={courseId} plan={plan} /> : null}
     </div>
+  );
+}
+
+/**
+ * Removing a brief takes its guide, its checked attempts and what the models
+ * worked out with it, so it is asked for twice: the button, then the dialog.
+ */
+function DeleteBrief({ assignment }: { assignment: Assignment }) {
+  const remove = useDeleteDocument();
+  const [asking, setAsking] = useState(false);
+  const title = assignment.document.title;
+
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="ghost"
+        icon={<Trash2 size={13} />}
+        onClick={() => {
+          remove.reset();
+          setAsking(true);
+        }}
+      >
+        Delete assignment
+      </Button>
+      <Dialog
+        open={asking}
+        onClose={() => setAsking(false)}
+        title={`Delete “${title}”?`}
+        description="The brief is removed from this course, along with its coaching plan, your checked attempts and anything the models worked out for it. This cannot be undone."
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setAsking(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={remove.isPending}
+              onClick={() =>
+                remove.mutate(assignment.document.id, { onSuccess: () => setAsking(false) })
+              }
+            >
+              Delete assignment
+            </Button>
+          </>
+        }
+      >
+        {remove.error ? (
+          <Callout tone="danger" icon={<AlertTriangle size={14} />}>
+            {describeError(remove.error)}
+          </Callout>
+        ) : null}
+      </Dialog>
+    </>
   );
 }
 

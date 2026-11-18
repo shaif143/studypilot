@@ -31,6 +31,7 @@ import os
 import re
 import time
 from functools import lru_cache
+from typing import Any
 
 import httpx
 
@@ -304,7 +305,7 @@ class OllamaProvider:
 MODEL_CHOICES: dict[str, list[dict[str, str]]] = {
     "anthropic": [
         {"id": "claude-opus-5-5", "label": "Claude Opus 5.5 — strongest for complex work"},
-        {"id": "claude-fable-5-1", "label": "Claude Fable 5.1 — Mythos-class, most capable"},
+        {"id": "claude-fable-5-2", "label": "Claude Fable 5.2 — most capable"},
         {"id": "claude-sonnet-5-5", "label": "Claude Sonnet 5.5 — fast, lower cost"},
         {"id": "claude-haiku-5-5", "label": "Claude Haiku 5.5 — fastest, cheapest"},
     ],
@@ -378,34 +379,26 @@ class AnthropicProvider:
             "system": request.system,
             "messages": [{"role": "user", "content": content}],
         }
-        try:
-            response = httpx.post(
-                "https://api.anthropic.com/v1/messages",
-                json=body,
-                headers={
-                    "x-api-key": self.api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                timeout=request.timeout_seconds,
+        data = self._post(body, request.timeout_seconds)
+        text = _anthropic_text(data)
+        if not text.strip() and data.get("stop_reason") == "max_tokens":
+            # Thinking is always on for the Claude 5 models and counts towards
+            # the limit, so on a hard question it can use the whole of a small
+            # one before a word of the answer is written. Ask once more with
+            # room for the thinking as well as the answer.
+            body["max_tokens"] = request.max_output_tokens * 2 + 6000
+            data = self._post(body, request.timeout_seconds)
+            text = _anthropic_text(data)
+        if data.get("stop_reason") == "refusal":
+            raise ProviderUnavailableError(
+                f"{self.model} declined this request. Rephrase it, or choose another "
+                "Claude model in Settings."
             )
-            if response.status_code >= 400:
-                # The body names the problem (a retired model id, a bad
-                # parameter); the status alone does not.
-                raise ProviderUnavailableError(
-                    f"Anthropic returned {response.status_code} for {self.model}: "
-                    f"{_api_error_text(response)}"
-                )
-            data = response.json()
-        except ProviderUnavailableError:
-            raise
-        except Exception as exc:
-            raise ProviderUnavailableError(f"Anthropic request failed: {exc}") from exc
-        text = "".join(
-            block.get("text", "")
-            for block in data.get("content", [])
-            if block.get("type") == "text"
-        )
+        if not text.strip():
+            raise ProviderUnavailableError(
+                f"Anthropic returned no text for {self.model} "
+                f"(it stopped with {data.get('stop_reason') or 'no reason given'})."
+            )
         usage = data.get("usage", {})
         return GenerationResult(
             text=text,
@@ -415,6 +408,37 @@ class AnthropicProvider:
             input_tokens=usage.get("input_tokens"),
             output_tokens=usage.get("output_tokens"),
         )
+
+    def _post(self, body: dict[str, object], timeout: float) -> dict[str, Any]:
+        try:
+            response = httpx.post(
+                "https://api.anthropic.com/v1/messages",
+                json=body,
+                headers={
+                    "x-api-key": self.api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                timeout=timeout,
+            )
+            if response.status_code >= 400:
+                # The body names the problem (a retired model id, a bad
+                # parameter); the status alone does not.
+                raise ProviderUnavailableError(
+                    f"Anthropic returned {response.status_code} for {self.model}: "
+                    f"{_api_error_text(response)}"
+                )
+            return response.json()
+        except ProviderUnavailableError:
+            raise
+        except Exception as exc:
+            raise ProviderUnavailableError(f"Anthropic request failed: {exc}") from exc
+
+
+def _anthropic_text(data: dict[str, Any]) -> str:
+    return "".join(
+        block.get("text", "") for block in data.get("content", []) if block.get("type") == "text"
+    )
 
 
 #: Words in an OpenAI model id that mark something other than a chat model.
