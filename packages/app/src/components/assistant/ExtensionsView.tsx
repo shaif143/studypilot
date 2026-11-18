@@ -13,7 +13,8 @@ import type {
 } from '@studypilot/shared';
 import { Button, Dialog, EmptyState, Field, Input, Spinner, Toggle } from '@studypilot/ui';
 import { Check, Plug, Plus, Puzzle, Trash2, TriangleAlert, Upload } from 'lucide-react';
-import { type FormEvent, type ReactNode, useRef, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import {
   describeError,
@@ -21,8 +22,27 @@ import {
   useAssistantExtensions,
 } from '../../hooks/queries';
 
+/** What a sign-in came back with, read once from the address and then taken out of it. */
+function useSignInOutcome(): { outcome: string; connector: string; reason: string } | null {
+  const [params, setParams] = useSearchParams();
+  const [seen] = useState(() => {
+    const outcome = params.get('signin');
+    if (!outcome) return null;
+    return {
+      outcome,
+      connector: params.get('connector') ?? 'the connector',
+      reason: params.get('reason') ?? '',
+    };
+  });
+  useEffect(() => {
+    if (params.has('signin')) setParams({}, { replace: true });
+  }, [params, setParams]);
+  return seen;
+}
+
 export function ExtensionsView() {
   const extensions = useAssistantExtensions();
+  const returned = useSignInOutcome();
 
   if (extensions.isPending) {
     return (
@@ -41,7 +61,31 @@ export function ExtensionsView() {
   const data = extensions.data;
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-10 px-6 py-8">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 py-8">
+      {returned ? (
+        <p
+          role="status"
+          className={[
+            'flex items-start gap-2 rounded-lg border px-3 py-2 text-[0.8125rem] text-[var(--text-primary)]',
+            returned.outcome === 'connected'
+              ? 'border-[var(--signal-grounded)]/30 bg-[var(--signal-grounded-bg)]'
+              : 'border-[var(--signal-danger)]/30 bg-[var(--signal-danger-bg)]',
+          ].join(' ')}
+        >
+          {returned.outcome === 'connected' ? (
+            <Check size={14} className="mt-0.5 shrink-0 text-[var(--signal-grounded)]" />
+          ) : (
+            <TriangleAlert size={14} className="mt-0.5 shrink-0 text-[var(--signal-danger)]" />
+          )}
+          <span>
+            {returned.outcome === 'connected'
+              ? `You are signed in to ${returned.connector}. Press Test to see what it offers.`
+              : returned.outcome === 'cancelled'
+                ? `The sign-in to ${returned.connector} was not completed.`
+                : `The sign-in to ${returned.connector} did not work. ${returned.reason}`}
+          </span>
+        </p>
+      ) : null}
       <Connectors connectors={data.connectors} max={data.max_connectors} plugins={data.plugins} />
       <Plugins plugins={data.plugins} />
     </div>
@@ -87,7 +131,7 @@ function Connectors({
           <EmptyState
             icon={<Plug size={22} />}
             title="No connectors yet"
-            description="Add one by its address. Many services publish a remote MCP server; its documentation gives the address, which starts with https://."
+            description="Add one by its address, then sign in to it if it asks. Many services publish a remote MCP server; its documentation gives the address, which starts with https://."
           />
         </div>
       ) : (
@@ -132,7 +176,8 @@ function ConnectorRow({
   from: string | undefined;
   onEdit: () => void;
 }) {
-  const { updateConnector, deleteConnector, testConnector } = useAssistantExtensionActions();
+  const { updateConnector, deleteConnector, testConnector, signIn, signOut } =
+    useAssistantExtensionActions();
   const [result, setResult] = useState<AssistantConnectorTest | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -156,11 +201,42 @@ function ConnectorRow({
             {connector.url}
           </p>
           <p className="mt-0.5 text-[0.75rem] text-[var(--text-muted)]">
-            {connector.has_token ? 'Access token saved' : 'No access token'}
+            {connector.signed_in
+              ? 'Signed in'
+              : connector.has_token
+                ? 'Access token saved'
+                : 'Not signed in'}
             {from ? ` · from the plugin ${from}` : ''}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {connector.signed_in ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              loading={signOut.isPending}
+              onClick={() => signOut.mutate(connector.id)}
+            >
+              Sign out
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant={connector.has_token ? 'ghost' : 'secondary'}
+              loading={signIn.isPending || signIn.isSuccess}
+              onClick={() => {
+                setProblem(null);
+                signIn.mutate(connector.id, {
+                  // The whole page goes to the connector's sign-in and comes
+                  // back here when it is done.
+                  onSuccess: ({ authorization_url }) => window.location.assign(authorization_url),
+                  onError: (error) => setProblem(describeError(error)),
+                });
+              }}
+            >
+              Sign in
+            </Button>
+          )}
           <Button size="sm" variant="ghost" loading={testConnector.isPending} onClick={test}>
             Test
           </Button>
@@ -274,7 +350,7 @@ function ConnectorForm({
       </Field>
       <Field
         label={connector?.has_token ? 'New access token' : 'Access token'}
-        hint="Only if the server needs one. It is stored encrypted, sent to Anthropic with your chats so it can reach the server, and never shown again."
+        hint="Usually not needed: add the connector and press Sign in. Paste a token only for a server that gives you one. It is stored encrypted, sent to Anthropic with your chats so it can reach the server, and never shown again."
       >
         <Input
           type="password"

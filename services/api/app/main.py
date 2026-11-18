@@ -167,6 +167,7 @@ def create_app(
     app.include_router(routes_guides.router)
     app.include_router(routes_exams.router)
     app.include_router(routes_council.router)
+    app.include_router(routes_assistant.public_router)
     app.include_router(routes_assistant.router)
     app.include_router(routes_tutor.router)
     app.include_router(routes_assignments.router)

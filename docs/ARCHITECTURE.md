@@ -638,6 +638,26 @@ record the screen still shows and that is sent to Claude as a plain account of
 what was returned, and the thinking blocks go, because the history has been
 edited.
 
+**Signing in to a connector** (`connector_auth.py`) follows the MCP
+authorisation specification. The connector's protected-resource metadata
+names its authorisation server; this application registers with it on the
+spot (or, where there is no registration endpoint and the site has a public
+address, identifies itself by the document it serves at
+`/api/assistant/connectors/oauth/client.json`); the browser goes to the
+authorisation page with a PKCE challenge and returns to
+`/api/assistant/connectors/oauth/callback` carrying a state that works once.
+The code is exchanged for an access token, which becomes the connector's
+token, and a refresh token, used to renew it shortly before it expires. All
+of it is stored encrypted on the connector's row.
+
+These are the only requests this backend makes to addresses a user supplied,
+so each is guarded: `https` only, the host must resolve to public addresses,
+the request is sent to the address that was checked (with the certificate
+still verified against the name), redirects are followed for GET only and
+re-checked, and replies are limited in time and size. After a hosted
+sign-in the browser is returned only to an origin the deployment itself
+names, never to one the request claims.
+
 **A plugin** (`assistant_plugins`) is an archive in the layout Claude's own
 plugins use. Only text is read from it, in memory, under limits; nothing is
 unpacked or run. Its skills are listed in the system prompt by name and

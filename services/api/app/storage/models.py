@@ -990,6 +990,14 @@ class AssistantConnector(Base, TimestampMixin):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     #: The plugin it came with, if it was not added by hand.
     plugin_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    #: What a sign-in left behind, encrypted: the registration with the
+    #: connector's authorisation server, the refresh token, when the access
+    #: token expires, and a sign-in that is under way.
+    oauth_ciphertext: Mapped[str] = mapped_column(Text, default="")
+    #: The state a sign-in under way must bring back; cleared when it does.
+    oauth_state: Mapped[str | None] = mapped_column(String(64), default=None)
+    #: A sign-in was completed and its token is the one in use.
+    signed_in: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class AssistantPlugin(Base, TimestampMixin):

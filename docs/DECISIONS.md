@@ -649,8 +649,13 @@ skills and commands.
 requests to addresses a user typed in, holding the connection for the length
 of a turn, and running the tool loop for them; passing the address to the API
 gives the same result with none of that, and the access token is the only
-thing kept here. The cost is that only public servers work and that sign-in
-is by a pasted token, not a "Connect" button.
+thing kept here. The cost is that only public servers work.
+
+Sign-in is the one place this backend does fetch addresses a user supplied:
+the standard discovery, registration and token requests cannot be made by
+anyone else. They are small, few, and guarded (public `https` addresses only,
+pinned to the address that was checked), which is a much narrower thing than
+proxying a connector's traffic.
 
 A plugin's scripts, hooks and local servers would have to run on the host,
 with the account's data in reach. On a shared website that is not something

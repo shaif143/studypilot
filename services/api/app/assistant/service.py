@@ -503,13 +503,38 @@ class Extensions:
         return (short[0], self.commands[short[0]]) if len(short) == 1 else None
 
 
+def connector_token(settings: Settings, row: Any) -> str:
+    """The token to present to a connector, renewed first if it is about to expire.
+
+    A signed-in connector's access token lasts minutes to hours. When a
+    refresh token came with it, a new one is fetched here and kept, so a chat
+    does not fail an hour after the sign-in. If the renewal fails the old
+    token is used and the connector's own refusal says to sign in again.
+    """
+    from app.assistant import connector_auth
+
+    record = connector_auth.loads(keys.unseal(settings, row.oauth_ciphertext))
+    if record.get("access_token") and connector_auth.needs_renewal(record):
+        try:
+            renewed = connector_auth.renew(record)
+        except connector_auth.ConnectorAuthError as exc:
+            log.warning("connector_renewal_failed", extra={"detail": str(exc)})
+        else:
+            if "pending" in record:
+                renewed["pending"] = record["pending"]
+            row.oauth_ciphertext = keys.seal(settings, connector_auth.dumps(renewed))
+            row.token_ciphertext = keys.seal(settings, renewed["access_token"])
+    return keys.unseal(settings, row.token_ciphertext)
+
+
 def extensions_for(repo: AssistantRepository, settings: Settings, user_id: str) -> Extensions:
     from app.assistant.plugins import slug
 
     connectors = [
-        {"name": row.name, "url": row.url, "token": keys.unseal(settings, row.token_ciphertext)}
+        {"name": row.name, "url": row.url, "token": connector_token(settings, row)}
         for row in repo.connectors(user_id, enabled_only=True)
     ][:MAX_CONNECTORS]
+    repo.session.flush()
     skills: dict[str, dict[str, Any]] = {}
     commands: dict[str, dict[str, Any]] = {}
     for plugin in repo.plugins(user_id, enabled_only=True):

@@ -16,14 +16,15 @@ import json
 import logging
 from collections.abc import Iterator
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import Response, StreamingResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 
 from app.api.deps import AssistantDep, ContextDep, UserDep, UsersDep, require_token
 from app.api.schemas import (
     AssistantCommandOut,
     AssistantConnectorCreate,
     AssistantConnectorOut,
+    AssistantConnectorSignInOut,
     AssistantConnectorTestOut,
     AssistantConnectorUpdate,
     AssistantExtensionsOut,
@@ -45,7 +46,7 @@ from app.api.schemas import (
     AssistantThreadSummaryOut,
     AssistantThreadUpdate,
 )
-from app.assistant import keys, plugins, service
+from app.assistant import connector_auth, keys, plugins, service
 from app.storage.files import BlobNotFoundError
 from app.storage.models import AssistantConnector, AssistantPlugin, AssistantProject
 
@@ -54,6 +55,9 @@ log = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/assistant", tags=["assistant"], dependencies=[Depends(require_token)]
 )
+#: Reached by a browser coming back from a sign-in, or by a connector's
+#: authorisation server: neither carries this application's credentials.
+public_router = APIRouter(tags=["assistant"])
 
 
 def _status(context: ContextDep, user_id: str, users: UsersDep, repo: AssistantDep):
@@ -447,6 +451,7 @@ def _connector_out(row: AssistantConnector) -> AssistantConnectorOut:
         label=row.label,
         url=row.url,
         has_token=bool(row.token_ciphertext),
+        signed_in=bool(row.signed_in),
         enabled=row.enabled,
         plugin_id=row.plugin_id,
         created_at=row.created_at,
@@ -560,8 +565,15 @@ def update_connector(
     if payload.label is not None:
         row.label = " ".join(payload.label.split()) or row.label
     if payload.url is not None:
-        row.url = plugins.check_url(payload.url)
+        url = plugins.check_url(payload.url)
+        if url != row.url:
+            # A sign-in was to the old address; its token is not for the new one.
+            row.oauth_ciphertext, row.oauth_state, row.token_ciphertext = "", None, ""
+            row.signed_in = False
+        row.url = url
     if payload.token is not None:
+        # A pasted token takes the place of a sign-in, or of no token at all.
+        row.signed_in = False
         token = payload.token.strip()
         try:
             row.token_ciphertext = keys.seal(context.settings, token) if token else ""
@@ -611,7 +623,7 @@ def test_connector(
             resolved.value,
             name=row.name,
             url=row.url,
-            token=keys.unseal(context.settings, row.token_ciphertext),
+            token=service.connector_token(context.settings, row),
         )
     except ValueError as exc:
         return AssistantConnectorTestOut(ok=False, detail=str(exc))
@@ -664,3 +676,198 @@ def delete_plugin(plugin_id: str, user: UserDep, repo: AssistantDep) -> Assistan
     """Remove a plugin, with the connectors that came with it."""
     repo.delete_plugin(user.id, plugin_id)
     return _extensions(user.id, repo)
+
+
+# --- signing in to a connector ---------------------------------------------------
+def _api_origin(context: ContextDep, request: Request) -> str:
+    settings = context.settings
+    if not settings.is_hosted:
+        # The loopback address a browser on this machine can come back to.
+        return f"http://127.0.0.1:{settings.port}"
+    if settings.public_api_url:
+        return settings.public_api_url.rstrip("/")
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    return f"{proto}://{host or request.url.netloc}"
+
+
+def _return_origin(context: ContextDep, request: Request) -> str:
+    """The site to send the browser back to, if the request came from one we know."""
+    settings = context.settings
+    origin = (request.headers.get("origin") or "").rstrip("/")
+    known = {item.rstrip("/") for item in settings.effective_cors_origins}
+    if settings.web_origin:
+        known.add(settings.web_origin.rstrip("/"))
+    if origin and origin in known:
+        return origin
+    if settings.is_hosted:
+        return settings.web_origin.rstrip("/") or next(iter(sorted(known)), "")
+    return ""
+
+
+_SIGN_IN_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>StudyPilot</title>
+<style>
+body{{font:16px/1.5 -apple-system,system-ui,sans-serif;background:#0f1117;color:#e6e8ef;
+display:grid;place-items:center;min-height:100vh;margin:0}}
+main{{max-width:28rem;padding:2rem;text-align:center}}
+h1{{font-size:1.25rem;margin:0 0 .5rem}} p{{margin:0;color:#a3a9b8}}
+</style></head><body><main><h1>{title}</h1><p>{detail}</p></main></body></html>"""
+
+
+@router.post("/connectors/{connector_id}/connect", response_model=AssistantConnectorSignInOut)
+def connect_connector(
+    connector_id: str,
+    request: Request,
+    context: ContextDep,
+    user: UserDep,
+    repo: AssistantDep,
+) -> AssistantConnectorSignInOut:
+    """Begin a sign-in to a connector, and say where to send the browser.
+
+    Finds the connector's authorisation server, makes this application known
+    to it if it is not already, and records what the returning browser must
+    bring back.
+    """
+    import secrets as random
+    import time
+
+    row = repo.connector(user.id, connector_id)
+    settings = context.settings
+    origin = _api_origin(context, request)
+    redirect_uri = f"{origin}{connector_auth.CALLBACK_PATH}"
+    document_url = f"{origin}{connector_auth.CLIENT_DOCUMENT_PATH}"
+    try:
+        server = connector_auth.discover(row.url)
+        record = connector_auth.loads(keys.unseal(settings, row.oauth_ciphertext))
+        known = record.get("pending") or record
+        if (
+            known.get("client_id")
+            and known.get("token_endpoint") == server.token_endpoint
+            and known.get("registered_for") == redirect_uri
+        ):
+            # Already registered with this server for this address: use that.
+            client = {key: known.get(key, "") for key in ("client_id", "client_secret")}
+            client["auth_method"] = known.get("auth_method", "none")
+        else:
+            client = connector_auth.register(server, redirect_uri, document_url)
+        state = random.token_urlsafe(32)
+        verifier = connector_auth.new_verifier()
+        url = connector_auth.authorization_url(
+            server, client, redirect_uri=redirect_uri, state=state, verifier=verifier
+        )
+        record["pending"] = {
+            **client,
+            "registered_for": redirect_uri,
+            "token_endpoint": server.token_endpoint,
+            "resource": server.resource,
+            "redirect_uri": redirect_uri,
+            "verifier": verifier,
+            "return_to": _return_origin(context, request),
+            "started_at": time.time(),
+        }
+        row.oauth_ciphertext = keys.seal(settings, connector_auth.dumps(record))
+    except connector_auth.ConnectorAuthError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except keys.KeyStorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    row.oauth_state = state
+    repo.session.flush()
+    return AssistantConnectorSignInOut(authorization_url=url)
+
+
+@router.post("/connectors/{connector_id}/disconnect", response_model=AssistantExtensionsOut)
+def disconnect_connector(
+    connector_id: str, user: UserDep, repo: AssistantDep
+) -> AssistantExtensionsOut:
+    """Sign out of a connector: its tokens and its registration are forgotten here."""
+    row = repo.connector(user.id, connector_id)
+    row.oauth_ciphertext, row.oauth_state, row.token_ciphertext = "", None, ""
+    row.signed_in = False
+    repo.session.flush()
+    return _extensions(user.id, repo)
+
+
+@public_router.get(connector_auth.CALLBACK_PATH, include_in_schema=False, response_model=None)
+def connector_callback(
+    context: ContextDep,
+    repo: AssistantDep,
+    state: str = "",
+    code: str = "",
+    error: str = "",
+) -> HTMLResponse | RedirectResponse:
+    """A connector's sign-in page sends the browser here.
+
+    No credentials of this application's come with it: the state, which only
+    the browser that started the sign-in was given, says which connector it is
+    for, and it works once.
+    """
+    import html
+    import time
+    from urllib.parse import quote
+
+    settings = context.settings
+    row = repo.connector_by_state(state)
+    outcome, label, detail, return_to = (
+        "failed",
+        "",
+        "This sign-in is not one that was started here.",
+        "",
+    )
+    if row is not None:
+        label = row.label
+        record = connector_auth.loads(keys.unseal(settings, row.oauth_ciphertext))
+        pending = record.pop("pending", None) or {}
+        return_to = str(pending.get("return_to") or "")
+        row.oauth_state = None  # used, whatever happens next
+        fresh = time.time() - float(pending.get("started_at") or 0) < connector_auth.FLOW_SECONDS
+        if error or not code:
+            outcome, detail = "cancelled", "The sign-in was not completed."
+        elif not pending or not fresh:
+            detail = "The sign-in took too long. Start it again."
+        else:
+            try:
+                signed_in = connector_auth.exchange(pending, code=code)
+                signed_in["registered_for"] = pending.get("registered_for", "")
+                row.oauth_ciphertext = keys.seal(settings, connector_auth.dumps(signed_in))
+                row.token_ciphertext = keys.seal(settings, signed_in["access_token"])
+                row.signed_in = True
+                outcome, detail = "connected", f"You are signed in to {label}."
+            except (connector_auth.ConnectorAuthError, keys.KeyStorageError) as exc:
+                detail = str(exc)
+        if outcome != "connected":
+            # What was there before the attempt stays: an earlier sign-in still
+            # works, and failing that the registration can be used again.
+            if not record.get("access_token"):
+                names = ("client_id", "client_secret", "auth_method", "registered_for")
+                record = {name: pending.get(name, "") for name in (*names, "token_endpoint")}
+            row.oauth_ciphertext = (
+                keys.seal(settings, connector_auth.dumps(record)) if record.get("client_id") else ""
+            )
+        repo.session.flush()
+    if return_to:
+        query = f"signin={outcome}&connector={quote(label)}"
+        if outcome == "failed":
+            query += f"&reason={quote(detail[:200])}"
+        return RedirectResponse(
+            f"{return_to}/claude/extensions?{query}", status_code=status.HTTP_303_SEE_OTHER
+        )
+    title = "Signed in" if outcome == "connected" else "Not signed in"
+    return HTMLResponse(
+        _SIGN_IN_PAGE.format(
+            title=title,
+            detail=html.escape(detail) + " You can close this tab and return to StudyPilot.",
+        )
+    )
+
+
+@public_router.get(connector_auth.CLIENT_DOCUMENT_PATH, include_in_schema=False)
+def connector_client_document(request: Request, context: ContextDep) -> dict[str, object]:
+    """This application, described for a connector that asks who is signing in."""
+    origin = _api_origin(context, request)
+    return connector_auth.client_document(
+        f"{origin}{connector_auth.CLIENT_DOCUMENT_PATH}",
+        f"{origin}{connector_auth.CALLBACK_PATH}",
+    )

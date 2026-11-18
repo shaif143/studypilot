@@ -1474,6 +1474,14 @@ class AssistantRepository:
             raise NotFoundError("connector")
         return row
 
+    def connector_by_state(self, state: str) -> AssistantConnector | None:
+        """The connector a returning sign-in belongs to. Whose it is comes from the row."""
+        if not state:
+            return None
+        return self.session.scalars(
+            select(AssistantConnector).where(AssistantConnector.oauth_state == state)
+        ).first()
+
     def add_connector(self, **values: object) -> AssistantConnector:
         row = AssistantConnector(**values)
         self.session.add(row)

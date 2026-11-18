@@ -1120,3 +1120,269 @@ def test_a_plugin_switched_off_or_removed_takes_its_parts_with_it(
 def test_an_archive_that_is_not_a_plugin_is_refused_by_the_api(ready: TestClient):
     refused = ready.post("/api/assistant/plugins", files={"file": ("x.zip", b"not a zip")})
     assert refused.status_code == 400 and "not a plugin archive" in refused.json()["detail"]
+
+
+# --- signing in to a connector ---------------------------------------------------------
+class FakeProvider:
+    """A connector with a sign-in, and its authorisation server, in one transport."""
+
+    def __init__(self) -> None:
+        self.registrations: list[dict] = []
+        self.token_requests: list[dict] = []
+        self.requests: list[str] = []
+        self.registration_endpoint = True
+        self.fail_token = False
+        self.tokens = 0
+
+    def __call__(self, request):
+        from urllib.parse import parse_qs
+
+        import httpx
+
+        url = str(request.url)
+        self.requests.append(f"{request.method} {url}")
+        path = request.url.path
+        if request.url.host != "mcp.example.com":
+            return httpx.Response(404)
+        if path == "/mcp":
+            return httpx.Response(
+                401,
+                headers={
+                    "www-authenticate": 'Bearer resource_metadata="https://mcp.example.com/'
+                    '.well-known/oauth-protected-resource/mcp", scope="read write"'
+                },
+            )
+        if path == "/.well-known/oauth-protected-resource/mcp":
+            return httpx.Response(
+                200,
+                json={
+                    "resource": "https://mcp.example.com/mcp",
+                    "authorization_servers": ["https://mcp.example.com"],
+                },
+            )
+        if path == "/.well-known/oauth-authorization-server":
+            metadata = {
+                "issuer": "https://mcp.example.com",
+                "authorization_endpoint": "https://mcp.example.com/authorize",
+                "token_endpoint": "https://mcp.example.com/token",
+                "code_challenge_methods_supported": ["S256"],
+            }
+            if self.registration_endpoint:
+                metadata["registration_endpoint"] = "https://mcp.example.com/register"
+            return httpx.Response(200, json=metadata)
+        if path == "/register":
+            self.registrations.append(json.loads(request.content))
+            return httpx.Response(201, json={"client_id": f"client-{len(self.registrations)}"})
+        if path == "/token":
+            form = {key: value[0] for key, value in parse_qs(request.content.decode()).items()}
+            self.token_requests.append(form)
+            if self.fail_token:
+                return httpx.Response(400, json={"error": "invalid_grant"})
+            self.tokens += 1
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": f"access-{self.tokens}",
+                    "refresh_token": f"refresh-{self.tokens}",
+                    "expires_in": 3600,
+                },
+            )
+        return httpx.Response(404)
+
+
+@pytest.fixture
+def provider(monkeypatch) -> FakeProvider:
+    import httpx
+
+    from app.assistant import connector_auth
+
+    fake = FakeProvider()
+    monkeypatch.setattr(connector_auth, "TRANSPORT", httpx.MockTransport(fake))
+    return fake
+
+
+def start_sign_in(client: TestClient, connector_id: str, origin: str = "") -> dict[str, str]:
+    from urllib.parse import parse_qs, urlsplit
+
+    headers = {"origin": origin} if origin else {}
+    started = client.post(f"/api/assistant/connectors/{connector_id}/connect", headers=headers)
+    assert started.status_code == 200, started.text
+    url = started.json()["authorization_url"]
+    assert url.startswith("https://mcp.example.com/authorize?")
+    return {key: value[0] for key, value in parse_qs(urlsplit(url).query).items()}
+
+
+def test_a_connector_is_signed_in_to_and_its_token_reaches_the_chat(
+    ready: TestClient, scripted: Scripted, provider: FakeProvider, settings
+):
+    import hashlib
+
+    connector = add_connector(ready)["connectors"][0]
+    assert connector["signed_in"] is False
+    query = start_sign_in(ready, connector["id"])
+
+    callback = f"http://127.0.0.1:{settings.port}/api/assistant/connectors/oauth/callback"
+    assert query["redirect_uri"] == callback
+    assert query["response_type"] == "code" and query["code_challenge_method"] == "S256"
+    assert query["resource"] == "https://mcp.example.com/mcp" and query["scope"] == "read write"
+    assert query["client_id"] == "client-1"
+    assert provider.registrations[0]["redirect_uris"] == [callback]
+    assert provider.registrations[0]["token_endpoint_auth_method"] == "none"
+
+    # The browser comes back with no credentials of ours: only the state.
+    ready.headers.pop("x-studypilot-token")
+    back = ready.get(
+        "/api/assistant/connectors/oauth/callback", params={"state": query["state"], "code": "c1"}
+    )
+    ready.headers["x-studypilot-token"] = "test-token"
+    assert back.status_code == 200 and "signed in to Deep Wiki" in back.text
+
+    exchange = provider.token_requests[0]
+    assert exchange["grant_type"] == "authorization_code" and exchange["code"] == "c1"
+    assert exchange["redirect_uri"] == callback and exchange["client_id"] == "client-1"
+    # The verifier answers the challenge that went to the authorisation page.
+    digest = hashlib.sha256(exchange["code_verifier"].encode()).digest()
+    assert base64.urlsafe_b64encode(digest).rstrip(b"=").decode() == query["code_challenge"]
+
+    listed = ready.get("/api/assistant/extensions")
+    assert listed.json()["connectors"][0]["signed_in"] is True
+    assert "access-1" not in listed.text and "refresh-1" not in listed.text
+
+    scripted.steps = [reply(text("Hello."))]
+    send(ready, new_thread(ready), text="Hi")
+    assert scripted.requests[-1]["mcp_servers"][0]["authorization_token"] == "access-1"
+
+    # The state worked once.
+    again = ready.get(
+        "/api/assistant/connectors/oauth/callback", params={"state": query["state"], "code": "c1"}
+    )
+    assert "not one that was started here" in again.text and len(provider.token_requests) == 1
+
+
+def test_a_token_about_to_expire_is_renewed_before_it_is_used(
+    ready: TestClient, scripted: Scripted, provider: FakeProvider, monkeypatch
+):
+    from app.assistant import connector_auth
+
+    connector = add_connector(ready)["connectors"][0]
+    query = start_sign_in(ready, connector["id"])
+    ready.get(
+        "/api/assistant/connectors/oauth/callback", params={"state": query["state"], "code": "c1"}
+    )
+
+    later = connector_auth.time.time() + 3600 - 30
+    monkeypatch.setattr(connector_auth.time, "time", lambda: later)
+    scripted.steps = [reply(text("Hello.")), reply(text("Again."))]
+    thread_id = new_thread(ready)
+    send(ready, thread_id, text="Hi")
+    renewal = provider.token_requests[-1]
+    assert renewal["grant_type"] == "refresh_token" and renewal["refresh_token"] == "refresh-1"
+    assert scripted.requests[-1]["mcp_servers"][0]["authorization_token"] == "access-2"
+
+    # Fresh again: the next message does not ask for another.
+    send(ready, thread_id, text="More")
+    assert len(provider.token_requests) == 2
+
+
+def test_a_sign_in_that_fails_or_is_cancelled_changes_nothing(
+    ready: TestClient, provider: FakeProvider
+):
+    connector = add_connector(ready, token="pasted-token")["connectors"][0]
+    query = start_sign_in(ready, connector["id"])
+    cancelled = ready.get(
+        "/api/assistant/connectors/oauth/callback",
+        params={"state": query["state"], "error": "access_denied"},
+    )
+    assert "not completed" in cancelled.text
+    after = ready.get("/api/assistant/extensions").json()["connectors"][0]
+    assert after["signed_in"] is False and after["has_token"] is True
+
+    # The registration made the first time is used again, not made twice.
+    provider.fail_token = True
+    query = start_sign_in(ready, connector["id"])
+    assert query["client_id"] == "client-1" and len(provider.registrations) == 1
+    failed = ready.get(
+        "/api/assistant/connectors/oauth/callback", params={"state": query["state"], "code": "bad"}
+    )
+    assert "did not give out a token: invalid_grant" in failed.text
+    assert ready.get("/api/assistant/extensions").json()["connectors"][0]["signed_in"] is False
+
+
+def test_signing_out_and_changing_the_address_forget_the_sign_in(
+    ready: TestClient, provider: FakeProvider
+):
+    connector = add_connector(ready)["connectors"][0]
+    query = start_sign_in(ready, connector["id"])
+    ready.get(
+        "/api/assistant/connectors/oauth/callback", params={"state": query["state"], "code": "c1"}
+    )
+    out = ready.post(f"/api/assistant/connectors/{connector['id']}/disconnect").json()
+    assert out["connectors"][0]["signed_in"] is False and out["connectors"][0]["has_token"] is False
+
+    query = start_sign_in(ready, connector["id"])
+    ready.get(
+        "/api/assistant/connectors/oauth/callback", params={"state": query["state"], "code": "c2"}
+    )
+    moved = ready.patch(
+        f"/api/assistant/connectors/{connector['id']}",
+        json={"url": "https://other.example.com/mcp"},
+    ).json()["connectors"][0]
+    assert moved["signed_in"] is False and moved["has_token"] is False
+
+
+def test_a_connector_with_no_sign_in_says_so(ready: TestClient, monkeypatch):
+    import httpx
+
+    from app.assistant import connector_auth
+
+    monkeypatch.setattr(
+        connector_auth, "TRANSPORT", httpx.MockTransport(lambda request: httpx.Response(404))
+    )
+    connector = add_connector(ready)["connectors"][0]
+    refused = ready.post(f"/api/assistant/connectors/{connector['id']}/connect")
+    assert refused.status_code == 400 and "does not offer a sign-in" in refused.json()["detail"]
+
+
+def test_a_hosted_site_sends_the_browser_back_to_itself(
+    hosted_context: RuntimeContext, provider: FakeProvider, monkeypatch
+):
+    """Return only to an origin this deployment names, never to one a request claims."""
+    from app.api import routes_assistant
+
+    settings = hosted_context.settings
+    settings.cors_origins = ("https://study.example.com",)
+    request_from = lambda origin: SimpleNamespace(  # noqa: E731
+        headers={"origin": origin, "host": "api.example.com", "x-forwarded-proto": "https"},
+        url=SimpleNamespace(scheme="http", netloc="api.example.com"),
+    )
+    context = SimpleNamespace(settings=settings)
+    assert routes_assistant._return_origin(context, request_from("https://study.example.com")) == (
+        "https://study.example.com"
+    )
+    assert routes_assistant._return_origin(context, request_from("https://evil.example.net")) == (
+        "https://study.example.com"
+    )
+    assert routes_assistant._api_origin(context, request_from("")) == "https://api.example.com"
+
+
+def test_sign_in_requests_only_go_to_public_https_addresses(monkeypatch):
+    from app.assistant import connector_auth
+
+    monkeypatch.setattr(connector_auth, "TRANSPORT", None)
+    for url in ("http://mcp.example.com/x", "https://user:pw@mcp.example.com/x", "https:///x"):
+        with pytest.raises(connector_auth.ConnectorAuthError):
+            connector_auth.fetch("GET", url)
+
+    answers = {
+        "private.example": "10.1.2.3",
+        "meta.example": "169.254.169.254",
+        "lo.example": "::1",
+    }
+
+    def lookup(host, port, **_kw):
+        return [(None, None, None, "", (answers[host], port))]
+
+    monkeypatch.setattr(connector_auth.socket, "getaddrinfo", lookup)
+    for host in answers:
+        with pytest.raises(connector_auth.ConnectorAuthError, match="public internet"):
+            connector_auth.fetch("GET", f"https://{host}/x")

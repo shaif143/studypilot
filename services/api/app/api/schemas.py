@@ -1256,6 +1256,8 @@ class AssistantConnectorOut(BaseModel):
     label: str
     url: str
     has_token: bool
+    #: It was signed in to, as opposed to given a pasted token.
+    signed_in: bool = False
     enabled: bool
     #: The plugin it came with, if any.
     plugin_id: str | None = None
@@ -1320,3 +1322,8 @@ class AssistantExtensionsOut(BaseModel):
     #: The commands of the plugins that are switched on, for the "/" menu.
     commands: list[AssistantCommandOut] = Field(default_factory=list)
     max_connectors: int = 10
+
+
+class AssistantConnectorSignInOut(BaseModel):
+    #: Where to send the browser to sign in to the connector.
+    authorization_url: str

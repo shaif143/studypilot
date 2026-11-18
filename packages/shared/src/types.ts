@@ -1217,6 +1217,8 @@ export interface AssistantConnector {
   label: string;
   url: string;
   has_token: boolean;
+  /** It was signed in to, as opposed to given a pasted token. */
+  signed_in: boolean;
   enabled: boolean;
   /** The plugin it came with, if any. */
   plugin_id: string | null;

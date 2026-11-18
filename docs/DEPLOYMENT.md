@@ -430,6 +430,14 @@ site. Each account's key is encrypted with a key derived from
 is empty, which the blueprint already generates. Changing that secret makes
 the saved keys unreadable; accounts then paste theirs again.
 
+**Connector sign-in** sends the browser to the connector's sign-in page and
+back to `<this API>/api/assistant/connectors/oauth/callback`. The API works
+out its own public address from the request; set `STUDYPILOT_PUBLIC_API_URL`
+if it sits behind a proxy that hides it. The browser is then returned to the
+website: the origin that started the sign-in if it is one of
+`STUDYPILOT_CORS_ORIGINS`, otherwise `STUDYPILOT_WEB_ORIGIN` or the first of
+those origins.
+
 Replies are streamed, so a proxy in front of the API must not buffer
 responses. Render and the cross-origin setup above need nothing extra.
 

@@ -592,6 +592,11 @@
             ],
             "title": "Plugin Id"
           },
+          "signed_in": {
+            "default": false,
+            "title": "Signed In",
+            "type": "boolean"
+          },
           "url": {
             "title": "Url",
             "type": "string"
@@ -607,6 +612,19 @@
           "created_at"
         ],
         "title": "AssistantConnectorOut",
+        "type": "object"
+      },
+      "AssistantConnectorSignInOut": {
+        "properties": {
+          "authorization_url": {
+            "title": "Authorization Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorization_url"
+        ],
+        "title": "AssistantConnectorSignInOut",
         "type": "object"
       },
       "AssistantConnectorTestOut": {
@@ -8118,6 +8136,188 @@
           }
         },
         "summary": "Update Connector",
+        "tags": [
+          "assistant"
+        ]
+      }
+    },
+    "/api/assistant/connectors/{connector_id}/connect": {
+      "post": {
+        "description": "Begin a sign-in to a connector, and say where to send the browser.\n\nFinds the connector's authorisation server, makes this application known\nto it if it is not already, and records what the returning browser must\nbring back.",
+        "operationId": "connect_connector_api_assistant_connectors__connector_id__connect_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-studypilot-token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Studypilot-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantConnectorSignInOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Connect Connector",
+        "tags": [
+          "assistant"
+        ]
+      }
+    },
+    "/api/assistant/connectors/{connector_id}/disconnect": {
+      "post": {
+        "description": "Sign out of a connector: its tokens and its registration are forgotten here.",
+        "operationId": "disconnect_connector_api_assistant_connectors__connector_id__disconnect_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-studypilot-token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Studypilot-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantExtensionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Disconnect Connector",
         "tags": [
           "assistant"
         ]

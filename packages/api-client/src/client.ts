@@ -746,6 +746,16 @@ export class StudyPilotClient {
     this.request<AssistantConnectorTest>(`/api/assistant/connectors/${connectorId}/test`, {
       method: 'POST',
     });
+  /** Begin a sign-in to a connector; answers with the page to send the browser to. */
+  connectAssistantConnector = (connectorId: string) =>
+    this.request<{ authorization_url: string }>(
+      `/api/assistant/connectors/${connectorId}/connect`,
+      { method: 'POST' },
+    );
+  disconnectAssistantConnector = (connectorId: string) =>
+    this.request<AssistantExtensions>(`/api/assistant/connectors/${connectorId}/disconnect`, {
+      method: 'POST',
+    });
   addAssistantPlugin = (file: File) => {
     const form = new FormData();
     form.append('file', file);

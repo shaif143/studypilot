@@ -843,6 +843,13 @@ export function useAssistantExtensionActions() {
   const testConnector = useMutation<AssistantConnectorTest, Error, string>({
     mutationFn: (id) => client.testAssistantConnector(id),
   });
+  const signIn = useMutation<{ authorization_url: string }, Error, string>({
+    mutationFn: (id) => client.connectAssistantConnector(id),
+  });
+  const signOut = useMutation<AssistantExtensions, Error, string>({
+    mutationFn: (id) => client.disconnectAssistantConnector(id),
+    onSuccess,
+  });
   const addPlugin = useMutation<AssistantExtensions, Error, File>({
     mutationFn: (file) => client.addAssistantPlugin(file),
     onSuccess,
@@ -861,6 +868,8 @@ export function useAssistantExtensionActions() {
     updateConnector,
     deleteConnector,
     testConnector,
+    signIn,
+    signOut,
     addPlugin,
     updatePlugin,
     deletePlugin,
