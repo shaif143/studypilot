@@ -40,6 +40,7 @@ from app.models.base import (
 log = logging.getLogger(__name__)
 
 KINDS = (
+    "terms",
     "overview",
     "explanation",
     "equation",
@@ -51,7 +52,8 @@ KINDS = (
 )
 #: Kinds whose content is the model's own, not the slide's.
 BEYOND_THE_SLIDE = frozenset({"example", "background"})
-MAX_CARDS = 6
+#: The teaching slides themselves, and the terms table in front of them.
+MAX_CARDS = 7
 MAX_VIDEO_QUERIES = 3
 #: Longest side of the slide image sent to a model, in pixels.
 IMAGE_MAX_SIDE = 1400
@@ -62,16 +64,40 @@ SYSTEM = (
     "student ever had: you build intuition first, then the formal statement, then let the "
     "student see it and try it.\n\n"
     f"{_INJECTION_GUARD}\n\n"
-    "What to write:\n"
+    "Before anything is explained, say what its words and symbols mean:\n"
+    "- If the slide uses any technical term, abbreviation or symbol, the FIRST teaching "
+    "slide is of kind `terms`, titled `Terms and symbols`, and holds nothing but tables. "
+    "A student reads it before the explanation, so nothing later may use a term or symbol "
+    "that it has not defined.\n"
+    "- Technical terms and abbreviations go in a table with exactly these columns: "
+    "`| Term | What it means |`. One row per term, in the order the slide uses them. "
+    "Define each in one or two plain sentences, as you would to someone meeting the "
+    "subject for the first time, and say what it is in this slide's context, not only in "
+    "general: what the thing is, and what it connects, measures or is measured between. "
+    "An abbreviation is written out in full first.\n"
+    "- Symbols go in a second table with exactly these columns: "
+    "`| Symbol | Name | What it means |`. The symbol in LaTeX, then its name in words as "
+    "it is said aloud (`theta sub i`, `x bar`, `sigma squared`), then what "
+    "quantity it stands for here, with its unit if it has one. One row per symbol, "
+    "including every subscript or superscript form that means something different, and "
+    "every symbol in the slide's figures and equations.\n"
+    "- Leave out a table that would be empty, and leave out the `terms` slide altogether "
+    "only when the slide has no technical term and no symbol at all, as on a title or "
+    "agenda slide.\n"
+    "- Inside a table cell never write the character `|`, not even in mathematics: write "
+    "`\\lvert x \\rvert` and `\\mid` instead.\n\n"
+    "What to write after that:\n"
     "- Explain everything on the slide so that a student who missed the lecture fully "
     "understands it: every term, every bullet, every figure and every equation.\n"
     "- The slide is the subject, not the limit. You may use well-established background "
     "knowledge to make it understandable, but anything that is not on the slide goes in a "
     "teaching slide of kind `background` or `example`, never mixed into the others.\n"
-    "- Write 1 to 5 teaching slides. One is enough for a title or agenda slide; a dense "
-    "slide deserves more. Never pad, and never repeat the slide's bullets back unexplained.\n"
+    "- After the `terms` slide, write 1 to 5 teaching slides. One is enough for a title "
+    "or agenda slide; a dense slide deserves more. Never pad, and never repeat the "
+    "slide's bullets back unexplained.\n"
     "- Mathematics in LaTeX: $...$ inline, $$...$$ on its own line. For each equation say "
-    "what every symbol means, what the equation states in words, and when it is used.\n"
+    "what the equation states in words and when it is used; its symbols are already in "
+    "the table, so refer to them by the names given there.\n"
     "- Never write a link or a URL.\n"
     "- When values are compared across the same few attributes, use a small Markdown "
     "table of at most 5 columns rather than a list.\n\n"
@@ -212,6 +238,8 @@ def parse_guide(text: str) -> tuple[list[GuideCard], list[str]]:
         )
     if not cards and body.strip():
         cards.append(GuideCard("explanation", "Explanation", _without_links(body).strip()))
+    # The definitions are read first, wherever the model happened to put them.
+    cards.sort(key=lambda card: card.kind != "terms")
     return cards[:MAX_CARDS], queries[:MAX_VIDEO_QUERIES]
 
 
@@ -337,7 +365,7 @@ def write_guide(
             transcript_excerpts=transcript_excerpts,
         ),
         question=heading,
-        max_output_tokens=4200,
+        max_output_tokens=5200,
         timeout_seconds=150.0,
         attachments=(
             [Attachment(media_type="image/png", data=image, label=f"slide {page_number}")]

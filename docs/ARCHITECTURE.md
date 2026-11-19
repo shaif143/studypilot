@@ -734,6 +734,16 @@ is how a slide shows its own questions rather than the whole deck's
 conversation. The client waits for a 600 ms dwell before requesting a guide,
 so flicking through a deck does not send every slide to a model.
 
+### Terms and symbols first
+
+When a slide uses any technical term, abbreviation or symbol, the model is
+told to open with a teaching slide of kind `terms` that holds only tables:
+`Term | What it means`, and `Symbol | Name | What it means`, the name being
+the symbol as it is said aloud and the meaning carrying its unit. The parser
+moves that slide to the front if the model put it elsewhere, so the order is
+a property of the code and not of the reply. Definitions of what is on the
+slide are not marked *Beyond the slide*.
+
 ### Richer teaching blocks
 
 Beside diagrams and plots an explanation may hold three more blocks, each a

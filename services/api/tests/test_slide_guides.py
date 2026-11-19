@@ -276,3 +276,35 @@ def test_a_question_remembers_the_slide_it_was_asked_on(client: TestClient, inde
     assert answer.status_code == 200, answer.text
     messages = client.get(f"/api/sessions/{answer.json()['session_id']}/messages").json()
     assert [m["meta"]["page"] for m in messages] == [4, 4]
+
+
+# --- terms and symbols come first -----------------------------------------------
+def test_the_model_is_told_to_define_terms_and_name_symbols_in_tables_first():
+    from app.learning.slide_guide import KINDS, SYSTEM
+
+    assert KINDS[0] == "terms"
+    assert "the FIRST teaching slide is of kind `terms`" in SYSTEM
+    assert "`| Term | What it means |`" in SYSTEM
+    assert "`| Symbol | Name | What it means |`" in SYSTEM
+    # A bar inside a cell would end the cell, so it is spelled another way.
+    assert "\\lvert x \\rvert" in SYSTEM
+
+
+def test_the_definitions_are_read_first_wherever_the_model_put_them():
+    from app.learning.slide_guide import BEYOND_THE_SLIDE, parse_guide
+
+    reply = (
+        "=== SLIDE | explanation | Reading the parameters ===\n"
+        "The four numbers place one frame against the last.\n\n"
+        "=== SLIDE | terms | Terms and symbols ===\n"
+        "| Term | What it means |\n|---|---|\n| Joint | A connection between two links. |\n\n"
+        "| Symbol | Name | What it means |\n|---|---|---|\n"
+        "| $\\theta_i$ | theta sub i | Joint angle (radians). |\n\n"
+        "=== SLIDE | check | Check yourself ===\n"
+        "```quiz\nQ: What does a joint connect?\nA: Two links.\n```\n"
+    )
+    cards, _queries = parse_guide(reply)
+    assert [card.kind for card in cards] == ["terms", "explanation", "check"]
+    assert "| $\\theta_i$ | theta sub i | Joint angle (radians). |" in cards[0].markdown
+    # Definitions of what is on the slide are not "beyond the slide".
+    assert "terms" not in BEYOND_THE_SLIDE

@@ -19,6 +19,7 @@ import { useIsMutating } from '@tanstack/react-query';
 import {
   AlertTriangle,
   BookMarked,
+  BookA,
   BookOpen,
   ChartLine,
   Check,
@@ -71,6 +72,7 @@ const SLIDE_SPLIT: SplitLimits = { min: 18, max: 78, initial: 33.3 };
 const SLIDE_SPLIT_KEY = 'studypilot.study.split';
 
 const KINDS: Record<string, { label: string; icon: React.ReactNode }> = {
+  terms: { label: 'Terms and symbols', icon: <BookA size={11} /> },
   overview: { label: 'Overview', icon: <BookOpen size={11} /> },
   explanation: { label: 'Explanation', icon: <Lightbulb size={11} /> },
   equation: { label: 'Equation', icon: <Sigma size={11} /> },

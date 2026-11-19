@@ -798,6 +798,7 @@ export interface NoteSaved {
 
 // --- slide guides -----------------------------------------------------------
 export type GuideCardKind =
+  | 'terms'
   | 'overview'
   | 'explanation'
   | 'equation'
