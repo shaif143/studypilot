@@ -107,7 +107,7 @@ export function AnalyticsScreen() {
             />
           ) : (
             <>
-              <div className="grid gap-3 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 @2xl:grid-cols-4">
                 <SummaryTile
                   label="Topics tracked"
                   value={String(estimates.length)}
@@ -254,7 +254,11 @@ function MasteryRow({ estimate }: { estimate: MasteryEstimate }) {
             )}% and ${Math.round(upper * 100)}%)`
           : `Only ${estimate.observations} answer${estimate.observations === 1 ? '' : 's'} so far — not enough to judge this topic`}
       </p>
-      <ProgressBar className="sr-only" value={estimate.probability} label={estimate.topic_name} />
+      {/* For screen readers only. The wrapper is what hides it: put on the bar
+          itself, the bar's own full width won and it lay across the page edge. */}
+      <div className="sr-only">
+        <ProgressBar value={estimate.probability} label={estimate.topic_name} />
+      </div>
     </li>
   );
 }

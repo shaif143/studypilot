@@ -85,8 +85,9 @@ export function TutorScreen() {
           ← Back to the course
         </Link>
       ) : null}
-      <div className="flex min-h-0 flex-1">
-        <div className="sp-scroll w-64 shrink-0 overflow-y-auto border-r border-[var(--border-subtle)] px-3 py-3">
+      {/* Beside the conversation on a wide page; a short strip above it on a narrow one. */}
+      <div className="flex min-h-0 flex-1 flex-col @2xl:flex-row">
+        <div className="sp-scroll max-h-36 w-full shrink-0 overflow-y-auto border-b border-[var(--border-subtle)] px-3 py-3 @2xl:max-h-none @2xl:w-64 @2xl:border-b-0 @2xl:border-r">
           <SectionHeading title="Saved sessions" className="px-1 pb-2" />
           {sessions.isPending ? (
             <div className="space-y-2">
@@ -126,7 +127,7 @@ export function TutorScreen() {
           )}
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {activeSession?.document_id ? (
             <div className="border-b border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-4 py-2 text-[0.75rem] text-[var(--text-secondary)]">
               This session is tied to{' '}

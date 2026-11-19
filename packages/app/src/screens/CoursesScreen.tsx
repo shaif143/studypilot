@@ -53,7 +53,7 @@ export function CoursesScreen() {
         ) : null}
 
         {courses.isPending ? (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,21rem),1fr))] gap-3">
             {Array.from({ length: 3 }, (_, i) => (
               <Skeleton key={i} className="h-32" />
             ))}
@@ -70,7 +70,7 @@ export function CoursesScreen() {
             }
           />
         ) : (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,21rem),1fr))] gap-3">
             {courses.data?.map((course) => (
               <Card key={course.id} className="flex flex-col">
                 <SectionHeading
@@ -113,8 +113,8 @@ export function CoursesScreen() {
                     </dd>
                   </div>
                 </dl>
-                <div className="mt-auto flex gap-2 pt-3">
-                  <Link to={`/courses/${course.id}`} className="flex-1">
+                <div className="mt-auto flex flex-wrap items-center gap-x-1 gap-y-2 pt-3">
+                  <Link to={`/courses/${course.id}`} className="min-w-[5.5rem] flex-1">
                     <Button size="sm" className="w-full">
                       Open
                     </Button>
@@ -137,6 +137,7 @@ export function CoursesScreen() {
                     variant="ghost"
                     aria-label={`Delete ${course.title}`}
                     onClick={() => setConfirmDelete(course)}
+                    className="ml-auto"
                   >
                     <Trash2 size={14} />
                   </Button>
@@ -259,7 +260,7 @@ function CourseDialog({
             onChange={(event) => setTitle(event.target.value)}
           />
         </Field>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2">
           <Field label="Course code" hint="Optional">
             <Input
               value={code}

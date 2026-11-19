@@ -79,7 +79,7 @@ export function ConceptMapScreen() {
             }
           />
         ) : (
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="grid grid-cols-1 gap-4 @5xl:grid-cols-[minmax(0,1fr)_320px]">
             <Card>
               <MermaidDiagram
                 code={map.data?.mermaid ?? ''}

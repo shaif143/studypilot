@@ -119,7 +119,9 @@ export function SectionHeading({
   return (
     <div className={clsx('flex items-start justify-between gap-4', className)}>
       <div className="min-w-0">
-        <h2 className="text-[0.9375rem] font-semibold text-[var(--text-primary)]">{title}</h2>
+        <h2 className="text-[0.9375rem] font-semibold text-[var(--text-primary)] [overflow-wrap:anywhere]">
+          {title}
+        </h2>
         {description ? (
           <p className="mt-0.5 text-[0.8125rem] leading-relaxed text-[var(--text-secondary)]">
             {description}
@@ -164,14 +166,16 @@ export function Badge({
     <span
       title={title}
       className={clsx(
-        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5',
+        // Never wider than what holds it: a long label is cut short with an
+        // ellipsis instead of pushing out of its card.
+        'inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5',
         'text-[0.6875rem] font-medium leading-[1.4] whitespace-nowrap',
         TONES[tone],
         className,
       )}
     >
       {icon}
-      {children}
+      <span className="min-w-0 truncate">{children}</span>
     </span>
   );
 }
@@ -201,7 +205,7 @@ export function Callout({
       )}
     >
       {icon ? <span className="mt-px shrink-0">{icon}</span> : null}
-      <div className="min-w-0 flex-1 text-[0.8125rem] leading-relaxed">
+      <div className="min-w-0 flex-1 text-[0.8125rem] leading-relaxed [overflow-wrap:anywhere]">
         {title ? <p className="font-semibold">{title}</p> : null}
         {children}
       </div>
@@ -453,7 +457,8 @@ export function Tabs<T extends string>({
     <div
       role="tablist"
       className={clsx(
-        'inline-flex items-center gap-0.5 rounded-[var(--radius-control)]',
+        // Wraps onto a second line when the choices do not fit in one.
+        'inline-flex max-w-full flex-wrap items-center gap-0.5 rounded-[var(--radius-control)]',
         'border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-0.5',
         className,
       )}

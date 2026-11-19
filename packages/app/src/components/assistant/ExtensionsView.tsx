@@ -108,8 +108,8 @@ function Connectors({
 
   return (
     <section aria-labelledby="connectors-heading">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 basis-[16rem]">
           <h1
             id="connectors-heading"
             className="font-[family-name:var(--font-serif)] text-[1.5rem] text-[var(--text-primary)]"
@@ -400,8 +400,8 @@ function Plugins({ plugins }: { plugins: AssistantPlugin[] }) {
 
   return (
     <section aria-labelledby="plugins-heading">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 basis-[16rem]">
           <h2
             id="plugins-heading"
             className="font-[family-name:var(--font-serif)] text-[1.5rem] text-[var(--text-primary)]"

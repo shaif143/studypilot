@@ -69,7 +69,7 @@ export function DashboardScreen() {
         ) : null}
 
         {isPending ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 @2xl:grid-cols-2 @5xl:grid-cols-4">
             {Array.from({ length: 4 }, (_, index) => (
               <Skeleton key={index} className="h-24" />
             ))}
@@ -93,8 +93,8 @@ export function DashboardScreen() {
               />
             ) : null}
 
-            <div className="grid gap-4 lg:grid-cols-5">
-              <Card className="lg:col-span-3">
+            <div className="grid grid-cols-1 gap-4 @5xl:grid-cols-5">
+              <Card className="@5xl:col-span-3">
                 <SectionHeading
                   title="What to do next"
                   description="Based on your answers so far, not on a guess."
@@ -151,7 +151,7 @@ export function DashboardScreen() {
                 )}
               </Card>
 
-              <Card className="lg:col-span-2">
+              <Card className="@5xl:col-span-2">
                 <SectionHeading title="Continue studying" />
                 {data.recent_sessions.length === 0 ? (
                   <p className="mt-3 text-[0.8125rem] text-[var(--text-secondary)]">
@@ -185,7 +185,7 @@ export function DashboardScreen() {
               </Card>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 @5xl:grid-cols-2">
               <Card>
                 <SectionHeading
                   title="Topic mastery"

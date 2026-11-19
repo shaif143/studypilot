@@ -10,7 +10,7 @@
  * its permanent address.
  */
 import type { AssistantStatus, AssistantThreadSummary } from '@studypilot/shared';
-import { Button, Dialog, Field, Input, Spinner } from '@studypilot/ui';
+import { Button, Dialog, Field, Input, Select, Spinner } from '@studypilot/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { FolderKanban, KeyRound, Pencil, Plug, Plus, Trash2 } from 'lucide-react';
 import { type FormEvent, type ReactNode, useMemo, useState } from 'react';
@@ -109,11 +109,68 @@ export function AssistantScreen() {
   );
 
   return (
-    <div className="flex h-full min-h-0">
+    <div className="flex h-full min-h-0 flex-col @3xl:flex-row">
+      {/* Too narrow for the list beside the chat: the same places, in one row above it. */}
+      <CompactNav activeId={routeThreadId} onKey={() => setKeyOpen(true)} />
       <ChatList status={status.data} activeId={routeThreadId} onKey={() => setKeyOpen(true)} />
-      <div className="min-w-0 flex-1">{main}</div>
+      {/* A container of its own: what is in it lays out by the room left beside the list. */}
+      <div className="@container min-h-0 min-w-0 flex-1">{main}</div>
       <KeyDialog open={keyOpen} onClose={() => setKeyOpen(false)} status={status.data} />
     </div>
+  );
+}
+
+// --- the same places, for a narrow page ------------------------------------------
+function CompactNav({ activeId, onKey }: { activeId: string | null; onKey: () => void }) {
+  const threads = useAssistantThreads();
+  const navigate = useNavigate();
+  const link = ({ isActive }: { isActive: boolean }) =>
+    [
+      'flex h-8 shrink-0 items-center gap-1.5 rounded-[var(--radius-control)] px-2 text-[0.8125rem] font-medium',
+      isActive
+        ? 'bg-[var(--surface-selected)] text-[var(--text-primary)]'
+        : 'text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]',
+    ].join(' ');
+
+  return (
+    <nav
+      aria-label="Chats"
+      className="flex shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] px-2 py-1.5 @3xl:hidden"
+    >
+      <NavLink to="/claude" end className={link}>
+        <Plus size={14} />
+        New chat
+      </NavLink>
+      <NavLink to="/claude/projects" className={link}>
+        <FolderKanban size={14} />
+        Projects
+      </NavLink>
+      <NavLink to="/claude/extensions" className={link}>
+        <Plug size={14} />
+        Connectors
+      </NavLink>
+      <button type="button" onClick={onKey} className={link({ isActive: false })}>
+        <KeyRound size={14} />
+        Key
+      </button>
+      {threads.data && threads.data.length > 0 ? (
+        <Select
+          aria-label="Open a recent chat"
+          value={activeId ?? ''}
+          onChange={(event) => {
+            if (event.target.value) navigate(`/claude/chat/${event.target.value}`);
+          }}
+          className="h-8 min-w-0 max-w-[14rem] flex-1 basis-[9rem] text-[0.8125rem]"
+        >
+          <option value="">Recent chats…</option>
+          {threads.data.map((thread) => (
+            <option key={thread.id} value={thread.id}>
+              {thread.title}
+            </option>
+          ))}
+        </Select>
+      ) : null}
+    </nav>
   );
 }
 
@@ -165,7 +222,7 @@ function ChatList({
   return (
     <aside
       aria-label="Chats"
-      className="hidden w-[15.5rem] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--surface-page)] md:flex"
+      className="hidden w-[15.5rem] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--surface-page)] @3xl:flex"
     >
       <div className="space-y-1 px-2 pb-2 pt-3">
         <NavLink to="/claude" end className={linkClass}>

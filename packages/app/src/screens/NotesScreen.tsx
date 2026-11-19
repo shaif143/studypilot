@@ -113,7 +113,7 @@ export function NotesScreen() {
           <Card>
             <SectionHeading title="Generate notes" />
             {generate.error ? <ErrorPanel message={describeError(generate.error)} /> : null}
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <div className="mt-3 grid grid-cols-1 gap-3 @2xl:grid-cols-3">
               <Field label="Course">
                 <Select
                   value={effectiveCourse}
@@ -178,8 +178,8 @@ export function NotesScreen() {
               description="Generate a set above. With no AI model configured you get a structured outline of your own material with page references, clearly labelled as such."
             />
           ) : (
-            <div className="grid gap-4 lg:grid-cols-5">
-              <Card className="lg:col-span-2" padded={false}>
+            <div className="grid grid-cols-1 gap-4 @5xl:grid-cols-5">
+              <Card className="@5xl:col-span-2" padded={false}>
                 <div className="px-4 pb-2 pt-4">
                   <SectionHeading title="Your notes" />
                 </div>
@@ -214,7 +214,7 @@ export function NotesScreen() {
                 </ul>
               </Card>
 
-              <div className="lg:col-span-3">
+              <div className="@5xl:col-span-3">
                 {selected ? (
                   <Card>
                     <SectionHeading

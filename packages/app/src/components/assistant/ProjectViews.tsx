@@ -152,7 +152,7 @@ export function ProjectsList() {
           />
         </div>
       ) : (
-        <ul className="mt-6 grid gap-3 sm:grid-cols-2">
+        <ul className="mt-6 grid grid-cols-1 gap-3 @2xl:grid-cols-2">
           {projects.data.map((project) => (
             <li key={project.id}>
               <Link
@@ -237,7 +237,7 @@ export function ProjectPage({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="mt-6 grid grid-cols-1 gap-6 @5xl:grid-cols-[minmax(0,1fr)_22rem]">
         <section aria-label="Chats in this project">
           <Button
             variant="primary"

@@ -130,7 +130,7 @@ export function AssignmentsScreen() {
           />
         ) : null}
 
-        <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
+        <div className="grid grid-cols-1 gap-4 @5xl:grid-cols-[280px_1fr]">
           <div className="space-y-3">
             <UploadBrief courseId={courseId} onUploaded={(id) => setSelected(id)} />
             {assignments.isPending ? (
@@ -321,10 +321,11 @@ function AssignmentDetail({ courseId, assignment }: { courseId: string; assignme
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <SectionHeading
+            className="min-w-0 flex-1 basis-[12rem]"
             title={assignment.document.title}
             description={`${assignment.document.original_filename} · ${assignment.document.page_count} page${assignment.document.page_count === 1 ? '' : 's'}`}
           />
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {readable ? (
               <Link to={`/read/${assignment.document.id}`}>
                 <Button size="sm" variant="ghost">
@@ -582,7 +583,7 @@ function StepCard({
             {step.citations.length > 0 ? (
               <ul className="mt-2 flex flex-wrap gap-1.5">
                 {step.citations.map((c) => (
-                  <li key={`${c.chunk_id}-${c.marker}`}>
+                  <li key={`${c.chunk_id}-${c.marker}`} className="min-w-0 max-w-full">
                     <CitationChip
                       citation={c}
                       onOpen={() => navigate(`/read/${c.document_id}?page=${c.page_number}`)}
@@ -835,10 +836,10 @@ function CitationChip({ citation, onOpen }: { citation: PlanCitation; onOpen: ()
       type="button"
       onClick={onOpen}
       title={citation.quote}
-      className="inline-flex items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-2 py-0.5 text-[0.6875rem] text-[var(--text-secondary)] hover:border-[var(--text-accent)] hover:text-[var(--text-accent)]"
+      className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-2 py-0.5 text-[0.6875rem] text-[var(--text-secondary)] hover:border-[var(--text-accent)] hover:text-[var(--text-accent)]"
     >
-      <span className="font-semibold">[{citation.marker}]</span>
-      <span className="max-w-[16rem] truncate">
+      <span className="shrink-0 font-semibold">[{citation.marker}]</span>
+      <span className="min-w-0 max-w-[16rem] truncate">
         {citation.document_title || 'Lecture'} · p.{citation.page_number}
       </span>
     </button>

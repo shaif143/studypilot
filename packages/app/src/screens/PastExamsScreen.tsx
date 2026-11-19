@@ -395,7 +395,7 @@ function ProfileView({
           </div>
         ) : null}
 
-        <ul className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+        <ul className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 @2xl:grid-cols-2">
           {mix.map(([form, share]) => (
             <li key={form}>
               <p className="mb-1 flex items-baseline justify-between text-[0.75rem] text-[var(--text-secondary)]">
@@ -429,7 +429,7 @@ function ProfileView({
         </section>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-3">
         <TextList title="Patterns across the papers" items={body.patterns} />
         <TextList title="What earns marks" items={body.marking_habits} />
         <TextList title="How to spend your revision" items={body.advice} />

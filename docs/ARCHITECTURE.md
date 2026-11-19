@@ -49,6 +49,23 @@ Internal packages are consumed **as TypeScript source** through Vite aliases and
 hot-reload across package boundaries, and `tsc --build` typechecks everything at
 once.
 
+## Layout follows the page, not the window
+
+The page area is a CSS container (`@container` on the scroller in
+`AppShell`), and every screen's columns are container-query variants
+(`@2xl:`, `@3xl:`, `@5xl:`), never viewport ones (`md:`, `lg:`). The
+difference is the sidebar: with it showing, the page is 240 pixels narrower
+than the window, so a rule written for "a window 1280 wide" was applied to a
+page 1040 wide, and a card's buttons spilled out of the card. The Claude
+chat's main pane is a container of its own for the same reason, beside its
+list of chats.
+
+Three habits keep the rest in: a grid always has a base `grid-cols-1`, so a
+column can shrink below its widest child; a row of actions is `flex-wrap`;
+and a badge or chip is never wider than what holds it. Viewport rules are
+used in one place only, the shell itself: below 768 pixels the sidebar is a
+drawer over the page, decided in the stylesheet so it follows any resize.
+
 ## Local backend security
 
 A loopback port is not a trust boundary: any process on the machine can connect

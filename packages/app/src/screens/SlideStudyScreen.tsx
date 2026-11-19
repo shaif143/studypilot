@@ -253,7 +253,9 @@ export function SlideStudyScreen() {
           ← All slides
         </Link>
         <div className="mx-1 h-4 w-px bg-[var(--border-subtle)]" />
-        <div className="min-w-0 flex-1">
+        {/* Wide enough to be read; the buttons after it drop to a second row
+            when the page cannot hold both. */}
+        <div className="min-w-0 flex-1 basis-[11rem]">
           {documentQuery.data ? (
             <p className="truncate text-[0.8125rem] font-semibold text-[var(--text-primary)]">
               {documentQuery.data.title}
@@ -312,13 +314,13 @@ export function SlideStudyScreen() {
           share out. */}
       <div
         ref={splitRef}
-        className="flex min-h-0 flex-1 flex-col lg:flex-row"
+        className="flex min-h-0 flex-1 flex-col @2xl:flex-row"
         style={{ '--slide-share': `${slideShare}%` } as CSSProperties}
       >
         <section
           ref={scrollRef}
           aria-label="Explanation of this slide"
-          className="sp-scroll order-2 min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-4 lg:order-1 lg:basis-0"
+          className="sp-scroll order-2 min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-4 @2xl:order-1 @2xl:basis-0"
         >
           <div className="mx-auto max-w-3xl space-y-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -406,12 +408,12 @@ export function SlideStudyScreen() {
           onChange={setSlideShare}
           onReset={resetSlideShare}
           label="Resize the two panes"
-          className="order-2 hidden bg-[var(--surface-sunken)] lg:order-2 lg:block"
+          className="order-2 hidden bg-[var(--surface-sunken)] @2xl:order-2 @2xl:block"
         />
 
         <aside
           aria-label="Original slide"
-          className="sp-scroll order-1 max-h-[36vh] min-w-0 shrink-0 overflow-y-auto border-b border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 lg:order-3 lg:max-h-none lg:basis-[var(--slide-share)] lg:border-b-0"
+          className="sp-scroll order-1 max-h-[36vh] min-w-0 shrink-0 overflow-y-auto border-b border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 @2xl:order-3 @2xl:max-h-none @2xl:basis-[var(--slide-share)] @2xl:border-b-0"
         >
           <p className="mb-2 flex items-center justify-between text-[0.6875rem] font-medium uppercase tracking-wide text-[var(--text-muted)]">
             Original slide

@@ -178,7 +178,7 @@ export function CouncilPanel({
         onChange={setChosen}
       />
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-2 @2xl:grid-cols-2">
         <StepButton
           number={1}
           kind="guide"
@@ -263,7 +263,7 @@ function Seats({
     );
   }
   return (
-    <ul className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4" aria-label="Models">
+    <ul className="mt-3 grid grid-cols-1 gap-2 @2xl:grid-cols-2 @5xl:grid-cols-4" aria-label="Models">
       {seats.map((seat) => {
         const takingPart = seat.ready && !leftOut.has(seat.key);
         return (

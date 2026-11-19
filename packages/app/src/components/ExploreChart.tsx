@@ -72,7 +72,7 @@ export function ExploreChart({ source }: { source: string }) {
       </figcaption>
 
       {spec.params.length > 0 ? (
-        <div className="mb-2 grid gap-x-5 gap-y-2 sm:grid-cols-2">
+        <div className="mb-2 grid grid-cols-1 gap-x-5 gap-y-2 @2xl:grid-cols-2">
           {spec.params.map((param) => {
             const id = `${baseId}-${param.name}`;
             const value = values[param.name] ?? param.value;

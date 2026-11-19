@@ -215,7 +215,7 @@ export function TutorPanel({
           }}
           className="bg-[var(--surface-raised)]"
         />
-        <div className="mt-2 flex items-center justify-between gap-2">
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
           <span className="text-[0.6875rem] text-[var(--text-muted)]">
             {mode === 'assignment' && policy !== 'off'
               ? `Next: hint level ${hintLevel}`

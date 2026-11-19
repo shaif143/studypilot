@@ -223,13 +223,13 @@ function LectureSection({ lecture }: { lecture: DocumentSummary }) {
 
   return (
     <Card padded={false}>
-      <div className="flex items-center gap-1 pr-2">
+      <div className="flex flex-wrap items-center gap-1 pr-2">
         <button
           type="button"
           aria-expanded={open}
           aria-controls={panelId}
           onClick={() => setOpen((value) => !value)}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-[var(--radius-card)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface-hover)]"
+          className="flex min-w-0 flex-1 basis-[12rem] items-center gap-3 rounded-[var(--radius-card)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface-hover)]"
         >
           <Presentation size={16} className="shrink-0 text-[var(--text-secondary)]" />
           <span className="min-w-0 flex-1">

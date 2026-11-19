@@ -34,7 +34,7 @@ Nothing in the suite needs the network, a model download, or a running server.
 | ESLint | — | ✅ clean |
 | TypeScript | — | ✅ clean |
 | Ruff lint + format | — | ✅ clean |
-| Playwright end-to-end | 3 | ✅ the MVP loop, the PPTX → map → coach loop, and folder upload + Drive setup, in a real browser |
+| Playwright end-to-end | 12 | ✅ the MVP loop, the PPTX → map → coach loop, folder upload + Drive setup, the slide view, and **every main screen checked for overflow at seven window widths**, in a real browser |
 
 ---
 
@@ -265,6 +265,16 @@ spelled per database. Three tests hold it: the spelling itself, every scalar
 default in the schema compiled for PostgreSQL without needing one, and, in
 the PostgreSQL integration file, columns dropped from real tables and added
 back. **Run `npm run api:test:pg` before a release that adds a column.**
+
+### A button outside its card
+
+At the Mac window's smaller sizes a course's delete button sat outside its
+card. The columns were chosen by the width of the window while the sidebar
+took 240 pixels of it, so the card was narrower than the rule assumed.
+`tests/e2e/responsive.spec.ts` now walks nineteen screens at seven widths
+(360 to 1700 pixels) and asks the page whether any element's content is wider
+than the element, or lies outside the window. Run against the old course
+card it fails with "content 98px wider than" the row of buttons.
 
 ## Gaps — what is **not** tested
 

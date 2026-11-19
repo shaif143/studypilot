@@ -124,7 +124,7 @@ export function FlashcardsScreen() {
               enabled={examStyle}
               onChange={setExamStyle}
             />
-            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-3 grid grid-cols-1 gap-3 @2xl:grid-cols-2 @5xl:grid-cols-4">
               <Field label="Course">
                 <Select
                   value={effectiveCourse}
@@ -220,11 +220,11 @@ export function FlashcardsScreen() {
               />
             ) : current ? (
               <Card className="mx-auto max-w-2xl">
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[0.75rem] tabular-nums text-[var(--text-secondary)]">
                     Card {index + 1} of {queue.length}
                   </span>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                     <Badge tone="neutral">{provenanceLabel(current.provenance)}</Badge>
                     {current.source_page ? (
                       <Badge tone="neutral">page {current.source_page}</Badge>

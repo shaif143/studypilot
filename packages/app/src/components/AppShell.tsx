@@ -70,6 +70,20 @@ function useSidebarHidden(): [boolean, () => void] {
   return [hidden, toggle];
 }
 
+/**
+ * Below this width there is no room for the sidebar beside the page, so it
+ * slides over the page instead and starts closed. Which of the two it is, is
+ * decided in the stylesheet (the `md:` and `max-md:` classes below), so it
+ * follows the window as it is resized without any script having to notice.
+ * The Mac window cannot be made this narrow; this is the website's concern.
+ */
+const NARROW = '(max-width: 767px)';
+
+/** Asked at the moment of a click, when a script does need to know. */
+function isNarrowNow(): boolean {
+  return window.matchMedia?.(NARROW).matches ?? false;
+}
+
 function SidebarToggle({ hidden, onToggle }: { hidden: boolean; onToggle: () => void }) {
   const label = hidden ? 'Show sidebar' : 'Hide sidebar';
   return (
@@ -102,7 +116,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const dashboard = useDashboard();
 
   const due = dashboard.data?.due_flashcards ?? 0;
-  const [sidebarHidden, toggleSidebar] = useSidebarHidden();
+  // Wide window: the sidebar is a column, hidden or shown as the reader last
+  // left it. Narrow window: it is a drawer, opened for one trip.
+  const [preferHidden, togglePreference] = useSidebarHidden();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const toggleSidebar = () => {
+    if (isNarrowNow()) setDrawerOpen((open) => !open);
+    else togglePreference();
+  };
   const desktop = platform.kind === 'desktop';
 
   const primary: NavItem[] = [
@@ -130,12 +151,27 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-[var(--surface-page)]">
+      {drawerOpen ? (
+        // Anywhere outside the drawer closes it. Only ever seen on a narrow window.
+        <button
+          type="button"
+          aria-label="Close the menu"
+          onClick={() => setDrawerOpen(false)}
+          className="fixed inset-0 z-30 cursor-default bg-black/40 md:hidden"
+        />
+      ) : null}
       <aside
         id={SIDEBAR_ID}
-        hidden={sidebarHidden}
+        // Choosing somewhere to go is what the drawer was opened for.
+        onClick={(event) => {
+          if ((event.target as HTMLElement).closest('a')) setDrawerOpen(false);
+        }}
         className={[
           'w-[15rem] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--surface-sunken)]',
-          sidebarHidden ? 'hidden' : 'flex',
+          preferHidden ? 'md:hidden' : 'md:flex',
+          drawerOpen ? 'max-md:flex' : 'max-md:hidden',
+          'max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:max-w-[85vw]',
+          'max-md:shadow-[var(--shadow-overlay)]',
         ].join(' ')}
         aria-label="Main navigation"
       >
@@ -207,20 +243,25 @@ export function AppShell({ children }: { children: ReactNode }) {
           rest. With the strip inside the scrolling area, a full-height screen
           such as the slide view was a strip too tall and lost its bottom edge. */}
       <main className="flex min-w-0 flex-1 flex-col">
-        {desktop || sidebarHidden ? (
-          // With the sidebar hidden its toggle moves here, to the same corner of
-          // the window: past the traffic lights on the Mac, at the edge on the web.
-          <div
-            data-tauri-drag-region={desktop ? true : undefined}
-            className={[
-              'flex h-[2.1rem] w-full shrink-0 items-center',
-              desktop && sidebarHidden ? 'pl-[5.25rem]' : 'pl-2',
-            ].join(' ')}
-          >
-            {sidebarHidden ? <SidebarToggle hidden onToggle={toggleSidebar} /> : null}
-          </div>
-        ) : null}
-        <div className="sp-scroll min-h-0 flex-1 overflow-y-auto">{children}</div>
+        {/* The strip across the top: the window's drag area on the Mac, and the
+            place the sidebar's button lives while the sidebar is out of sight,
+            which on a narrow window is always. */}
+        <div
+          data-tauri-drag-region={desktop ? true : undefined}
+          className={[
+            'h-[2.1rem] w-full shrink-0 items-center',
+            desktop || preferHidden ? 'flex' : 'hidden max-md:flex',
+            desktop && preferHidden ? 'pl-[5.25rem]' : 'pl-2',
+          ].join(' ')}
+        >
+          <span className={preferHidden ? 'flex' : 'flex md:hidden'}>
+            <SidebarToggle hidden onToggle={toggleSidebar} />
+          </span>
+        </div>
+        {/* The page is a container: what is inside lays itself out by the width
+            it actually has, which is the window less the sidebar, and not by
+            the width of the window. */}
+        <div className="sp-scroll @container min-h-0 flex-1 overflow-y-auto">{children}</div>
       </main>
     </div>
   );
@@ -276,8 +317,8 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border-subtle)] px-6 pb-4 pt-5">
-      <div className="min-w-0">
+    <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border-subtle)] px-4 pb-4 pt-5 @2xl:px-6">
+      <div className="min-w-0 flex-1 basis-[14rem]">
         <h1 className="text-lg font-semibold tracking-[-0.01em] text-[var(--text-primary)]">
           {title}
         </h1>
@@ -287,13 +328,16 @@ export function PageHeader({
           </p>
         ) : null}
       </div>
-      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+      {/* Wraps onto more lines when there are more buttons than the page is wide. */}
+      {actions ? (
+        <div className="flex max-w-full flex-wrap items-center gap-2">{actions}</div>
+      ) : null}
     </header>
   );
 }
 
 export function PageBody({ children }: { children: ReactNode }) {
-  return <div className="px-6 py-5">{children}</div>;
+  return <div className="px-4 py-5 @2xl:px-6">{children}</div>;
 }
 
 export function ErrorPanel({
