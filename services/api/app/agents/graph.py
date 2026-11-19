@@ -18,15 +18,17 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from langgraph.graph import END, StateGraph
 
+from app.agents.attachments import ATTACHED_NOTE
 from app.agents.prompts import build_user_prompt, system_prompt_for
 from app.agents.state import TutorState
 from app.config import Settings
 from app.models.base import (
+    Attachment,
     ConsentRequiredError,
     EvidenceSnippet,
     GenerationRequest,
@@ -50,6 +52,15 @@ class GraphDependencies:
     integrity_policy: str = ""
     #: Resolved per request from the user's own settings.
     cloud_consent: bool = False
+    #: Pictures attached to this question, for a model that reads them. Held
+    #: here and not in the state: the state is checkpointed to disk.
+    attachments: list[Attachment] = field(default_factory=list)
+    #: The text of the other attachments, and of a command the student ran.
+    attached_text: str = ""
+
+    @property
+    def has_attachments(self) -> bool:
+        return bool(self.attachments or self.attached_text)
 
 
 class LearningGraph:
@@ -77,7 +88,7 @@ def build_learning_graph(dependencies: GraphDependencies) -> LearningGraph:
     graph.add_edge("classify", "retrieve")
     graph.add_conditional_edges(
         "retrieve",
-        _route_after_retrieve,
+        _make_route(dependencies),
         {"generate": "generate", "abstain": "abstain"},
     )
     graph.add_edge("generate", "verify")
@@ -142,8 +153,15 @@ def _make_retrieve(deps: GraphDependencies):
     return retrieve
 
 
-def _route_after_retrieve(state: TutorState) -> str:
-    return "abstain" if not state.get("retrieved_sources") else "generate"
+def _make_route(deps: GraphDependencies):
+    def route(state: TutorState) -> str:
+        # With nothing found in the course the tutor says so and stops, unless
+        # the student handed over what the question is about.
+        if state.get("retrieved_sources") or deps.has_attachments:
+            return "generate"
+        return "abstain"
+
+    return route
 
 
 def _build_snippets(state: TutorState) -> list[EvidenceSnippet]:
@@ -202,10 +220,18 @@ def _make_generate(deps: GraphDependencies):
             else (state.get("evidence_note") or ""),
             integrity_policy=deps.integrity_policy,
         )
+        if deps.has_attachments:
+            user = f"{user}\n\n{ATTACHED_NOTE}"
+            if deps.attached_text:
+                user += f"\n\n{deps.attached_text}"
+            if deps.attachments:
+                names = ", ".join(item.label or "a picture" for item in deps.attachments)
+                user += f"\n\nAttached as pictures: {names}."
 
         request = GenerationRequest(
             system=system,
             user=user,
+            attachments=list(deps.attachments),
             question=state.get("student_question") or "",
             evidence=snippets,
             # Room for an answer that ends in a diagram or a plotted curve: at

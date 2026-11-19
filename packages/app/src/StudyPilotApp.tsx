@@ -27,6 +27,7 @@ import { FlashcardsScreen } from './screens/FlashcardsScreen';
 import { LibraryScreen } from './screens/LibraryScreen';
 import { NotesScreen } from './screens/NotesScreen';
 import { PastExamsScreen } from './screens/PastExamsScreen';
+import { PluginsScreen } from './screens/PluginsScreen';
 import { ReaderScreen } from './screens/ReaderScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { SignInScreen } from './screens/SignInScreen';
@@ -84,6 +85,7 @@ export function StudyPilotApp({ platform }: StudyPilotAppProps) {
               <Route path="/notes" element={<NotesScreen />} />
               <Route path="/analytics" element={<AnalyticsScreen />} />
               <Route path="/settings" element={<SettingsScreen />} />
+              <Route path="/plugins" element={<PluginsScreen />} />
               {platform.kind === 'web' ? (
                 <Route path="/claude/*" element={<AssistantScreen />} />
               ) : null}

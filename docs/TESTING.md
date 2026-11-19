@@ -29,12 +29,12 @@ Nothing in the suite needs the network, a model download, or a running server.
 
 | Suite | Tests | Status |
 | --- | --- | --- |
-| Backend (`services/api/tests`) | 524 | ✅ all passing (508 + 16 PostgreSQL integration) |
-| Frontend (`tests/frontend`) | 217 | ✅ all passing |
+| Backend (`services/api/tests`) | 542 | ✅ all passing (526 + 16 PostgreSQL integration) |
+| Frontend (`tests/frontend`) | 229 | ✅ all passing |
 | ESLint | — | ✅ clean |
 | TypeScript | — | ✅ clean |
 | Ruff lint + format | — | ✅ clean |
-| Playwright end-to-end | 12 | ✅ the MVP loop, the PPTX → map → coach loop, folder upload + Drive setup, the slide view, and **every main screen checked for overflow at seven window widths**, in a real browser |
+| Playwright end-to-end | 14 | ✅ the MVP loop, the PPTX → map → coach loop, folder upload + Drive setup, the slide view, the **+ menu on a question** (files, a folder, commands, sending), and **every main screen checked for overflow at seven window widths**, in a real browser |
 
 ---
 
@@ -89,6 +89,7 @@ simulate quitting and relaunching.
 | `test_neon_auth.py` | Neon Auth JWT verification: a genuine EdDSA token is accepted; one signed by another key, from another issuer or audience, expired, unsigned (`alg: none`), or without a subject is rejected. Uses a local keypair, so no network |
 | `test_postgres_integration.py` | The hosted data path against **real PostgreSQL**: `tsvector` ranking and scoping, tsquery syntax in a student's question, pgvector similarity and allow-list filtering, dimension-change rebuilds, the full upload-to-quiz workflow, and account isolation. Skipped unless `STUDYPILOT_TEST_DATABASE_URL` is set |
 | `test_supervision.py` | The parent-process watchdog, including an end-to-end test that a watched grandchild exits by itself when its parent is killed — the behaviour the packaged app depends on |
+| `test_ask_attachments.py` | Files on a question: a photo goes to the model as a picture, and a PDF and a text file as text; an attachment is reason enough to answer when the course has nothing on it; a model that cannot read pictures is not sent the photo and the answer says so; with no model the answer says the attachments were not read; a file that cannot be read is refused by name; the limits on count and size, and a scanned PDF with no text, are reported; a GitHub reference is recognised from a link or `owner/repo#123` and nothing else; an issue comes in with its comments as text from `api.github.com` (a faked transport in tests) and a missing or private one says so; a plugin's `/command` typed in a question is carried out |
 | `test_openapi_contract.py` | The committed OpenAPI snapshot still matches the live app; `AnswerResponse` keeps its honesty fields; `QuestionOut` never exposes the answer key |
 | `test_google_drive.py` | Against a fake Google: the consent request is PKCE-bound, read-only and on the loopback; no client → a message saying what to enter; a callback for a sign-in this process did not start is refused and the code never exchanged; a state is single-use; tokens are stored encrypted, the key in the secret store, and never reported; a listing marks what can be imported and why not; **importing a folder leaves no bytes on disk** (no blob, no previews) while pages, search, citations and the reader all work; sync re-reads changed files, adds new ones and removes gone ones; an expired access token is refreshed without a second refresh; disconnect revokes, forgets links, keeps documents and makes the reader say the connection is gone; folder links and ids are both accepted; the PKCE challenge matches RFC 7636; hosted mode derives the token key from the operator secret and uses the public URLs; the scope allows writing and the status says so; an older read-only connection is reported; a note is saved into a `StudyPilot Notes` subfolder of the linked Drive folder and overwritten on a second save; a bundled client needs nothing typed |
 | `test_model_choice.py` | Anthropic defaults to Opus 5.5 and offers the Claude 5 family; the user's model per provider reaches the provider that answers and never leaks to another; a row from an older database reads as no choice; the API stores the choice and reports the active model; an empty id clears it; a model id has to look like one |
@@ -271,7 +272,7 @@ back. **Run `npm run api:test:pg` before a release that adds a column.**
 At the Mac window's smaller sizes a course's delete button sat outside its
 card. The columns were chosen by the width of the window while the sidebar
 took 240 pixels of it, so the card was narrower than the rule assumed.
-`tests/e2e/responsive.spec.ts` now walks nineteen screens at seven widths
+`tests/e2e/responsive.spec.ts` now walks twenty screens at seven widths
 (360 to 1700 pixels) and asks the page whether any element's content is wider
 than the element, or lies outside the window. Run against the old course
 card it fails with "content 98px wider than" the row of buttons.

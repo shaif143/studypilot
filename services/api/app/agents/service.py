@@ -12,6 +12,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
+from app.agents.attachments import prepare as prepare_attachments
 from app.agents.graph import GraphDependencies, build_learning_graph
 from app.agents.state import new_state
 from app.config import Settings
@@ -89,6 +90,19 @@ def resolve_provider(
     return ExtractiveProvider(), warnings
 
 
+def _command_instructions(
+    db_session: Any, settings: Settings, user_id: str, question: str
+) -> str | None:
+    """What a typed "/command" from an installed plugin stands for, if it is one."""
+    if not question.startswith("/"):
+        return None
+    from app.assistant import service as assistant
+    from app.storage.repositories import AssistantRepository
+
+    extensions = assistant.extensions_for(AssistantRepository(db_session), settings, user_id)
+    return assistant.command_note(question, extensions)
+
+
 def run_turn(
     *,
     context: RuntimeContext,
@@ -105,6 +119,7 @@ def run_turn(
     allow_cloud: bool,
     requested_provider: str | None,
     user_settings: UserSettings,
+    attachments: list[tuple[str, bytes]] | None = None,
 ) -> TurnResult:
     settings = context.settings
     sessions = SessionRepository(db_session)
@@ -149,12 +164,30 @@ def run_turn(
         allow_cloud_request=allow_cloud,
     )
 
+    # --- what the student attached, and a command they may have run -------
+    info = provider.info
+    attached = prepare_attachments(
+        attachments or [], settings, reads_images=bool(info.generative and info.accepts_images)
+    )
+    attachment_warnings = list(attached.warnings)
+    if attached.names and not info.generative:
+        attachment_warnings.append(
+            "The attachments were not read: no AI model is in use. Choose one in Settings "
+            "and allow it to read your material."
+        )
+    attached_text = attached.text
+    command = _command_instructions(db_session, settings, user_id, question)
+    if command:
+        attached_text = f"{command}\n\n{attached_text}" if attached_text else command
+
     dependencies = GraphDependencies(
         settings=settings,
         retriever=build_retriever(context, db_session),
         llm=provider,
         integrity_policy=integrity_policy,
         cloud_consent=bool(user_settings.allow_cloud_processing and allow_cloud),
+        attachments=attached.images if info.generative else [],
+        attached_text=attached_text if info.generative else "",
     )
     graph = build_learning_graph(dependencies)
 
@@ -173,11 +206,15 @@ def run_turn(
     )
 
     # --- persist the student's turn before running the graph -------------
-    if question:
-        sessions.add_message(learning_session.id, "user", question, {"mode": mode, "page": page})
+    if question or attached.names:
+        meta: dict[str, Any] = {"mode": mode, "page": page}
+        if attached.names:
+            # The names only: the files themselves were read and let go.
+            meta["attachments"] = attached.names
+        sessions.add_message(learning_session.id, "user", question, meta)
 
     result_state = dict(graph.invoke(state))
-    warnings = provider_warnings + list(result_state.get("warnings") or [])
+    warnings = provider_warnings + attachment_warnings + list(result_state.get("warnings") or [])
 
     message = sessions.add_message(
         learning_session.id,

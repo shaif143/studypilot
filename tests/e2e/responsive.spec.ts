@@ -102,6 +102,7 @@ test.beforeAll(async ({ browser }) => {
     '/claude',
     '/claude/projects',
     '/claude/extensions',
+    '/plugins',
   ];
 });
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, status
 
+from app.agents.attachments import decode as decode_attachments
 from app.agents.service import run_turn
 from app.api.deps import (
     ContextDep,
@@ -18,6 +19,8 @@ from app.api.schemas import (
     AnswerResponse,
     AskRequest,
     CitationOut,
+    GitHubIssueIn,
+    GitHubIssueOut,
     LearningSessionOut,
     MessageOut,
     SessionUpdate,
@@ -53,6 +56,7 @@ def ask(
         allow_cloud=payload.allow_cloud,
         requested_provider=payload.provider,
         user_settings=user_settings,
+        attachments=decode_attachments([item.model_dump() for item in payload.attachments]),
     )
     state = result.state
     return AnswerResponse(
@@ -77,6 +81,21 @@ def ask(
         input_tokens=state.get("input_tokens"),
         output_tokens=state.get("output_tokens"),
         warnings=result.warnings,
+    )
+
+
+@router.post("/tutor/github-issue", response_model=GitHubIssueOut)
+def import_github_issue(payload: GitHubIssueIn, user: UserDep) -> GitHubIssueOut:
+    """Fetch a GitHub issue or pull request with its comments, as text to attach."""
+    from app.integrations import github_issues
+
+    issue = github_issues.fetch_issue(payload.reference)
+    return GitHubIssueOut(
+        title=issue.title,
+        filename=issue.filename,
+        text=issue.text,
+        url=issue.url,
+        comment_count=issue.comment_count,
     )
 
 

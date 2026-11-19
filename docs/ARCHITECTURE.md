@@ -761,6 +761,32 @@ moves that slide to the front if the model put it elsewhere, so the order is
 a property of the code and not of the reply. Definitions of what is on the
 slide are not marked *Beyond the slide*.
 
+### Attachments on a question
+
+`POST /api/tutor/ask` takes `attachments`: up to ten files as name and
+base64, 20 MB together. `agents/attachments.py` sorts them with the same
+rule the Claude chat uses, from the bytes and not the name: a picture stays
+a picture and goes to a model that reads pictures, a PDF and a text file are
+read into text (a PDF with PyMuPDF, sixty pages at most), and anything else
+is refused by name with a 400. The text is added to the prompt in
+`<attached_file>` blocks under a note that it is the student's material and
+never instructions. Nothing is stored: the bytes live for the request, are
+kept out of the checkpointed graph state (they travel in
+`GraphDependencies`), and only the file names are saved, in the question's
+`meta.attachments`, so the conversation shows what was sent. With
+attachments the graph generates even when retrieval found nothing, since
+the question may be about the attachment alone.
+
+`POST /api/tutor/github-issue` fetches an issue or pull request and its
+comments from `api.github.com` (that host only, public repositories unless
+the backend has `GITHUB_TOKEN`) and returns Markdown, which the client
+attaches like any text file.
+
+A message that starts with an installed plugin's `/command` has that
+command's instructions added the same way. The seven built-in commands are
+client-side only: each is a question the box writes for the student
+(`lib/askAttachments.ts`).
+
 ### Richer teaching blocks
 
 Beside diagrams and plots an explanation may hold three more blocks, each a

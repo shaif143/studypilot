@@ -194,12 +194,42 @@
         "title": "ArchiveUploadResponse",
         "type": "object"
       },
+      "AskAttachmentIn": {
+        "description": "A file or photo sent with a question. Read for this answer and not kept.",
+        "properties": {
+          "data": {
+            "maxLength": 30000000,
+            "title": "Data",
+            "type": "string"
+          },
+          "filename": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Filename",
+            "type": "string"
+          }
+        },
+        "required": [
+          "filename",
+          "data"
+        ],
+        "title": "AskAttachmentIn",
+        "type": "object"
+      },
       "AskRequest": {
         "properties": {
           "allow_cloud": {
             "default": false,
             "title": "Allow Cloud",
             "type": "boolean"
+          },
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/AskAttachmentIn"
+            },
+            "maxItems": 10,
+            "title": "Attachments",
+            "type": "array"
           },
           "course_id": {
             "anyOf": [
@@ -3548,6 +3578,54 @@
           "name"
         ],
         "title": "FolderUpdate",
+        "type": "object"
+      },
+      "GitHubIssueIn": {
+        "properties": {
+          "reference": {
+            "maxLength": 400,
+            "minLength": 3,
+            "title": "Reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference"
+        ],
+        "title": "GitHubIssueIn",
+        "type": "object"
+      },
+      "GitHubIssueOut": {
+        "properties": {
+          "comment_count": {
+            "default": 0,
+            "title": "Comment Count",
+            "type": "integer"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "filename",
+          "text",
+          "url"
+        ],
+        "title": "GitHubIssueOut",
         "type": "object"
       },
       "GoogleDriveStatusOut": {
@@ -17827,6 +17905,98 @@
           }
         },
         "summary": "Ask",
+        "tags": [
+          "tutor"
+        ]
+      }
+    },
+    "/api/tutor/github-issue": {
+      "post": {
+        "description": "Fetch a GitHub issue or pull request with its comments, as text to attach.",
+        "operationId": "import_github_issue_api_tutor_github_issue_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-studypilot-token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Studypilot-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "studypilot_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Studypilot Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitHubIssueIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubIssueOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Github Issue",
         "tags": [
           "tutor"
         ]

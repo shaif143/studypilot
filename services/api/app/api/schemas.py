@@ -280,8 +280,31 @@ class SourceOut(BaseModel):
     retrievers: list[str] = Field(default_factory=list)
 
 
+class AskAttachmentIn(BaseModel):
+    """A file or photo sent with a question. Read for this answer and not kept."""
+
+    filename: str = Field(min_length=1, max_length=255)
+    #: The file's bytes, base64-encoded.
+    data: str = Field(max_length=30_000_000)
+
+
+class GitHubIssueIn(BaseModel):
+    #: The issue's link, or ``owner/repository#123``.
+    reference: str = Field(min_length=3, max_length=400)
+
+
+class GitHubIssueOut(BaseModel):
+    title: str
+    filename: str
+    text: str
+    url: str
+    comment_count: int = 0
+
+
 class AskRequest(BaseModel):
     question: str = Field(default="", max_length=4000)
+    #: Files and photos the question is about.
+    attachments: list[AskAttachmentIn] = Field(default_factory=list, max_length=10)
     course_id: str | None = None
     document_id: str | None = None
     session_id: str | None = None

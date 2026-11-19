@@ -13,7 +13,13 @@
  * to it is instant. Flicking past a slide does not write it: the request
  * waits for a short dwell.
  */
-import type { Citation, ExplanationLevel, GuideCard, SlideGuide } from '@studypilot/shared';
+import type {
+  AskAttachment,
+  Citation,
+  ExplanationLevel,
+  GuideCard,
+  SlideGuide,
+} from '@studypilot/shared';
 import { Badge, Button, Callout, Select, Skeleton, Spinner, Textarea } from '@studypilot/ui';
 import { useIsMutating } from '@tanstack/react-query';
 import {
@@ -27,7 +33,6 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleHelp,
-  CornerDownLeft,
   ExternalLink,
   FileQuestion,
   Library,
@@ -44,6 +49,7 @@ import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState }
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { ErrorPanel } from '../components/AppShell';
+import { AskComposer } from '../components/AskComposer';
 import { GroundedAnswer } from '../components/GroundedAnswer';
 import { PdfPageView } from '../components/PdfPageView';
 import { SplitHandle, type SplitLimits, useSplitShare } from '../components/SplitHandle';
@@ -107,7 +113,9 @@ export function SlideStudyScreen() {
   const guide = useSlideGuide(documentId, pageNumber);
   const write = useWriteSlideGuide(documentId, pageNumber);
   const writing =
-    useIsMutating({ mutationKey: slideGuideMutationKey(documentId ?? '', pageNumber) }) > 0;
+    useIsMutating({
+      mutationKey: slideGuideMutationKey(documentId ?? '', pageNumber),
+    }) > 0;
 
   // The two-part consent gate, exactly as the tutor applies it.
   const activeProvider = providers.data?.llm.find((p) => p.key === providers.data?.active_llm);
@@ -117,7 +125,6 @@ export function SlideStudyScreen() {
   const consentKnown = Boolean(settings.data && providers.data);
 
   const [level, setLevel] = useState<ExplanationLevel | ''>('');
-  const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const splitRef = useRef<HTMLDivElement>(null);
   const [slideShare, setSlideShare, resetSlideShare] = useSplitShare(SLIDE_SPLIT_KEY, SLIDE_SPLIT);
@@ -203,13 +210,12 @@ export function SlideStudyScreen() {
     [documentId, navigate],
   );
 
-  const submit = async () => {
-    const question = draft.trim();
-    if (!question || ask.isPending || !documentId) return;
-    setDraft('');
+  const send = async (question: string, attachments: AskAttachment[]) => {
+    if (ask.isPending || !documentId) return false;
     try {
       await ask.mutateAsync({
         question,
+        attachments,
         session_id: session.data?.id ?? null,
         course_id: documentQuery.data?.course_id ?? null,
         document_id: documentId,
@@ -218,9 +224,10 @@ export function SlideStudyScreen() {
         explanation_level: level || null,
         allow_cloud: allowCloud,
       });
+      return true;
     } catch {
-      // Shown from ask.error; the question is put back to try again.
-      setDraft(question);
+      // Shown from ask.error; the box puts the question back to try again.
+      return false;
     }
   };
 
@@ -232,7 +239,10 @@ export function SlideStudyScreen() {
           message={describeError(documentQuery.error)}
           onRetry={() => void documentQuery.refetch()}
         />
-        <Link to="/courses" className="mt-3 inline-block text-[0.8125rem] text-[var(--text-accent)]">
+        <Link
+          to="/courses"
+          className="mt-3 inline-block text-[0.8125rem] text-[var(--text-accent)]"
+        >
           Back to My Courses
         </Link>
       </div>
@@ -350,7 +360,11 @@ export function SlideStudyScreen() {
                 loading={writing}
                 disabled={!documentId || !consentKnown}
                 onClick={() =>
-                  write.mutate({ allow_cloud: allowCloud, regenerate: true, level: level || null })
+                  write.mutate({
+                    allow_cloud: allowCloud,
+                    regenerate: true,
+                    level: level || null,
+                  })
                 }
               >
                 Explain again
@@ -358,7 +372,10 @@ export function SlideStudyScreen() {
             </div>
 
             {guide.isError ? (
-              <ErrorPanel message={describeError(guide.error)} onRetry={() => void guide.refetch()} />
+              <ErrorPanel
+                message={describeError(guide.error)}
+                onRetry={() => void guide.refetch()}
+              />
             ) : null}
             {write.error ? (
               <ErrorPanel
@@ -392,7 +409,11 @@ export function SlideStudyScreen() {
                   </div>
                 ) : null}
                 {ask.error ? (
-                  <Callout tone="danger" icon={<AlertTriangle size={14} />} title="Could not answer">
+                  <Callout
+                    tone="danger"
+                    icon={<AlertTriangle size={14} />}
+                    title="Could not answer"
+                  >
                     {describeError(ask.error)}
                   </Callout>
                 ) : null}
@@ -438,37 +459,26 @@ export function SlideStudyScreen() {
             </Badge>
           ) : null}
           {documentId ? (
-            <SlideNoteBox key={`${documentId}:${pageNumber}`} documentId={documentId} page={pageNumber} />
+            <SlideNoteBox
+              key={`${documentId}:${pageNumber}`}
+              documentId={documentId}
+              page={pageNumber}
+            />
           ) : null}
         </aside>
       </div>
 
       {/* ---- ask ---------------------------------------------------------- */}
       <div className="border-t border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-4 py-3">
-        <div className="mx-auto flex max-w-5xl items-end gap-2">
-          <Textarea
-            rows={1}
-            value={draft}
-            aria-label="Ask about this slide"
+        <div className="mx-auto max-w-5xl">
+          <AskComposer
+            onSend={send}
+            pending={ask.isPending}
+            disabled={!documentId}
+            subject="this slide"
+            label="Ask about this slide"
             placeholder="Ask me anything about this slide…"
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                void submit();
-              }
-            }}
-            className="min-h-[2.5rem] flex-1 bg-[var(--surface-raised)]"
           />
-          <Button
-            variant="primary"
-            icon={<CornerDownLeft size={14} />}
-            loading={ask.isPending}
-            disabled={draft.trim().length === 0 || !documentId}
-            onClick={() => void submit()}
-          >
-            Ask
-          </Button>
         </div>
       </div>
     </div>
@@ -497,7 +507,11 @@ function StudyMenu({
   useEffect(() => {
     if (!open) return;
     const close = (event: MouseEvent | KeyboardEvent) => {
-      if (event instanceof KeyboardEvent ? event.key === 'Escape' : !ref.current?.contains(event.target as Node)) {
+      if (
+        event instanceof KeyboardEvent
+          ? event.key === 'Escape'
+          : !ref.current?.contains(event.target as Node)
+      ) {
         setOpen(false);
       }
     };
@@ -730,8 +744,8 @@ function GuideView({
         <p className="text-[0.6875rem] text-[var(--text-muted)]">
           Written by {guide.model || guide.generated_by.slice(4)}
           {guide.saw_image ? ', which was shown the slide itself' : ' from the slide’s text'}
-          {guide.used_transcript ? ' and what was said in class' : ''}. Check anything that
-          matters against the original.
+          {guide.used_transcript ? ' and what was said in class' : ''}. Check anything that matters
+          against the original.
         </p>
       ) : null}
     </div>

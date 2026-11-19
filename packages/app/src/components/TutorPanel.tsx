@@ -7,12 +7,19 @@
  * and, for assignment mode, exposes the hint level so the student escalates
  * deliberately rather than being handed an answer.
  */
-import type { Citation, ExplanationLevel, Message, TutorMode } from '@studypilot/shared';
-import { Badge, Button, Callout, Select, Spinner, Tabs, Textarea } from '@studypilot/ui';
-import { AlertTriangle, CornerDownLeft, Lightbulb, Sparkles } from 'lucide-react';
+import type {
+  AskAttachment,
+  Citation,
+  ExplanationLevel,
+  Message,
+  TutorMode,
+} from '@studypilot/shared';
+import { Badge, Callout, Select, Spinner, Tabs } from '@studypilot/ui';
+import { AlertTriangle, Lightbulb, Paperclip, Sparkles } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { AnswerMeta } from './AnswerMeta';
+import { AskComposer } from './AskComposer';
 import { CitationList } from './CitationList';
 import { GroundedAnswer } from './GroundedAnswer';
 import { ProviderNotice } from './ProviderNotice';
@@ -58,11 +65,9 @@ export function TutorPanel({
   const ask = useAsk();
 
   const [mode, setMode] = useState<TutorMode>(availableModes[0] ?? 'question');
-  const [draft, setDraft] = useState('');
   const [hintLevel, setHintLevel] = useState(1);
   const [level, setLevel] = useState<ExplanationLevel | ''>('');
   const scrollRef = useRef<HTMLDivElement>(null);
-  const composerRef = useRef<HTMLTextAreaElement>(null);
 
   const policy = settings.data?.assignment_policy ?? 'socratic';
   const cloudAllowed = settings.data?.allow_cloud_processing ?? false;
@@ -75,15 +80,12 @@ export function TutorPanel({
     if (element) element.scrollTop = element.scrollHeight;
   }, [messages.data?.length, ask.isPending]);
 
-  const submit = async () => {
-    const question = draft.trim();
-    if (mode !== 'explain' && question.length === 0) return;
-    if (ask.isPending) return;
-
-    setDraft('');
+  const send = async (question: string, attachments: AskAttachment[]) => {
+    if (ask.isPending) return false;
     try {
       const answer = await ask.mutateAsync({
         question,
+        attachments,
         session_id: sessionId ?? null,
         course_id: courseId ?? null,
         document_id: documentId ?? null,
@@ -95,9 +97,10 @@ export function TutorPanel({
       });
       if (!sessionId && answer.session_id) onSessionCreated?.(answer.session_id);
       if (mode === 'assignment') setHintLevel((current) => Math.min(6, current + 1));
+      return true;
     } catch {
-      // Rendered below from ask.error; the draft is restored for retry.
-      setDraft(question);
+      // Rendered below from ask.error; the box puts the question back.
+      return false;
     }
   };
 
@@ -147,8 +150,8 @@ export function TutorPanel({
           {mode === 'assignment' ? (
             policy === 'off' ? (
               <Callout tone="caution" icon={<AlertTriangle size={14} />}>
-                Assignment help is switched off for this profile. You can change that in
-                Settings if your course allows it.
+                Assignment help is switched off for this profile. You can change that in Settings if
+                your course allows it.
               </Callout>
             ) : (
               <Callout tone="info" icon={<Lightbulb size={14} />}>
@@ -172,9 +175,8 @@ export function TutorPanel({
                 Ask about anything in this course
               </p>
               <p className="mt-1 text-[0.75rem] leading-relaxed text-[var(--text-secondary)]">
-                Answers come only from the material you have uploaded, with citations you can
-                click. If your material does not cover something, the tutor says so instead of
-                guessing.
+                Answers come only from the material you have uploaded, with citations you can click.
+                If your material does not cover something, the tutor says so instead of guessing.
               </p>
             </div>
           ) : null}
@@ -199,46 +201,27 @@ export function TutorPanel({
       </div>
 
       <div className="border-t border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3">
-        <Textarea
-          ref={composerRef}
-          rows={2}
-          value={draft}
+        <AskComposer
+          onSend={send}
+          pending={ask.isPending}
+          // Until the course list has loaded there is nothing to scope the
+          // question to, and the backend would answer 404. Found by the
+          // end-to-end test, which types faster than the list loads.
+          disabled={
+            (mode === 'assignment' && policy === 'off') || (!sessionId && !courseId && !documentId)
+          }
+          allowEmpty={mode === 'explain'}
+          subject={pageNumber ? 'this page' : 'this material'}
+          label="Your question"
           placeholder={MODE_PLACEHOLDERS[mode]}
-          disabled={mode === 'assignment' && policy === 'off'}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            // Enter sends; Shift+Enter adds a line.
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              void submit();
-            }
-          }}
-          className="bg-[var(--surface-raised)]"
+          sendLabel={mode === 'explain' ? 'Explain' : 'Send'}
+          rows={2}
         />
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[0.6875rem] text-[var(--text-muted)]">
-            {mode === 'assignment' && policy !== 'off'
-              ? `Next: hint level ${hintLevel}`
-              : 'Enter to send · Shift+Enter for a new line'}
-          </span>
-          <Button
-            size="sm"
-            variant="primary"
-            icon={<CornerDownLeft size={13} />}
-            loading={ask.isPending}
-            // Until the course list has loaded there is nothing to scope the
-            // question to, and the backend would answer 404. Found by the
-            // end-to-end test, which types faster than the list loads.
-            disabled={
-              (mode !== 'explain' && draft.trim().length === 0) ||
-              (mode === 'assignment' && policy === 'off') ||
-              (!sessionId && !courseId && !documentId)
-            }
-            onClick={() => void submit()}
-          >
-            {mode === 'explain' && draft.trim().length === 0 ? 'Explain this page' : 'Send'}
-          </Button>
-        </div>
+        <p className="mt-2 text-[0.6875rem] text-[var(--text-muted)]">
+          {mode === 'assignment' && policy !== 'off'
+            ? `Next: hint level ${hintLevel}`
+            : 'Enter to send · Shift+Enter for a new line · + to attach files or photos'}
+        </p>
       </div>
     </div>
   );
@@ -252,11 +235,27 @@ export function TurnView({
   onCitationClick?: (citation: Citation) => void;
 }) {
   if (message.role === 'user') {
+    const attached = message.meta?.attachments ?? [];
     return (
-      <div className="flex justify-end">
-        <p className="max-w-[85%] rounded-[var(--radius-card)] rounded-br-sm bg-[var(--surface-selected)] px-3 py-2 text-[0.8125rem] leading-relaxed text-[var(--text-primary)]">
-          {message.content}
-        </p>
+      <div className="flex flex-col items-end gap-1.5">
+        {attached.length > 0 ? (
+          <ul aria-label="Attached" className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
+            {attached.map((name, index) => (
+              <li
+                key={`${name}:${index}`}
+                className="flex max-w-full items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] px-2 py-1 text-[0.75rem] text-[var(--text-secondary)]"
+              >
+                <Paperclip size={11} className="shrink-0" />
+                <span className="min-w-0 truncate">{name}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {message.content ? (
+          <p className="max-w-[85%] whitespace-pre-wrap rounded-[var(--radius-card)] rounded-br-sm bg-[var(--surface-selected)] px-3 py-2 text-[0.8125rem] leading-relaxed text-[var(--text-primary)] [overflow-wrap:anywhere]">
+            {message.content}
+          </p>
+        ) : null}
       </div>
     );
   }

@@ -103,6 +103,7 @@ describe('API contract', () => {
     ['page', () => client.page('d1', 4)],
     ['documentTopics', () => client.documentTopics('d1')],
     ['ask', () => client.ask({ question: 'why?' })],
+    ['importGitHubIssue', () => client.importGitHubIssue('octo/widgets#12')],
     ['sessions', () => client.sessions()],
     ['session', () => client.session('s1')],
     ['resumeSession', () => client.resumeSession('d1')],

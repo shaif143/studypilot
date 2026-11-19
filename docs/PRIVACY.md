@@ -49,6 +49,8 @@ wherever the backend that the site is configured to talk to stores it.
 | Asking a question with Ollama | No |
 | Generating quizzes, flashcards or notes without an AI model | No |
 | Asking a question with Anthropic or Gemini enabled **and** opted into | **Yes** — the question and the retrieved passages |
+| Attaching files, photos or a folder to a question | **Yes, with a cloud provider enabled and opted into** — the attached pictures and the text of the attached PDFs and text files go to that provider with the question. They are read for that one answer and not stored; only their names are kept beside the question. With no model, or a local one, nothing leaves, and with no model at all the answer says the attachments were not read |
+| **Import GitHub issue** | **Yes, to GitHub** — the backend asks `api.github.com` for the issue you named, sending the repository and issue number and nothing of yours. The text then counts as an attachment, as above |
 | Opening a slide in the study view with a cloud provider enabled **and** opted into | **Yes** — that slide's text and an image of that slide, once; the explanation is then kept here and reopening sends nothing. With no cloud provider, nothing leaves and the slide's own text is shown |
 | **Explain all slides** on a lecture, with a cloud provider enabled **and** opted into | **Yes** — every slide of that lecture not yet explained: its text, its image and, if a class transcript was added, the part of the transcript about it. One request per slide. Refused up front without a model that may read your material |
 | Adding a class transcript | No. It is stored here. Parts of it are sent only when a slide of that lecture is explained by a cloud model you opted into |

@@ -8,7 +8,12 @@
  */
 import { ApiError } from '@studypilot/api-client';
 import type {
+  AnswerResponse,
   ArchiveUploadResult,
+  AskRequest,
+  Assessment,
+  Assignment,
+  AssignmentPlan,
   AssistantConnectorTest,
   AssistantExtensions,
   AssistantFile,
@@ -17,42 +22,38 @@ import type {
   AssistantStatus,
   AssistantThread,
   AssistantThreadSummary,
-  Assignment,
   AttemptReview,
+  AuthStatus,
   ConceptMap,
   CouncilStartRequest,
   CouncilState,
+  Course,
   CourseFolder,
+  CourseInput,
+  Dashboard,
+  DocumentSummary,
   DriveImportRequest,
   DriveImportResult,
   DriveListing,
   ExamProfile,
   ExplainAllRequest,
+  Flashcard,
+  GitHubIssue,
   GoogleDriveStatus,
   GuidedPages,
+  LearningSession,
   LocalFolderLink,
   LocalFolderLinkInput,
   LocalFolders,
-  ProviderKeys,
-  AssignmentPlan,
-  AuthStatus,
-  AnswerResponse,
-  AskRequest,
-  Assessment,
-  Course,
-  CourseInput,
-  Dashboard,
-  DocumentSummary,
-  Flashcard,
-  LearningSession,
   MasteryEstimate,
   Message,
   Note,
   NoteMode,
-  NoteSaveRequest,
   NoteSaved,
+  NoteSaveRequest,
   PageDetail,
   PageSummary,
+  ProviderKeys,
   ProvidersResponse,
   QuizGenerateRequest,
   Recommendation,
@@ -496,6 +497,14 @@ export function useAsk() {
       void queryClient.invalidateQueries({ queryKey: keys.messages(answer.session_id) });
       void queryClient.invalidateQueries({ queryKey: keys.sessions });
     },
+  });
+}
+
+/** Fetch a GitHub issue to attach to a question. Nothing is cached: issues change. */
+export function useImportGitHubIssue() {
+  const client = useClient();
+  return useMutation<GitHubIssue, Error, string>({
+    mutationFn: (reference) => client.importGitHubIssue(reference),
   });
 }
 

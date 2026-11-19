@@ -259,8 +259,25 @@ export interface RetrievedSource {
   retrievers: string[];
 }
 
+/** A file or photo sent with a question. Read for that answer and not kept. */
+export interface AskAttachment {
+  filename: string;
+  /** The file's bytes, base64-encoded. */
+  data: string;
+}
+
+/** A GitHub issue or pull request, fetched as text to attach to a question. */
+export interface GitHubIssue {
+  title: string;
+  filename: string;
+  text: string;
+  url: string;
+  comment_count: number;
+}
+
 export interface AskRequest {
   question: string;
+  attachments?: AskAttachment[];
   course_id?: string | null;
   document_id?: string | null;
   session_id?: string | null;
@@ -308,6 +325,8 @@ export interface MessageMeta {
   warnings?: string[];
   /** The slide the question was asked on. */
   page?: number;
+  /** The names of what was attached to the question. */
+  attachments?: string[];
 }
 
 export interface Message {

@@ -394,7 +394,7 @@ function ConnectorForm({
 }
 
 // --- plugins ---------------------------------------------------------------------
-function Plugins({ plugins }: { plugins: AssistantPlugin[] }) {
+export function Plugins({ plugins }: { plugins: AssistantPlugin[] }) {
   const { addPlugin } = useAssistantExtensionActions();
   const input = useRef<HTMLInputElement>(null);
 
